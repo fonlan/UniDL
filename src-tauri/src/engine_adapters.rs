@@ -56,7 +56,18 @@ pub fn pause_task(
     match settings.engine {
         EngineKind::Aria2 => {
             let gid = required_engine_task_id(task)?;
-            aria2_rpc(settings, "aria2.pause", json!([gid]))?;
+            if let Err(error) = aria2_rpc(settings, "aria2.pause", json!([gid])) {
+                if aria2_unavailable(error.as_ref()) {
+                    return Ok(EngineTaskState {
+                        status: DownloadStatus::Failed,
+                        progress: task.progress,
+                        speed_bytes_per_sec: 0,
+                        engine_task_id: task.engine_task_id.clone(),
+                        error_message: Some("aria2 rpc is unavailable".to_string()),
+                    });
+                }
+                return Err(error);
+            }
             Ok(EngineTaskState {
                 status: DownloadStatus::Paused,
                 progress: task.progress,
@@ -151,7 +162,16 @@ pub fn delete_task(settings: &EngineSettings, task: &DownloadTask) -> Result<(),
     match settings.engine {
         EngineKind::Aria2 => {
             let gid = required_engine_task_id(task)?;
-            aria2_rpc(settings, "aria2.remove", json!([gid]))?;
+            let method = match aria2_delete_method(settings, gid) {
+                Ok(method) => method,
+                Err(error) if aria2_unavailable(error.as_ref()) => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            if let Err(error) = aria2_rpc(settings, method, json!([gid])) {
+                if !aria2_unavailable(error.as_ref()) {
+                    return Err(error);
+                }
+            }
         }
         EngineKind::YtDlp => {
             let pid = required_engine_task_id(task)?;
@@ -291,13 +311,11 @@ fn aria2_rpc(
     method: &str,
     params: Value,
 ) -> Result<Value, Box<dyn Error>> {
-    let url = settings
-        .connection_url
-        .as_deref()
-        .unwrap_or("http://127.0.0.1:6800/jsonrpc");
+    let url = aria2_rpc_url(settings);
     let client = Client::new();
+    let params = aria2_params(settings, params)?;
     let response = client
-        .post(url)
+        .post(&url)
         .json(&json!({
             "jsonrpc": "2.0",
             "id": "unidl",
@@ -316,6 +334,65 @@ fn aria2_rpc(
     body.get("result")
         .cloned()
         .ok_or_else(|| "aria2 rpc response missing result".into())
+}
+
+fn aria2_rpc_url(settings: &EngineSettings) -> String {
+    let url = settings
+        .connection_url
+        .as_deref()
+        .unwrap_or("http://127.0.0.1:6800/jsonrpc")
+        .trim();
+    if url.ends_with("/jsonrpc") {
+        url.to_string()
+    } else {
+        format!("{}/jsonrpc", url.trim_end_matches('/'))
+    }
+}
+
+fn aria2_params(settings: &EngineSettings, params: Value) -> Result<Value, Box<dyn Error>> {
+    let mut params = params
+        .as_array()
+        .cloned()
+        .ok_or("aria2 rpc params must be an array")?;
+    if let Some(secret) = aria2_rpc_secret(&settings.default_args) {
+        params.insert(0, Value::String(format!("token:{secret}")));
+    }
+    Ok(Value::Array(params))
+}
+
+fn aria2_rpc_secret(args: &str) -> Option<String> {
+    let mut parts = args.split_whitespace();
+    while let Some(part) = parts.next() {
+        if let Some(secret) = part.strip_prefix("--rpc-secret=") {
+            return Some(secret.to_string());
+        }
+        if part == "--rpc-secret" {
+            return parts.next().map(ToOwned::to_owned);
+        }
+    }
+    None
+}
+
+fn aria2_delete_method(
+    settings: &EngineSettings,
+    gid: &str,
+) -> Result<&'static str, Box<dyn Error>> {
+    let result = aria2_rpc(settings, "aria2.tellStatus", json!([gid, ["status"]]))?;
+    let status = result
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or("aria2 status response missing status")?;
+    match status {
+        "active" | "waiting" | "paused" => Ok("aria2.remove"),
+        "complete" | "error" | "removed" => Ok("aria2.removeDownloadResult"),
+        _ => Err(format!("unsupported aria2 task status: {status}").into()),
+    }
+}
+
+fn aria2_unavailable(error: &(dyn Error + 'static)) -> bool {
+    error
+        .downcast_ref::<reqwest::Error>()
+        .is_some_and(|error| error.is_connect() || error.is_timeout())
 }
 
 fn add_qbittorrent_task(
@@ -567,5 +644,188 @@ fn run_windows_command(program: &str, args: &[&str]) -> Result<(), Box<dyn Error
         Ok(())
     } else {
         Err(format!("{} failed with status {}", program, status).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{Arc, Mutex},
+    };
+
+    use super::*;
+
+    fn aria2_settings(default_args: &str) -> EngineSettings {
+        EngineSettings {
+            id: "aria2".to_string(),
+            engine: EngineKind::Aria2,
+            name: "aria2".to_string(),
+            enabled: true,
+            executable_path: None,
+            default_download_dir: String::new(),
+            default_args: default_args.to_string(),
+            connection_url: Some("http://127.0.0.1:6800/jsonrpc".to_string()),
+            username: None,
+            password: None,
+            remote_path: None,
+            supported_source_types: vec![SourceType::Http],
+            priority: 0,
+            updated_at: String::new(),
+        }
+    }
+
+    fn aria2_task() -> DownloadTask {
+        DownloadTask {
+            id: "task".to_string(),
+            source_type: SourceType::Http,
+            source: "http://example.test/file.bin".to_string(),
+            engine_settings_id: "aria2".to_string(),
+            engine: EngineKind::Aria2,
+            engine_task_id: Some("gid".to_string()),
+            file_name: "file.bin".to_string(),
+            status: DownloadStatus::Running,
+            progress: 12.0,
+            speed_bytes_per_sec: 123,
+            save_path: "C:\\Downloads".to_string(),
+            engine_args: String::new(),
+            created_at: String::new(),
+            completed_at: None,
+            error_message: None,
+        }
+    }
+
+    fn unreachable_aria2_settings() -> EngineSettings {
+        let mut settings = aria2_settings("--continue=true");
+        settings.connection_url = Some("http://127.0.0.1:1/jsonrpc".to_string());
+        settings
+    }
+
+    #[test]
+    fn aria2_params_prepends_rpc_secret_token() {
+        let settings = aria2_settings("--continue=true --rpc-secret=secret-value");
+
+        let params = aria2_params(&settings, json!(["gid"])).expect("params should build");
+
+        assert_eq!(params, json!(["token:secret-value", "gid"]));
+    }
+
+    #[test]
+    fn aria2_params_keeps_params_without_rpc_secret() {
+        let settings = aria2_settings("--continue=true");
+
+        let params = aria2_params(&settings, json!(["gid"])).expect("params should build");
+
+        assert_eq!(params, json!(["gid"]));
+    }
+
+    #[test]
+    fn aria2_rpc_url_appends_jsonrpc_path() {
+        let mut settings = aria2_settings("--continue=true");
+        settings.connection_url = Some("http://127.0.0.1:6800/".to_string());
+
+        assert_eq!(aria2_rpc_url(&settings), "http://127.0.0.1:6800/jsonrpc");
+    }
+
+    #[test]
+    fn pause_aria2_task_marks_failed_when_rpc_is_unavailable() {
+        let state = pause_task(&unreachable_aria2_settings(), &aria2_task())
+            .expect("unavailable aria2 should update local state");
+
+        assert_eq!(state.status, DownloadStatus::Failed);
+        assert_eq!(state.progress, 12.0);
+        assert_eq!(state.speed_bytes_per_sec, 0);
+        assert_eq!(state.engine_task_id.as_deref(), Some("gid"));
+        assert_eq!(
+            state.error_message.as_deref(),
+            Some("aria2 rpc is unavailable")
+        );
+    }
+
+    #[test]
+    fn delete_aria2_task_succeeds_when_rpc_is_unavailable() {
+        delete_task(&unreachable_aria2_settings(), &aria2_task())
+            .expect("unavailable aria2 should not block local delete");
+    }
+
+    #[test]
+    fn delete_completed_aria2_task_removes_download_result() {
+        let (url, methods, server) = start_fake_aria2("complete", 2);
+        let mut settings = aria2_settings("--continue=true");
+        settings.connection_url = Some(url);
+
+        delete_task(&settings, &aria2_task()).expect("completed aria2 task should delete");
+
+        server.join().expect("fake aria2 should finish");
+        assert_eq!(
+            methods.lock().expect("methods should lock").as_slice(),
+            ["aria2.tellStatus", "aria2.removeDownloadResult"]
+        );
+    }
+
+    #[test]
+    fn delete_active_aria2_task_removes_active_download() {
+        let (url, methods, server) = start_fake_aria2("active", 2);
+        let mut settings = aria2_settings("--continue=true");
+        settings.connection_url = Some(url);
+
+        delete_task(&settings, &aria2_task()).expect("active aria2 task should delete");
+
+        server.join().expect("fake aria2 should finish");
+        assert_eq!(
+            methods.lock().expect("methods should lock").as_slice(),
+            ["aria2.tellStatus", "aria2.remove"]
+        );
+    }
+
+    fn start_fake_aria2(
+        status: &'static str,
+        expected_requests: usize,
+    ) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake aria2 should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake aria2 should have address");
+        let methods = Arc::new(Mutex::new(Vec::new()));
+        let server_methods = Arc::clone(&methods);
+        let server = thread::spawn(move || {
+            for stream in listener.incoming().take(expected_requests) {
+                let mut stream = stream.expect("fake aria2 stream should open");
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).expect("request should read");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .expect("request should include body");
+                let request: Value = serde_json::from_str(body).expect("request should be json");
+                let method = request
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .expect("request should include method")
+                    .to_string();
+                server_methods
+                    .lock()
+                    .expect("methods should lock")
+                    .push(method.clone());
+                let response = if method == "aria2.tellStatus" {
+                    json!({"jsonrpc": "2.0", "id": "unidl", "result": {"status": status}})
+                } else {
+                    json!({"jsonrpc": "2.0", "id": "unidl", "result": "OK"})
+                };
+                let body = response.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("response should write");
+            }
+        });
+
+        (format!("http://{address}/jsonrpc"), methods, server)
     }
 }
