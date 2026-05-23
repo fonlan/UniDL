@@ -1,0 +1,121 @@
+use std::{error::Error, fmt};
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug)]
+pub struct ModelParseError {
+    field: &'static str,
+    value: String,
+}
+
+impl ModelParseError {
+    fn new(field: &'static str, value: impl Into<String>) -> Self {
+        Self {
+            field,
+            value: value.into(),
+        }
+    }
+}
+
+impl fmt::Display for ModelParseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "invalid {} value: {}", self.field, self.value)
+    }
+}
+
+impl Error for ModelParseError {}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum EngineKind {
+    Aria2,
+    YtDlp,
+    QBittorrent,
+}
+
+impl EngineKind {
+    pub fn from_db(value: &str) -> Result<Self, ModelParseError> {
+        match value {
+            "aria2" => Ok(Self::Aria2),
+            "yt-dlp" => Ok(Self::YtDlp),
+            "qbittorrent" => Ok(Self::QBittorrent),
+            _ => Err(ModelParseError::new("engine", value)),
+        }
+    }
+
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceType {
+    Http,
+    Ftp,
+    Magnet,
+    Torrent,
+}
+
+impl SourceType {
+    pub fn from_db(value: &str) -> Result<Self, ModelParseError> {
+        match value {
+            "http" => Ok(Self::Http),
+            "ftp" => Ok(Self::Ftp),
+            "magnet" => Ok(Self::Magnet),
+            "torrent" => Ok(Self::Torrent),
+            _ => Err(ModelParseError::new("source_type", value)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadStatus {
+    Queued,
+    Running,
+    Paused,
+    Completed,
+    Failed,
+    Deleted,
+}
+
+impl DownloadStatus {
+    pub fn from_db(value: &str) -> Result<Self, ModelParseError> {
+        match value {
+            "queued" => Ok(Self::Queued),
+            "running" => Ok(Self::Running),
+            "paused" => Ok(Self::Paused),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(ModelParseError::new("status", value)),
+        }
+    }
+
+    pub fn as_db(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Paused => "paused",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Deleted => "deleted",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadTask {
+    pub id: String,
+    pub source_type: SourceType,
+    pub source: String,
+    pub engine: EngineKind,
+    pub engine_task_id: Option<String>,
+    pub file_name: String,
+    pub status: DownloadStatus,
+    pub progress: f64,
+    pub speed_bytes_per_sec: i64,
+    pub save_path: String,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub error_message: Option<String>,
+}
