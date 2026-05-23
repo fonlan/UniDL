@@ -152,6 +152,7 @@ export default function NewTaskDialog({
       settings.supportedSourceTypes.includes(parsedSource.sourceType),
     );
   }, [engineSettings, parsedSource]);
+  const visibleEngineSettings = parsedSource ? compatibleSettings : engineSettings;
   const selectedSettings =
     selectedEngineSettingsId === ""
       ? null
@@ -199,7 +200,6 @@ export default function NewTaskDialog({
 
   useEffect(() => {
     if (!parsedSource) {
-      setSelectedEngineSettingsId("");
       return;
     }
 
@@ -329,11 +329,17 @@ export default function NewTaskDialog({
                   未识别
                 </span>
               )}
-              {compatibleSettings.length > 0 && (
+              {parsedSource ? (
+                compatibleSettings.length > 0 && (
+                  <span className="text-xs text-slate-500">
+                    {compatibleSettings.length} 个兼容引擎
+                  </span>
+                )
+              ) : engineSettings.length > 0 ? (
                 <span className="text-xs text-slate-500">
-                  {compatibleSettings.length} 个兼容引擎
+                  {engineSettings.length} 个已添加引擎
                 </span>
-              )}
+              ) : null}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -350,14 +356,14 @@ export default function NewTaskDialog({
                 <span className="font-medium">引擎</span>
                 <select
                   value={selectedEngineSettingsId}
-                  disabled={!parsedSource || isLoading}
+                  disabled={isLoading}
                   onChange={(event) =>
                     setSelectedEngineSettingsId(event.currentTarget.value)
                   }
                   className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <option value="">-</option>
-                  {compatibleSettings.map((settings) => (
+                  {visibleEngineSettings.map((settings) => (
                     <option
                       key={settings.id}
                       value={settings.id}
