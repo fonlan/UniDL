@@ -32,4 +32,14 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["extension/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: {
+        ...globals.browser,
+        chrome: "readonly",
+      },
+    },
+  },
 );

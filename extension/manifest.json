@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "UniDL",
+  "version": "0.1.0",
+  "description": "Send browser downloads to the local UniDL desktop service.",
+  "permissions": ["contextMenus", "downloads", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1:18080/*",
+    "http://localhost:18080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "UniDL",
+    "default_popup": "popup.html"
+  }
+}
