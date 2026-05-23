@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Check, Download, Plus, RotateCcw, Save } from "lucide-react";
+import { Check, Download, Globe2, HardDrive, Plus, RotateCcw, Save } from "lucide-react";
 
 import {
   getAppSettings,
@@ -21,6 +21,7 @@ import type {
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
 const engineInstallDir = "%AppData%\\UniDL\\engines";
+type SettingsGroup = "web-access" | "download-engines";
 
 const engineLabels: Record<EngineKind, string> = {
   aria2: "aria2",
@@ -260,6 +261,7 @@ function InstalledBadge({ label }: { label: string }) {
 }
 
 export default function EngineSettingsView() {
+  const [activeGroup, setActiveGroup] = useState<SettingsGroup>("web-access");
   const [savedAppSettings, setSavedAppSettings] = useState<AppSettings | null>(null);
   const [draftAppSettings, setDraftAppSettings] = useState<AppSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<EngineSettings[]>([]);
@@ -293,6 +295,7 @@ export default function EngineSettingsView() {
   );
 
   const hasDirtySettings = appDirty || dirtySettings;
+  const engineSettingsCount = draftSettings.length;
 
   const groupedSettings = useMemo(
     () =>
@@ -460,254 +463,303 @@ export default function EngineSettingsView() {
           </div>
         )}
 
-        {!isLoading && savedAppSettings && draftAppSettings && (
-          <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-slate-950">Web 访问</h2>
-                <div className="mt-1 text-xs text-slate-500">
-                  {draftAppSettings.webAccessEnabled
-                    ? draftAppSettings.webAccessUrl
-                    : "未启用"}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {savedApp && <InstalledBadge label="已保存" />}
-                <SmallIconButton
-                  title="撤销"
-                  disabled={!appDirty || isSavingApp}
-                  onClick={resetAppAccess}
+        {!isLoading && ready && (
+          <div className="grid min-h-0 gap-4 lg:grid-cols-[220px_1fr]">
+            <aside className="min-w-0">
+              <nav className="flex gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm lg:flex-col lg:overflow-visible">
+                <button
+                  type="button"
+                  onClick={() => setActiveGroup("web-access")}
+                  className={classNames(
+                    "flex min-w-44 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition lg:min-w-0",
+                    activeGroup === "web-access"
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "text-slate-700 hover:bg-slate-50",
+                  )}
                 >
-                  <RotateCcw size={15} />
-                </SmallIconButton>
-                <SmallIconButton
-                  title="保存"
-                  disabled={!appDirty || isSavingApp}
-                  onClick={() => void saveAppAccess()}
+                  <Globe2 size={16} />
+                  <span className="min-w-0 flex-1 truncate">Web 访问</span>
+                  <span className="text-xs text-slate-500">
+                    {draftAppSettings?.webAccessEnabled ? "启用" : "关闭"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveGroup("download-engines")}
+                  className={classNames(
+                    "flex min-w-44 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition lg:min-w-0",
+                    activeGroup === "download-engines"
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "text-slate-700 hover:bg-slate-50",
+                  )}
                 >
-                  <Save size={15} />
-                </SmallIconButton>
-              </div>
-            </div>
+                  <HardDrive size={16} />
+                  <span className="min-w-0 flex-1 truncate">下载引擎</span>
+                  <span className="text-xs text-slate-500">{engineSettingsCount}</span>
+                </button>
+              </nav>
+            </aside>
 
-            <div className="grid gap-4 px-4 py-4 lg:grid-cols-[220px_1fr]">
-              <div className="flex flex-col gap-3">
-                <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
-                  <span className="font-medium">启用</span>
-                  <input
-                    type="checkbox"
-                    checked={draftAppSettings.webAccessEnabled}
-                    onChange={(event) =>
-                      updateAppDraft({ webAccessEnabled: event.currentTarget.checked })
-                    }
-                    className="h-4 w-4 accent-emerald-700"
-                  />
-                </label>
-              </div>
+            <div className="min-w-0">
+              {activeGroup === "web-access" && draftAppSettings && (
+                <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-slate-950">
+                        Web 访问
+                      </h2>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {draftAppSettings.webAccessEnabled
+                          ? draftAppSettings.webAccessUrl
+                          : "未启用"}
+                      </div>
+                    </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
-                  <span className="font-medium">访问地址</span>
-                  <input
-                    value={draftAppSettings.webAccessUrl}
-                    readOnly
-                    className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
-                  />
-                </label>
-                <Field
-                  label="访问密码"
-                  type="password"
-                  value={draftAppSettings.webAccessPassword}
-                  onChange={(value) => updateAppDraft({ webAccessPassword: value })}
-                />
-              </div>
-            </div>
-          </article>
-        )}
-
-        {!isLoading &&
-          ready &&
-          groupedSettings.map(({ engine, settings }) => (
-            <article key={engine} className="rounded-lg border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold text-slate-950">
-                    {engineLabels[engine]}
-                  </h2>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {sourceTypes.map((sourceType) => (
-                      <span
-                        key={sourceType}
-                        className={classNames(
-                          "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                          settings.some((item) =>
-                            item.supportedSourceTypes.includes(sourceType),
-                          )
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : "border-slate-200 bg-slate-50 text-slate-400",
-                        )}
+                    <div className="flex items-center gap-2">
+                      {savedApp && <InstalledBadge label="已保存" />}
+                      <SmallIconButton
+                        title="撤销"
+                        disabled={!appDirty || isSavingApp}
+                        onClick={resetAppAccess}
                       >
-                        {sourceLabels[sourceType]}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    title={`添加 ${engineLabels[engine]} 配置`}
-                    aria-label={`添加 ${engineLabels[engine]} 配置`}
-                    onClick={() => addEngineSettings(engine)}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    <Plus size={15} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-4 px-4 py-4">
-                {settings.length === 0 ? (
-                  <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
-                    暂无配置
-                  </div>
-                ) : (
-                  settings.map((draft) => {
-                    const saved = savedById.get(draft.id);
-                    const dirty = saved ? isDirty(saved, draft) : true;
-                    const usesConnection = draft.engine === "aria2" || draft.engine === "qbittorrent";
-                    const usesExecutable = draft.engine === "aria2" || draft.engine === "yt-dlp";
-                    const canInstall = usesExecutable && Boolean(saved);
-                    const isSaving = savingEngineId === draft.id;
-                    const isInstalling = installingEngineId === draft.id;
-
-                    return (
-                      <div
-                        key={draft.id}
-                        className="rounded-md border border-slate-200 bg-slate-50/60"
+                        <RotateCcw size={15} />
+                      </SmallIconButton>
+                      <SmallIconButton
+                        title="保存"
+                        disabled={!appDirty || isSavingApp}
+                        onClick={() => void saveAppAccess()}
                       >
-                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-slate-950">
-                              {draft.engine} / {draft.id}
-                            </div>
-                            <div className="mt-0.5 text-xs text-slate-500">
-                              {draft.updatedAt || "未保存"}
-                            </div>
-                          </div>
+                        <Save size={15} />
+                      </SmallIconButton>
+                    </div>
+                  </div>
 
-                          <div className="flex items-center gap-2">
-                            {savedEngineId === draft.id && <InstalledBadge label="已保存" />}
-                            <SmallIconButton
-                              title="撤销"
-                              disabled={!dirty || isSaving}
-                              onClick={() => resetEngine(draft.id)}
-                            >
-                              <RotateCcw size={15} />
-                            </SmallIconButton>
-                            <SmallIconButton
-                              title="保存"
-                              disabled={!dirty || isSaving}
-                              onClick={() => void saveEngine(draft.id)}
-                            >
-                              <Save size={15} />
-                            </SmallIconButton>
+                  <div className="grid gap-4 px-4 py-4 lg:grid-cols-[220px_1fr]">
+                    <div className="flex flex-col gap-3">
+                      <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                        <span className="font-medium">启用</span>
+                        <input
+                          type="checkbox"
+                          checked={draftAppSettings.webAccessEnabled}
+                          onChange={(event) =>
+                            updateAppDraft({ webAccessEnabled: event.currentTarget.checked })
+                          }
+                          className="h-4 w-4 accent-emerald-700"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                        <span className="font-medium">访问地址</span>
+                        <input
+                          value={draftAppSettings.webAccessUrl}
+                          readOnly
+                          className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
+                        />
+                      </label>
+                      <Field
+                        label="访问密码"
+                        type="password"
+                        value={draftAppSettings.webAccessPassword}
+                        onChange={(value) => updateAppDraft({ webAccessPassword: value })}
+                      />
+                    </div>
+                  </div>
+                </article>
+              )}
+
+              {activeGroup === "download-engines" && (
+                <div className="flex flex-col gap-4">
+                  {groupedSettings.map(({ engine, settings }) => (
+                    <article
+                      key={engine}
+                      className="rounded-lg border border-slate-200 bg-white shadow-sm"
+                    >
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                        <div className="min-w-0">
+                          <h2 className="truncate text-sm font-semibold text-slate-950">
+                            {engineLabels[engine]}
+                          </h2>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {sourceTypes.map((sourceType) => (
+                              <span
+                                key={sourceType}
+                                className={classNames(
+                                  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
+                                  supportedSourceTypes(engine).includes(sourceType)
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : "border-slate-200 bg-slate-50 text-slate-400",
+                                )}
+                              >
+                                {sourceLabels[sourceType]}
+                              </span>
+                            ))}
                           </div>
                         </div>
 
-                        <div className="grid gap-4 px-3 py-3 lg:grid-cols-[220px_1fr]">
-                          <div className="flex flex-col gap-3">
-                            <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                              <span className="font-medium">启用</span>
-                              <input
-                                type="checkbox"
-                                checked={draft.enabled}
-                                onChange={(event) =>
-                                  updateDraft(draft.id, {
-                                    enabled: event.currentTarget.checked,
-                                  })
-                                }
-                                className="h-4 w-4 accent-emerald-700"
-                              />
-                            </label>
-
-                          </div>
-
-                          <div className="grid gap-4 md:grid-cols-2">
-                            {usesExecutable && (
-                              <IconField
-                                label="可执行文件"
-                                value={draft.executablePath ?? ""}
-                              onChange={(value) =>
-                                  updateDraft(draft.id, { executablePath: value })
-                                }
-                                onClick={() => void installLatest(draft.id)}
-                                buttonTitle="下载最新版"
-                                buttonDisabled={isInstalling || !canInstall || dirty}
-                                buttonLabel={<Download size={15} />}
-                              />
-                            )}
-                            <Field
-                              label="默认下载目录"
-                              value={draft.defaultDownloadDir}
-                              onChange={(value) =>
-                                updateDraft(draft.id, { defaultDownloadDir: value })
-                              }
-                            />
-                            {usesConnection && (
-                              <Field
-                                label="连接地址"
-                                value={draft.connectionUrl ?? ""}
-                                onChange={(value) =>
-                                  updateDraft(draft.id, { connectionUrl: value })
-                                }
-                              />
-                            )}
-                            {draft.engine === "qbittorrent" && (
-                              <>
-                                <Field
-                                  label="保存路径"
-                                  value={draft.remotePath ?? ""}
-                                  onChange={(value) =>
-                                    updateDraft(draft.id, { remotePath: value })
-                                  }
-                                />
-                                <Field
-                                  label="用户名"
-                                  value={draft.username ?? ""}
-                                  onChange={(value) =>
-                                    updateDraft(draft.id, { username: value })
-                                  }
-                                />
-                                <Field
-                                  label="密码"
-                                  type="password"
-                                  value={draft.password ?? ""}
-                                  onChange={(value) =>
-                                    updateDraft(draft.id, { password: value })
-                                  }
-                                />
-                              </>
-                            )}
-                            <div className="md:col-span-2">
-                              <TextAreaField
-                                label="默认参数"
-                                value={draft.defaultArgs}
-                                onChange={(value) =>
-                                  updateDraft(draft.id, { defaultArgs: value })
-                                }
-                              />
-                            </div>
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            title={`添加 ${engineLabels[engine]} 配置`}
+                            aria-label={`添加 ${engineLabels[engine]} 配置`}
+                            onClick={() => addEngineSettings(engine)}
+                            className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                          >
+                            <Plus size={15} />
+                          </button>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </article>
-          ))}
+
+                      <div className="flex flex-col gap-4 px-4 py-4">
+                        {settings.length === 0 ? (
+                          <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
+                            暂无配置
+                          </div>
+                        ) : (
+                          settings.map((draft) => {
+                            const saved = savedById.get(draft.id);
+                            const dirty = saved ? isDirty(saved, draft) : true;
+                            const usesConnection =
+                              draft.engine === "aria2" || draft.engine === "qbittorrent";
+                            const usesExecutable =
+                              draft.engine === "aria2" || draft.engine === "yt-dlp";
+                            const canInstall = usesExecutable && Boolean(saved);
+                            const isSaving = savingEngineId === draft.id;
+                            const isInstalling = installingEngineId === draft.id;
+
+                            return (
+                              <div
+                                key={draft.id}
+                                className="rounded-md border border-slate-200 bg-slate-50/60"
+                              >
+                                <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-slate-950">
+                                      {draft.engine} / {draft.id}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-slate-500">
+                                      {draft.updatedAt || "未保存"}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    {savedEngineId === draft.id && (
+                                      <InstalledBadge label="已保存" />
+                                    )}
+                                    <SmallIconButton
+                                      title="撤销"
+                                      disabled={!dirty || isSaving}
+                                      onClick={() => resetEngine(draft.id)}
+                                    >
+                                      <RotateCcw size={15} />
+                                    </SmallIconButton>
+                                    <SmallIconButton
+                                      title="保存"
+                                      disabled={!dirty || isSaving}
+                                      onClick={() => void saveEngine(draft.id)}
+                                    >
+                                      <Save size={15} />
+                                    </SmallIconButton>
+                                  </div>
+                                </div>
+
+                                <div className="grid gap-4 px-3 py-3 lg:grid-cols-[220px_1fr]">
+                                  <div className="flex flex-col gap-3">
+                                    <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                                      <span className="font-medium">启用</span>
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.enabled}
+                                        onChange={(event) =>
+                                          updateDraft(draft.id, {
+                                            enabled: event.currentTarget.checked,
+                                          })
+                                        }
+                                        className="h-4 w-4 accent-emerald-700"
+                                      />
+                                    </label>
+                                  </div>
+
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    {usesExecutable && (
+                                      <IconField
+                                        label="可执行文件"
+                                        value={draft.executablePath ?? ""}
+                                        onChange={(value) =>
+                                          updateDraft(draft.id, { executablePath: value })
+                                        }
+                                        onClick={() => void installLatest(draft.id)}
+                                        buttonTitle="下载最新版"
+                                        buttonDisabled={isInstalling || !canInstall || dirty}
+                                        buttonLabel={<Download size={15} />}
+                                      />
+                                    )}
+                                    <Field
+                                      label="默认下载目录"
+                                      value={draft.defaultDownloadDir}
+                                      onChange={(value) =>
+                                        updateDraft(draft.id, { defaultDownloadDir: value })
+                                      }
+                                    />
+                                    {usesConnection && (
+                                      <Field
+                                        label="连接地址"
+                                        value={draft.connectionUrl ?? ""}
+                                        onChange={(value) =>
+                                          updateDraft(draft.id, { connectionUrl: value })
+                                        }
+                                      />
+                                    )}
+                                    {draft.engine === "qbittorrent" && (
+                                      <>
+                                        <Field
+                                          label="保存路径"
+                                          value={draft.remotePath ?? ""}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, { remotePath: value })
+                                          }
+                                        />
+                                        <Field
+                                          label="用户名"
+                                          value={draft.username ?? ""}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, { username: value })
+                                          }
+                                        />
+                                        <Field
+                                          label="密码"
+                                          type="password"
+                                          value={draft.password ?? ""}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, { password: value })
+                                          }
+                                        />
+                                      </>
+                                    )}
+                                    <div className="md:col-span-2">
+                                      <TextAreaField
+                                        label="默认参数"
+                                        value={draft.defaultArgs}
+                                        onChange={(value) =>
+                                          updateDraft(draft.id, { defaultArgs: value })
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

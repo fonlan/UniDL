@@ -74,7 +74,6 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_ids(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
-    seed_engine_settings(connection)?;
     seed_app_settings(connection)
 }
 
@@ -194,26 +193,6 @@ fn migrate_download_tasks_engine_args(connection: &Connection) -> Result<(), rus
         r#"
         ALTER TABLE download_tasks
             ADD COLUMN engine_args TEXT NOT NULL DEFAULT '';
-        "#,
-    )
-}
-
-fn seed_engine_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
-    connection.execute_batch(
-        r#"
-        INSERT OR IGNORE INTO engine_settings (
-            id,
-            engine,
-            enabled,
-            executable_path,
-            default_download_dir,
-            default_args,
-            connection_url,
-            remote_path
-        ) VALUES
-            ('aria2', 'aria2', 0, '%AppData%\UniDL\engines\aria2c.exe', '', '--continue=true', 'http://127.0.0.1:6800/jsonrpc', NULL),
-            ('yt-dlp', 'yt-dlp', 0, '%AppData%\UniDL\engines\yt-dlp.exe', '', '--newline', NULL, NULL),
-            ('qbittorrent', 'qbittorrent', 0, NULL, '', '', 'http://127.0.0.1:8080', '');
         "#,
     )
 }

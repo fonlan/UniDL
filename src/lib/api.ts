@@ -18,50 +18,7 @@ export interface SystemOpenRequestPayload {
 
 const defaultEngineDir = "%AppData%\\UniDL\\engines";
 
-let previewEngineSettings: EngineSettings[] = [
-  {
-    id: "aria2",
-    engine: "aria2",
-    enabled: false,
-    executablePath: `${defaultEngineDir}\\aria2c.exe`,
-    defaultDownloadDir: "",
-    defaultArgs: "--continue=true",
-    connectionUrl: "http://127.0.0.1:6800/jsonrpc",
-    username: null,
-    password: null,
-    remotePath: null,
-    supportedSourceTypes: ["http", "ftp", "magnet", "torrent"],
-    updatedAt: "",
-  },
-  {
-    id: "yt-dlp",
-    engine: "yt-dlp",
-    enabled: false,
-    executablePath: `${defaultEngineDir}\\yt-dlp.exe`,
-    defaultDownloadDir: "",
-    defaultArgs: "--newline",
-    connectionUrl: null,
-    username: null,
-    password: null,
-    remotePath: null,
-    supportedSourceTypes: ["http", "ftp"],
-    updatedAt: "",
-  },
-  {
-    id: "qbittorrent",
-    engine: "qbittorrent",
-    enabled: false,
-    executablePath: null,
-    defaultDownloadDir: "",
-    defaultArgs: "",
-    connectionUrl: "http://127.0.0.1:8080",
-    username: null,
-    password: null,
-    remotePath: null,
-    supportedSourceTypes: ["magnet", "torrent"],
-    updatedAt: "",
-  },
-];
+let previewEngineSettings: EngineSettings[] = [];
 
 const previewAppSettings: AppSettings = {
   webAccessEnabled: false,

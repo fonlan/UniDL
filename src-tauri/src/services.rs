@@ -4,8 +4,7 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::{
-    engine_adapters,
-    engine_install,
+    engine_adapters, engine_install,
     models::{
         engine_supports_source_type, AppSettings, AppSettingsInput, CreateDownloadTaskInput,
         DownloadStatus, DownloadTask, EngineInstallResult, EngineKind, EngineSettings,
@@ -186,7 +185,8 @@ impl<'connection> DownloadTaskService<'connection> {
         input: &CreateDownloadTaskInput,
     ) -> Result<EngineSettings, Box<dyn Error>> {
         if let Some(engine_settings_id) = input.engine_settings_id.as_deref() {
-            let settings = EngineSettingsRepository::new(self.connection).get(engine_settings_id)?;
+            let settings =
+                EngineSettingsRepository::new(self.connection).get(engine_settings_id)?;
             if settings.engine != input.engine {
                 return Err(format!(
                     "engine settings {} does not match {}",
@@ -323,6 +323,20 @@ mod tests {
     use crate::db;
 
     #[test]
+    fn migrated_database_has_no_default_engine_settings() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+
+        let settings = EngineSettingsService::new(&connection)
+            .list_all()
+            .expect("engine settings should list");
+        assert!(settings.is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
     fn qbittorrent_task_lifecycle_add_pause_resume_delete() {
         let (base_url, hits, server) = start_fake_qbittorrent(8);
         let database_path = temp_database_path();
@@ -348,7 +362,8 @@ mod tests {
             .create(CreateDownloadTaskInput {
                 source_type: SourceType::Magnet,
                 source: "magnet:?xt=urn:btih:ABCDEF123456&dn=unidl".to_string(),
-                engine_settings_id: "qbittorrent".to_string(),
+                engine: EngineKind::QBittorrent,
+                engine_settings_id: Some("qbittorrent".to_string()),
                 file_name: "unidl".to_string(),
                 save_path: "C:\\Downloads".to_string(),
                 engine_args: String::new(),
