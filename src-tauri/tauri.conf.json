@@ -27,8 +27,24 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["magnet"]
+      }
+    }
+  },
   "bundle": {
     "active": false,
-    "targets": "all"
+    "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": ["torrent"],
+        "name": "UniDL.Torrent",
+        "description": "BitTorrent 文件",
+        "mimeType": "application/x-bittorrent",
+        "role": "Viewer"
+      }
+    ]
   }
 }

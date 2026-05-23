@@ -18,6 +18,11 @@ pub fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTas
 }
 
 #[tauri::command]
+pub fn take_pending_open_requests(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    state.take_pending_open_sources()
+}
+
+#[tauri::command]
 pub fn refresh_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
     let connection = state.lock_connection()?;
     DownloadTaskService::new(&connection, state.database_path())

@@ -39,7 +39,7 @@ function parseSource(value: string): ParsedSource | null {
     return null;
   }
 
-  if (source.startsWith("magnet:")) {
+  if (/^magnet:/i.test(source)) {
     return {
       sourceType: "magnet",
       source,
@@ -118,10 +118,12 @@ function defaultSavePath(settings: EngineSettings) {
 
 export default function NewTaskDialog({
   open,
+  initialSource = null,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  initialSource?: string | null;
   onClose: () => void;
   onCreated: (task: DownloadTask) => void;
 }) {
@@ -154,6 +156,14 @@ export default function NewTaskDialog({
     fileName.trim().length > 0 &&
     savePath.trim().length > 0 &&
     !isCreating;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setSourceInput(initialSource ?? "");
+  }, [initialSource, open]);
 
   useEffect(() => {
     if (!open) {

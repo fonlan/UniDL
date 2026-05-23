@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
@@ -25,7 +26,9 @@ import {
   refreshDownloadTasks,
   resumeAllPausedDownloadTasks,
   resumeDownloadTasks,
+  takePendingOpenRequests,
 } from "@/lib/api";
+import type { SystemOpenRequestPayload } from "@/lib/api";
 import type { DownloadStatus, DownloadTask, EngineKind, SourceType } from "@shared/types";
 
 const statusLabels: Record<DownloadStatus, string> = {
@@ -93,6 +96,10 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
+function hasTauriRuntime() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 function IconButton({
   title,
   disabled,
@@ -158,6 +165,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
 function App() {
   const [view, setView] = useState<"tasks" | "settings">("tasks");
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
+  const [newTaskInitialSource, setNewTaskInitialSource] = useState<string | null>(null);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -197,6 +205,75 @@ function App() {
   useEffect(() => {
     void refreshTasks();
   }, []);
+
+  useEffect(() => {
+    if (!hasTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    const openSources = (sources: string[]) => {
+      const [source] = sources;
+      if (!source) {
+        return;
+      }
+      setView("tasks");
+      setNewTaskInitialSource(source);
+      setShowNewTaskDialog(true);
+    };
+
+    const openPendingSources = (fallbackSources: string[] = []) => {
+      void takePendingOpenRequests()
+        .then((sources) => {
+          if (disposed) {
+            return;
+          }
+          openSources(sources.length > 0 ? sources : fallbackSources);
+        })
+        .catch((nextError) => {
+          if (disposed) {
+            return;
+          }
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        });
+    };
+
+    void listen<SystemOpenRequestPayload>("system-open-request", (event) => {
+      openPendingSources(event.payload.sources);
+    })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+          openPendingSources();
+        }
+      })
+      .catch((nextError) => {
+        if (disposed) {
+          return;
+        }
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  function openNewTaskDialog(source: string | null = null) {
+    setView("tasks");
+    setNewTaskInitialSource(source);
+    setShowNewTaskDialog(true);
+  }
+
+  function closeNewTaskDialog() {
+    setShowNewTaskDialog(false);
+    setNewTaskInitialSource(null);
+  }
 
   function toggleAllSelected() {
     setSelectedIds(allVisibleSelected ? new Set() : new Set(tasks.map((task) => task.id)));
@@ -313,7 +390,7 @@ function App() {
                 <IconButton
                   title="新建"
                   tone="primary"
-                  onClick={() => setShowNewTaskDialog(true)}
+                  onClick={() => openNewTaskDialog()}
                 >
                   <Plus size={18} />
                 </IconButton>
@@ -480,7 +557,8 @@ function App() {
 
       <NewTaskDialog
         open={showNewTaskDialog}
-        onClose={() => setShowNewTaskDialog(false)}
+        initialSource={newTaskInitialSource}
+        onClose={closeNewTaskDialog}
         onCreated={handleTaskCreated}
       />
     </div>

@@ -8,6 +8,10 @@ import type {
   SourceType,
 } from "@shared/types";
 
+export interface SystemOpenRequestPayload {
+  sources: string[];
+}
+
 const previewEngineSettings: EngineSettings[] = [
   {
     engine: "aria2",
@@ -60,6 +64,14 @@ export function listDownloadTasks(): Promise<DownloadTask[]> {
   }
 
   return invoke("list_download_tasks");
+}
+
+export function takePendingOpenRequests(): Promise<string[]> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve([]);
+  }
+
+  return invoke("take_pending_open_requests");
 }
 
 export function refreshDownloadTasks(): Promise<DownloadTask[]> {
