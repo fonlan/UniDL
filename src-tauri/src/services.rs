@@ -263,15 +263,31 @@ impl<'connection> EngineSettingsService<'connection> {
     }
 
     pub fn save(&self, input: EngineSettingsInput) -> Result<EngineSettings, Box<dyn Error>> {
+        let name = input.name.trim().to_string();
+        if name.is_empty() {
+            return Err("engine settings name is required".into());
+        }
+
+        let input = EngineSettingsInput { name, ..input };
         self.repository.save(&input)
+    }
+
+    pub fn delete(&self, settings_id: &str) -> Result<(), Box<dyn Error>> {
+        let current = self.repository.get(settings_id)?;
+        if self.repository.has_download_tasks(settings_id)? {
+            return Err(format!("{} is used by download tasks", current.name).into());
+        }
+
+        self.repository.delete(settings_id)
     }
 
     pub fn install_latest(&self, settings_id: &str) -> Result<EngineInstallResult, Box<dyn Error>> {
         let current = self.repository.get(settings_id)?;
         let installed = engine_install::install_latest(current.engine)?;
-        let next = self.repository.save(&EngineSettingsInput {
+        let next = self.save(EngineSettingsInput {
             id: current.id,
             engine: current.engine,
+            name: current.name,
             enabled: current.enabled,
             executable_path: Some(installed.executable_path.to_string_lossy().into_owned()),
             default_download_dir: current.default_download_dir,
@@ -337,6 +353,92 @@ mod tests {
     }
 
     #[test]
+    fn engine_settings_can_be_renamed_and_deleted_when_unused() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let service = EngineSettingsService::new(&connection);
+
+        let saved = service
+            .save(EngineSettingsInput {
+                id: "aria2-primary".to_string(),
+                engine: EngineKind::Aria2,
+                name: "aria2".to_string(),
+                enabled: false,
+                executable_path: Some("C:\\Tools\\aria2c.exe".to_string()),
+                default_download_dir: String::new(),
+                default_args: "--continue=true".to_string(),
+                connection_url: Some("http://127.0.0.1:6800/jsonrpc".to_string()),
+                username: None,
+                password: None,
+                remote_path: None,
+            })
+            .expect("engine settings should save");
+        assert_eq!(saved.name, "aria2");
+
+        let renamed = service
+            .save(EngineSettingsInput {
+                id: saved.id.clone(),
+                engine: saved.engine,
+                name: "fast aria2".to_string(),
+                enabled: saved.enabled,
+                executable_path: saved.executable_path,
+                default_download_dir: saved.default_download_dir,
+                default_args: saved.default_args,
+                connection_url: saved.connection_url,
+                username: saved.username,
+                password: saved.password,
+                remote_path: saved.remote_path,
+            })
+            .expect("engine settings should rename");
+        assert_eq!(renamed.name, "fast aria2");
+
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    file_name,
+                    status,
+                    save_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+                (
+                    "task-using-aria2",
+                    SourceType::Http.as_db(),
+                    "http://example.test/file.bin",
+                    renamed.id.as_str(),
+                    EngineKind::Aria2.as_db(),
+                    "file.bin",
+                    DownloadStatus::Queued.as_db(),
+                    "C:\\Downloads",
+                ),
+            )
+            .expect("download task should insert");
+        assert!(service.delete(&renamed.id).is_err());
+
+        connection
+            .execute(
+                "UPDATE download_tasks SET status = ?1 WHERE id = ?2",
+                (DownloadStatus::Deleted.as_db(), "task-using-aria2"),
+            )
+            .expect("download task should mark deleted");
+        service
+            .delete(&renamed.id)
+            .expect("unused engine settings should delete");
+        assert!(service
+            .list_all()
+            .expect("engine settings should list")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
     fn qbittorrent_task_lifecycle_add_pause_resume_delete() {
         let (base_url, hits, server) = start_fake_qbittorrent(8);
         let database_path = temp_database_path();
@@ -346,6 +448,7 @@ mod tests {
             .save(EngineSettingsInput {
                 id: "qbittorrent".to_string(),
                 engine: EngineKind::QBittorrent,
+                name: "qBittorrent".to_string(),
                 enabled: true,
                 executable_path: None,
                 default_download_dir: String::new(),

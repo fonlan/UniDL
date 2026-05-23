@@ -80,6 +80,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
             SELECT
                 id,
                 engine,
+                name,
                 enabled,
                 executable_path,
                 default_download_dir,
@@ -117,6 +118,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
             INSERT INTO engine_settings (
                 id,
                 engine,
+                name,
                 enabled,
                 executable_path,
                 default_download_dir,
@@ -127,8 +129,9 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
                 enabled = excluded.enabled,
                 executable_path = excluded.executable_path,
                 default_download_dir = excluded.default_download_dir,
@@ -142,6 +145,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
             (
                 input.id.as_str(),
                 input.engine.as_db(),
+                input.name.as_str(),
                 if input.enabled { 1_i64 } else { 0_i64 },
                 input.executable_path.as_deref(),
                 input.default_download_dir.as_str(),
@@ -162,6 +166,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
             SELECT
                 id,
                 engine,
+                name,
                 enabled,
                 executable_path,
                 default_download_dir,
@@ -183,6 +188,31 @@ impl<'connection> EngineSettingsRepository<'connection> {
 
         Err(format!("engine settings not found: {id}").into())
     }
+
+    pub fn has_download_tasks(&self, id: &str) -> Result<bool, rusqlite::Error> {
+        let count: i64 = self.connection.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM download_tasks
+            WHERE engine_settings_id = ?1
+                AND status != 'deleted'
+            "#,
+            [id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<(), Box<dyn Error>> {
+        let deleted = self
+            .connection
+            .execute("DELETE FROM engine_settings WHERE id = ?1", [id])?;
+        if deleted == 0 {
+            return Err(format!("engine settings not found: {id}").into());
+        }
+
+        Ok(())
+    }
 }
 
 fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<dyn Error>> {
@@ -193,6 +223,7 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
     Ok(EngineSettings {
         id: row.get("id")?,
         engine,
+        name: row.get("name")?,
         enabled: enabled == 1,
         executable_path: row.get("executable_path")?,
         default_download_dir: row.get("default_download_dir")?,

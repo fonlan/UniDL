@@ -131,11 +131,16 @@ export function saveEngineSettings(
   settings: EngineSettingsInput,
 ): Promise<EngineSettings> {
   if (!hasTauriRuntime()) {
-    const preview = previewEngineSettings.find((item) => item.id === settings.id);
+    const nextInput = { ...settings, name: settings.name.trim() };
+    if (!nextInput.name) {
+      return Promise.reject(new Error("engine settings name is required"));
+    }
+
+    const preview = previewEngineSettings.find((item) => item.id === nextInput.id);
     if (!preview) {
       const next = cloneEngineSettings({
-        ...settings,
-        supportedSourceTypes: supportedSourceTypes(settings.engine),
+        ...nextInput,
+        supportedSourceTypes: supportedSourceTypes(nextInput.engine),
         updatedAt: new Date().toISOString(),
       });
       previewEngineSettings = [...previewEngineSettings, next];
@@ -144,7 +149,7 @@ export function saveEngineSettings(
 
     const next = cloneEngineSettings({
       ...preview,
-      ...settings,
+      ...nextInput,
       updatedAt: new Date().toISOString(),
     });
     previewEngineSettings = previewEngineSettings.map((item) =>
@@ -154,6 +159,19 @@ export function saveEngineSettings(
   }
 
   return invoke("save_engine_settings", { settings });
+}
+
+export function deleteEngineSettings(settingsId: string): Promise<void> {
+  if (!hasTauriRuntime()) {
+    const settings = previewEngineSettings.find((item) => item.id === settingsId);
+    if (!settings) {
+      return Promise.reject(new Error(`Unknown engine settings: ${settingsId}`));
+    }
+    previewEngineSettings = previewEngineSettings.filter((item) => item.id !== settingsId);
+    return Promise.resolve();
+  }
+
+  return invoke("delete_engine_settings", { settingsId });
 }
 
 export function installLatestEngine(settingsId: string): Promise<EngineInstallResult> {

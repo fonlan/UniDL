@@ -23,6 +23,12 @@ const engineLabels: Record<EngineKind, string> = {
   qbittorrent: "qBittorrent",
 };
 
+function engineOptionLabel(settings: EngineSettings) {
+  const name = settings.name.trim();
+  const engineLabel = engineLabels[settings.engine];
+  return name && name !== engineLabel ? `${name} / ${engineLabel}` : engineLabel;
+}
+
 interface ParsedSource {
   sourceType: SourceType;
   source: string;
@@ -357,8 +363,7 @@ export default function NewTaskDialog({
                       value={settings.id}
                       disabled={!settings.enabled}
                     >
-                      {engineLabels[settings.engine]}
-                      {settings.id === settings.engine ? "" : ` / ${settings.id}`}
+                      {engineOptionLabel(settings)}
                       {settings.enabled ? "" : " / 未启用"}
                     </option>
                   ))}

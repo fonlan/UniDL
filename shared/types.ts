@@ -41,6 +41,7 @@ export interface CreateDownloadTaskInput {
 export interface EngineSettings {
   id: string;
   engine: EngineKind;
+  name: string;
   enabled: boolean;
   executablePath: string | null;
   defaultDownloadDir: string;

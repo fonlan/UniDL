@@ -23,6 +23,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
         CREATE TABLE IF NOT EXISTS engine_settings (
             id TEXT PRIMARY KEY,
             engine TEXT NOT NULL CHECK (engine IN ('aria2', 'yt-dlp', 'qbittorrent')),
+            name TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
             executable_path TEXT,
             default_download_dir TEXT NOT NULL DEFAULT '',
@@ -72,6 +73,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
 
     migrate_engine_settings_default_args(connection)?;
     migrate_engine_settings_ids(connection)?;
+    migrate_engine_settings_name(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     seed_app_settings(connection)
@@ -106,6 +108,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
         CREATE TABLE engine_settings (
             id TEXT PRIMARY KEY,
             engine TEXT NOT NULL CHECK (engine IN ('aria2', 'yt-dlp', 'qbittorrent')),
+            name TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
             executable_path TEXT,
             default_download_dir TEXT NOT NULL DEFAULT '',
@@ -121,6 +124,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
         INSERT INTO engine_settings (
             id,
             engine,
+            name,
             enabled,
             executable_path,
             default_download_dir,
@@ -133,6 +137,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             updated_at
         )
         SELECT
+            engine,
             engine,
             engine,
             enabled,
@@ -148,6 +153,23 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
         FROM engine_settings_legacy;
 
         DROP TABLE engine_settings_legacy;
+        "#,
+    )
+}
+
+fn migrate_engine_settings_name(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "engine_settings", "name")? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE engine_settings
+            ADD COLUMN name TEXT NOT NULL DEFAULT '';
+
+        UPDATE engine_settings
+        SET name = engine
+        WHERE name = '';
         "#,
     )
 }

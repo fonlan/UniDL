@@ -2,8 +2,8 @@ use tauri::State;
 
 use crate::{
     models::{
-        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineKind,
-        EngineInstallResult, EngineSettings, EngineSettingsInput, SourceType,
+        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineInstallResult,
+        EngineKind, EngineSettings, EngineSettingsInput, SourceType,
     },
     services::{AppSettingsService, DownloadTaskService, EngineSettingsService},
     AppState,
@@ -135,6 +135,17 @@ pub fn save_engine_settings(
     let connection = state.lock_connection()?;
     EngineSettingsService::new(&connection)
         .save(settings)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_engine_settings(
+    settings_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let connection = state.lock_connection()?;
+    EngineSettingsService::new(&connection)
+        .delete(&settings_id)
         .map_err(|error| error.to_string())
 }
 

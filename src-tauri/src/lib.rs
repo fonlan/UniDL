@@ -86,6 +86,7 @@ impl AppState {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let sources = system_open::parse_open_sources(argv);
@@ -135,6 +136,7 @@ pub fn run() {
             commands::save_app_settings,
             commands::list_engine_settings,
             commands::save_engine_settings,
+            commands::delete_engine_settings,
             commands::install_latest_engine,
             commands::validate_engine_source_type
         ])

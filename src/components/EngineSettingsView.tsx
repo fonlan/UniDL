@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Check, Download, Globe2, HardDrive, Plus, RotateCcw, Save } from "lucide-react";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import {
+  Check,
+  ChevronDown,
+  Download,
+  Globe2,
+  HardDrive,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+} from "lucide-react";
 
 import {
+  deleteEngineSettings,
   getAppSettings,
   installLatestEngine,
   listEngineSettings,
@@ -55,6 +67,7 @@ function defaultEngineSettings(engine: EngineKind): EngineSettings {
   return {
     id: crypto.randomUUID(),
     engine,
+    name: engineLabels[engine],
     enabled: false,
     executablePath:
       engine === "aria2"
@@ -102,6 +115,7 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
   return {
     id: settings.id,
     engine: settings.engine,
+    name: settings.name.trim(),
     enabled: settings.enabled,
     executablePath: emptyToNull(settings.executablePath ?? ""),
     defaultDownloadDir: settings.defaultDownloadDir,
@@ -267,8 +281,10 @@ export default function EngineSettingsView() {
   const [savedSettings, setSavedSettings] = useState<EngineSettings[]>([]);
   const [draftSettings, setDraftSettings] = useState<EngineSettings[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isSavingApp, setIsSavingApp] = useState(false);
   const [savingEngineId, setSavingEngineId] = useState<string | null>(null);
+  const [deletingEngineId, setDeletingEngineId] = useState<string | null>(null);
   const [installingEngineId, setInstallingEngineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedApp, setSavedApp] = useState(false);
@@ -376,7 +392,44 @@ export default function EngineSettingsView() {
   function addEngineSettings(engine: EngineKind) {
     const next = defaultEngineSettings(engine);
     setSavedEngineId(null);
+    setIsAddMenuOpen(false);
     setDraftSettings((current) => sortSettings([...current, next]));
+  }
+
+  async function deleteEngine(settingsId: string) {
+    const draft = draftSettings.find((item) => item.id === settingsId);
+    if (!draft) {
+      return;
+    }
+
+    const confirmed = await confirm(`删除下载引擎“${draft.name}”？`, {
+      title: "删除下载引擎",
+      kind: "warning",
+      okLabel: "删除",
+      cancelLabel: "取消",
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    setError(null);
+    setSavedEngineId(null);
+
+    if (!savedById.has(settingsId)) {
+      setDraftSettings((current) => current.filter((item) => item.id !== settingsId));
+      return;
+    }
+
+    setDeletingEngineId(settingsId);
+    try {
+      await deleteEngineSettings(settingsId);
+      setSavedSettings((current) => current.filter((item) => item.id !== settingsId));
+      setDraftSettings((current) => current.filter((item) => item.id !== settingsId));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setDeletingEngineId(null);
+    }
   }
 
   async function saveEngine(settingsId: string) {
@@ -571,6 +624,46 @@ export default function EngineSettingsView() {
 
               {activeGroup === "download-engines" && (
                 <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-slate-950">
+                        下载引擎
+                      </h2>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {engineSettingsCount} 个配置
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <button
+                        type="button"
+                        title="添加下载引擎"
+                        aria-label="添加下载引擎"
+                        onClick={() => setIsAddMenuOpen((current) => !current)}
+                        className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        <Plus size={15} />
+                        <span>添加下载引擎</span>
+                        <ChevronDown size={14} />
+                      </button>
+
+                      {isAddMenuOpen && (
+                        <div className="absolute right-0 z-10 mt-2 w-44 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg">
+                          {engineOrder.map((engine) => (
+                            <button
+                              key={engine}
+                              type="button"
+                              onClick={() => addEngineSettings(engine)}
+                              className="flex h-9 w-full items-center px-3 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            >
+                              {engineLabels[engine]}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {groupedSettings.map(({ engine, settings }) => (
                     <article
                       key={engine}
@@ -598,16 +691,8 @@ export default function EngineSettingsView() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            title={`添加 ${engineLabels[engine]} 配置`}
-                            aria-label={`添加 ${engineLabels[engine]} 配置`}
-                            onClick={() => addEngineSettings(engine)}
-                            className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                          >
-                            <Plus size={15} />
-                          </button>
+                        <div className="text-xs text-slate-500">
+                          {settings.length} 个
                         </div>
                       </div>
 
@@ -627,6 +712,8 @@ export default function EngineSettingsView() {
                             const canInstall = usesExecutable && Boolean(saved);
                             const isSaving = savingEngineId === draft.id;
                             const isInstalling = installingEngineId === draft.id;
+                            const isDeleting = deletingEngineId === draft.id;
+                            const isBusy = isSaving || isInstalling || isDeleting;
 
                             return (
                               <div
@@ -636,9 +723,10 @@ export default function EngineSettingsView() {
                                 <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
                                   <div className="min-w-0">
                                     <div className="truncate text-sm font-medium text-slate-950">
-                                      {draft.engine} / {draft.id}
+                                      {draft.name}
                                     </div>
                                     <div className="mt-0.5 text-xs text-slate-500">
+                                      {engineLabels[draft.engine]} / {draft.id} /{" "}
                                       {draft.updatedAt || "未保存"}
                                     </div>
                                   </div>
@@ -649,17 +737,24 @@ export default function EngineSettingsView() {
                                     )}
                                     <SmallIconButton
                                       title="撤销"
-                                      disabled={!dirty || isSaving}
+                                      disabled={!dirty || isBusy}
                                       onClick={() => resetEngine(draft.id)}
                                     >
                                       <RotateCcw size={15} />
                                     </SmallIconButton>
                                     <SmallIconButton
                                       title="保存"
-                                      disabled={!dirty || isSaving}
+                                      disabled={!dirty || isBusy}
                                       onClick={() => void saveEngine(draft.id)}
                                     >
                                       <Save size={15} />
+                                    </SmallIconButton>
+                                    <SmallIconButton
+                                      title="删除"
+                                      disabled={isBusy}
+                                      onClick={() => void deleteEngine(draft.id)}
+                                    >
+                                      <Trash2 size={15} />
                                     </SmallIconButton>
                                   </div>
                                 </div>
@@ -682,6 +777,13 @@ export default function EngineSettingsView() {
                                   </div>
 
                                   <div className="grid gap-4 md:grid-cols-2">
+                                    <Field
+                                      label="名称"
+                                      value={draft.name}
+                                      onChange={(value) =>
+                                        updateDraft(draft.id, { name: value })
+                                      }
+                                    />
                                     {usesExecutable && (
                                       <IconField
                                         label="可执行文件"

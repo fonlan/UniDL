@@ -168,6 +168,7 @@ pub struct NewDownloadTask {
 pub struct EngineSettings {
     pub id: String,
     pub engine: EngineKind,
+    pub name: String,
     pub enabled: bool,
     pub executable_path: Option<String>,
     pub default_download_dir: String,
@@ -185,6 +186,7 @@ pub struct EngineSettings {
 pub struct EngineSettingsInput {
     pub id: String,
     pub engine: EngineKind,
+    pub name: String,
     pub enabled: bool,
     pub executable_path: Option<String>,
     pub default_download_dir: String,
