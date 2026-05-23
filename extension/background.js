@@ -2,20 +2,9 @@ const MENU_SEND_LINK = "unidl-send-link";
 
 const DEFAULT_SETTINGS = {
   apiBaseUrl: "http://127.0.0.1:18080",
-  password: "",
-  token: "",
-  defaultEngine: "aria2",
-  savePath: "",
-  engineArgs: "",
   interceptEnabled: false,
-  cancelOriginal: false,
+  cancelOriginal: true,
   lastEvent: "",
-};
-
-const ENGINE_SOURCES = {
-  aria2: new Set(["http", "ftp", "magnet", "torrent"]),
-  "yt-dlp": new Set(["http", "ftp"]),
-  qbittorrent: new Set(["magnet", "torrent"]),
 };
 
 chrome.runtime.onInstalled.addListener(createContextMenus);
@@ -59,20 +48,11 @@ async function handleMessage(message) {
     }
     case "connect": {
       const settings = await mergeSettings(message.settings ?? {});
-      const token = await login(settings);
-      const next = { ...settings, token };
-      await saveSettings(next);
+      await requestJson(settings.apiBaseUrl, "/api/health");
+      await saveSettings(settings);
       await remember("Connected to UniDL");
-      return next;
+      return settings;
     }
-    case "clear-token": {
-      const settings = await getSettings();
-      const next = { ...settings, token: "" };
-      await saveSettings(next);
-      return next;
-    }
-    case "send-source":
-      return sendSource(message.source);
     default:
       throw new Error("Unknown message");
   }
@@ -103,30 +83,17 @@ function runTask(task) {
 async function sendSource(source, cachedSettings, suggestedFileName) {
   const settings = cachedSettings ?? (await getSettings());
   const parsed = parseSource(source, suggestedFileName);
-  validateTaskSettings(settings, parsed);
 
-  const task = await requestWithAuth(settings, "/api/tasks", {
+  const task = await requestJson(settings.apiBaseUrl, "/api/extension/tasks", {
     method: "POST",
     body: {
       sourceType: parsed.sourceType,
       source: parsed.source,
-      engine: settings.defaultEngine,
       fileName: parsed.fileName,
-      savePath: settings.savePath,
-      engineArgs: settings.engineArgs,
     },
   });
   await remember(`Sent ${task.fileName} to UniDL`);
   return task;
-}
-
-function validateTaskSettings(settings, parsed) {
-  if (!settings.savePath.trim()) {
-    throw new Error("UniDL save path is required");
-  }
-  if (!ENGINE_SOURCES[settings.defaultEngine]?.has(parsed.sourceType)) {
-    throw new Error(`${settings.defaultEngine} does not support ${parsed.sourceType}`);
-  }
 }
 
 function parseSource(value, suggestedFileName) {
@@ -207,50 +174,8 @@ function cleanFileName(value) {
   }
 }
 
-async function requestWithAuth(settings, path, options = {}) {
-  const token = settings.token || (await loginAndPersist(settings));
-  try {
-    return await requestJson(settings.apiBaseUrl, path, {
-      ...options,
-      token,
-    });
-  } catch (error) {
-    if (!/unauthorized|invalid password/i.test(error.message)) {
-      throw error;
-    }
-    const nextToken = await loginAndPersist({ ...settings, token: "" });
-    return requestJson(settings.apiBaseUrl, path, {
-      ...options,
-      token: nextToken,
-    });
-  }
-}
-
-async function loginAndPersist(settings) {
-  const token = await login(settings);
-  await saveSettings({ ...settings, token });
-  return token;
-}
-
-async function login(settings) {
-  if (!settings.password.trim()) {
-    throw new Error("UniDL access password is required");
-  }
-  const response = await requestJson(settings.apiBaseUrl, "/api/login", {
-    method: "POST",
-    body: { password: settings.password },
-  });
-  if (!response.token) {
-    throw new Error("UniDL login response missing token");
-  }
-  return response.token;
-}
-
 async function requestJson(apiBaseUrl, path, options = {}) {
   const headers = { "content-type": "application/json" };
-  if (options.token) {
-    headers.authorization = `Bearer ${options.token}`;
-  }
 
   const response = await fetch(`${trimBaseUrl(apiBaseUrl)}${path}`, {
     method: options.method ?? "GET",
@@ -266,11 +191,15 @@ async function requestJson(apiBaseUrl, path, options = {}) {
 }
 
 function trimBaseUrl(value) {
-  const url = String(value ?? "").trim().replace(/\/+$/, "");
-  if (!url) {
+  const text = String(value ?? "").trim().replace(/\/+$/, "");
+  if (!text) {
     throw new Error("UniDL API URL is required");
   }
-  return url;
+  const url = new URL(text);
+  if (url.hostname === "localhost") {
+    url.hostname = "127.0.0.1";
+  }
+  return url.toString().replace(/\/+$/, "");
 }
 
 function getSettings() {
@@ -295,11 +224,6 @@ async function mergeSettings(settings) {
 function normalizeSettings(settings) {
   const next = { ...DEFAULT_SETTINGS, ...settings };
   next.apiBaseUrl = trimBaseUrl(next.apiBaseUrl);
-  next.password = String(next.password ?? "");
-  next.token = String(next.token ?? "");
-  next.defaultEngine = ENGINE_SOURCES[next.defaultEngine] ? next.defaultEngine : "aria2";
-  next.savePath = String(next.savePath ?? "");
-  next.engineArgs = String(next.engineArgs ?? "");
   next.interceptEnabled = Boolean(next.interceptEnabled);
   next.cancelOriginal = Boolean(next.cancelOriginal);
   next.lastEvent = String(next.lastEvent ?? "");

@@ -7,9 +7,8 @@ use crate::{
     engine_adapters, engine_install,
     models::{
         engine_supports_source_type, supported_source_types, AppSettings, AppSettingsInput,
-        CreateDownloadTaskInput,
-        DownloadStatus, DownloadTask, EngineInstallResult, EngineKind, EngineSettings,
-        EngineSettingsInput, NewDownloadTask, SourceType,
+        CreateDownloadTaskInput, DownloadStatus, DownloadTask, EngineInstallResult, EngineKind,
+        EngineSettings, EngineSettingsInput, NewDownloadTask, SourceType,
     },
     repositories::{AppSettingsRepository, DownloadTaskRepository, EngineSettingsRepository},
 };
@@ -75,6 +74,31 @@ impl<'connection> DownloadTaskService<'connection> {
                 Err(error)
             }
         }
+    }
+
+    pub fn create_from_extension(
+        &self,
+        source_type: SourceType,
+        source: String,
+        file_name: String,
+    ) -> Result<DownloadTask, Box<dyn Error>> {
+        if source.trim().is_empty() {
+            return Err("download source is required".into());
+        }
+        if file_name.trim().is_empty() {
+            return Err("file name is required".into());
+        }
+
+        let engine_settings = self.resolve_default_engine_settings(source_type)?;
+        self.create(CreateDownloadTaskInput {
+            source_type,
+            source,
+            engine: engine_settings.engine,
+            engine_settings_id: Some(engine_settings.id.clone()),
+            file_name,
+            save_path: engine_settings.default_download_dir,
+            engine_args: engine_settings.default_args,
+        })
     }
 
     pub fn refresh_all(&self) -> Result<Vec<DownloadTask>, Box<dyn Error>> {
@@ -215,6 +239,25 @@ impl<'connection> DownloadTaskService<'connection> {
                     "no enabled {} settings supports {} tasks",
                     input.engine.as_db(),
                     input.source_type.as_db()
+                )
+                .into()
+            })
+    }
+
+    fn resolve_default_engine_settings(
+        &self,
+        source_type: SourceType,
+    ) -> Result<EngineSettings, Box<dyn Error>> {
+        let settings = EngineSettingsRepository::new(self.connection).list_all()?;
+        settings
+            .into_iter()
+            .find(|settings| {
+                settings.enabled && settings.supported_source_types.contains(&source_type)
+            })
+            .ok_or_else(|| {
+                format!(
+                    "no enabled engine settings supports {} tasks",
+                    source_type.as_db()
                 )
                 .into()
             })

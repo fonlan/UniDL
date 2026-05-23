@@ -96,25 +96,13 @@ pub fn save_app_settings(
 ) -> Result<AppSettings, String> {
     AppSettingsService::validate_input(&settings).map_err(|error| error.to_string())?;
 
-    let candidate = AppSettings {
-        web_access_enabled: settings.web_access_enabled,
-        web_access_password: settings.web_access_password.clone(),
-        web_access_url: crate::web_server::WEB_ACCESS_URL.to_string(),
-    };
-
-    if candidate.web_access_enabled {
-        state.apply_web_settings(&candidate)?;
-    }
-
     let connection = state.lock_connection()?;
     let next = AppSettingsService::new(&connection)
         .save(settings)
         .map_err(|error| error.to_string())?;
     drop(connection);
 
-    if !next.web_access_enabled {
-        state.apply_web_settings(&next)?;
-    }
+    state.apply_web_settings(&next)?;
 
     Ok(next)
 }

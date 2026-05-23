@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "UniDL",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Send browser downloads to the local UniDL desktop service.",
   "permissions": ["contextMenus", "downloads", "storage"],
   "host_permissions": [

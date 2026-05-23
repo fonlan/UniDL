@@ -11,7 +11,7 @@
       <header>
         <div>
           <h1>UniDL</h1>
-          <p id="last-event">未连接</p>
+          <p id="last-event">正在连接</p>
         </div>
       </header>
 
@@ -20,33 +20,7 @@
           <span>API 地址</span>
           <input id="api-base-url" type="url" />
         </label>
-        <label>
-          <span>访问密码</span>
-          <input id="password" type="password" />
-        </label>
-        <div class="row">
-          <button id="connect" type="button">保存并连接</button>
-          <button id="clear-token" type="button">清除令牌</button>
-        </div>
-      </section>
-
-      <section>
-        <label>
-          <span>默认引擎</span>
-          <select id="default-engine">
-            <option value="aria2">aria2</option>
-            <option value="yt-dlp">yt-dlp</option>
-            <option value="qbittorrent">qBittorrent</option>
-          </select>
-        </label>
-        <label>
-          <span>保存路径</span>
-          <input id="save-path" type="text" />
-        </label>
-        <label>
-          <span>任务参数</span>
-          <textarea id="engine-args" rows="2"></textarea>
-        </label>
+        <button id="connect" type="button">重新连接</button>
       </section>
 
       <section class="checks">
@@ -58,17 +32,6 @@
           <input id="cancel-original" type="checkbox" />
           <span>发送成功后取消原始下载</span>
         </label>
-      </section>
-
-      <section>
-        <label>
-          <span>手动添加来源</span>
-          <textarea id="manual-source" rows="3"></textarea>
-        </label>
-        <div class="row">
-          <button id="save-settings" type="button">保存设置</button>
-          <button id="send-source" type="button">发送来源</button>
-        </div>
       </section>
 
       <p id="status" role="status"></p>

@@ -3,10 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const manifest = JSON.parse(readFileSync(join(root, "extension", "manifest.json"), "utf8"));
 const extensionDir = join(root, "extension");
 const outputDir = join(root, "release");
-const output = join(outputDir, `UniDL-extension-v${packageJson.version}.zip`);
+const output = join(outputDir, `UniDL-extension-v${manifest.version}.zip`);
 const files = [
   "manifest.json",
   "background.js",

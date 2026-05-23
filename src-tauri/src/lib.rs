@@ -73,12 +73,9 @@ impl AppState {
             current.stop();
         }
 
-        if settings.web_access_enabled {
-            let next =
-                web_server::start(self.database_path(), settings.web_access_password.clone())
-                    .map_err(|error| error.to_string())?;
-            *web_server = Some(next);
-        }
+        let next =
+            web_server::start(self.database_path(), settings).map_err(|error| error.to_string())?;
+        *web_server = Some(next);
 
         Ok(())
     }

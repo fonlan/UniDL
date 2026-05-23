@@ -9,7 +9,7 @@ const manifest = readJson("extension/manifest.json");
 const releaseExe = join(root, "release", "UniDL.exe");
 const desktopExe = join(root, "src-tauri", "target", "release", "unidl.exe");
 const bundleDir = join(root, "src-tauri", "target", "release", "bundle");
-const extensionZip = join(root, "release", `UniDL-extension-v${packageJson.version}.zip`);
+const extensionZip = join(root, "release", `UniDL-extension-v${manifest.version}.zip`);
 
 let failed = false;
 
@@ -97,12 +97,20 @@ check("browser interception sends tasks to local Web API", () => {
   for (const item of [
     "chrome.downloads.onCreated",
     "chrome.contextMenus.onClicked",
-    '"/api/login"',
-    '"/api/tasks"',
+    '"/api/health"',
+    '"/api/extension/tasks"',
     "cancelDownload",
-    "Bearer",
   ]) {
     assertIncludes(background, item);
+  }
+  for (const item of [
+    "UniDL access password is required",
+    '"/api/login"',
+    "Bearer",
+    "defaultEngine",
+    "manual-source",
+  ]) {
+    assertExcludes(background, item);
   }
 });
 
@@ -146,6 +154,15 @@ function assertIncludes(value, needle) {
     : value.includes(needle);
   if (!found) {
     throw new Error(`missing ${needle}`);
+  }
+}
+
+function assertExcludes(value, needle) {
+  const found = Buffer.isBuffer(value)
+    ? value.includes(Buffer.from(needle))
+    : value.includes(needle);
+  if (found) {
+    throw new Error(`unexpected ${needle}`);
   }
 }
 
