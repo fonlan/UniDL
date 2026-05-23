@@ -55,10 +55,7 @@ export interface EngineSettings {
   updatedAt: string;
 }
 
-export type EngineSettingsInput = Omit<
-  EngineSettings,
-  "supportedSourceTypes" | "updatedAt"
->;
+export type EngineSettingsInput = Omit<EngineSettings, "updatedAt">;
 
 export interface EngineInstallResult {
   settings: EngineSettings;

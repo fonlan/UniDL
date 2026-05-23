@@ -3,8 +3,8 @@ use std::error::Error;
 use rusqlite::{params, Connection};
 
 use crate::models::{
-    supported_source_types, AppSettings, AppSettingsInput, DownloadStatus, DownloadTask,
-    EngineKind, EngineSettings, EngineSettingsInput, NewDownloadTask, SourceType,
+    AppSettings, AppSettingsInput, DownloadStatus, DownloadTask, EngineKind, EngineSettings,
+    EngineSettingsInput, NewDownloadTask, SourceType,
 };
 
 pub struct DownloadTaskRepository<'connection> {
@@ -89,6 +89,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username,
                 password,
                 remote_path,
+                supported_source_types,
                 priority,
                 updated_at
             FROM engine_settings
@@ -123,10 +124,11 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username,
                 password,
                 remote_path,
+                supported_source_types,
                 priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -137,6 +139,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username = excluded.username,
                 password = excluded.password,
                 remote_path = excluded.remote_path,
+                supported_source_types = excluded.supported_source_types,
                 priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
@@ -152,6 +155,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 input.username.as_deref(),
                 input.password.as_deref(),
                 input.remote_path.as_deref(),
+                encode_source_types(&input.supported_source_types),
                 input.priority,
             ),
         )?;
@@ -174,6 +178,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username,
                 password,
                 remote_path,
+                supported_source_types,
                 priority,
                 updated_at
             FROM engine_settings
@@ -215,6 +220,25 @@ impl<'connection> EngineSettingsRepository<'connection> {
     }
 }
 
+fn encode_source_types(source_types: &[SourceType]) -> String {
+    source_types
+        .iter()
+        .map(|source_type| source_type.as_db())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn decode_source_types(value: &str) -> Result<Vec<SourceType>, Box<dyn Error>> {
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    value
+        .split(',')
+        .map(|source_type| Ok(SourceType::from_db(source_type.trim())?))
+        .collect()
+}
+
 fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<dyn Error>> {
     let engine_value: String = row.get("engine")?;
     let enabled: i64 = row.get("enabled")?;
@@ -232,7 +256,7 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         username: row.get("username")?,
         password: row.get("password")?,
         remote_path: row.get("remote_path")?,
-        supported_source_types: supported_source_types(engine),
+        supported_source_types: decode_source_types(&row.get::<_, String>("supported_source_types")?)?,
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })

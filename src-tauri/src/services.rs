@@ -6,7 +6,8 @@ use uuid::Uuid;
 use crate::{
     engine_adapters, engine_install,
     models::{
-        engine_supports_source_type, AppSettings, AppSettingsInput, CreateDownloadTaskInput,
+        engine_supports_source_type, supported_source_types, AppSettings, AppSettingsInput,
+        CreateDownloadTaskInput,
         DownloadStatus, DownloadTask, EngineInstallResult, EngineKind, EngineSettings,
         EngineSettingsInput, NewDownloadTask, SourceType,
     },
@@ -39,10 +40,13 @@ impl<'connection> DownloadTaskService<'connection> {
         if !engine_settings.enabled {
             return Err(format!("{} is disabled", engine_settings.id).into());
         }
-        if !engine_supports_source_type(engine_settings.engine, input.source_type) {
+        if !engine_settings
+            .supported_source_types
+            .contains(&input.source_type)
+        {
             return Err(format!(
                 "{} does not support {} tasks",
-                engine_settings.engine.as_db(),
+                engine_settings.id,
                 input.source_type.as_db()
             )
             .into());
@@ -201,8 +205,19 @@ impl<'connection> DownloadTaskService<'connection> {
         let settings = EngineSettingsRepository::new(self.connection).list_all()?;
         settings
             .into_iter()
-            .find(|settings| settings.engine == input.engine && settings.enabled)
-            .ok_or_else(|| format!("no enabled {} settings found", input.engine.as_db()).into())
+            .find(|settings| {
+                settings.engine == input.engine
+                    && settings.enabled
+                    && settings.supported_source_types.contains(&input.source_type)
+            })
+            .ok_or_else(|| {
+                format!(
+                    "no enabled {} settings supports {} tasks",
+                    input.engine.as_db(),
+                    input.source_type.as_db()
+                )
+                .into()
+            })
     }
 }
 
@@ -268,7 +283,27 @@ impl<'connection> EngineSettingsService<'connection> {
             return Err("engine settings name is required".into());
         }
 
-        let input = EngineSettingsInput { name, ..input };
+        let supported = supported_source_types(input.engine);
+        for source_type in &input.supported_source_types {
+            if !supported.contains(source_type) {
+                return Err(format!(
+                    "{} does not support {} tasks",
+                    input.engine.as_db(),
+                    source_type.as_db()
+                )
+                .into());
+            }
+        }
+        let supported_source_types = supported
+            .into_iter()
+            .filter(|source_type| input.supported_source_types.contains(source_type))
+            .collect();
+
+        let input = EngineSettingsInput {
+            name,
+            supported_source_types,
+            ..input
+        };
         self.repository.save(&input)
     }
 
@@ -296,6 +331,7 @@ impl<'connection> EngineSettingsService<'connection> {
             username: current.username,
             password: current.password,
             remote_path: current.remote_path,
+            supported_source_types: current.supported_source_types,
             priority: current.priority,
         })?;
 
@@ -372,6 +408,7 @@ mod tests {
                 username: None,
                 password: None,
                 remote_path: None,
+                supported_source_types: vec![SourceType::Http, SourceType::Ftp],
                 priority: 0,
             })
             .expect("engine settings should save");
@@ -390,6 +427,7 @@ mod tests {
                 username: saved.username,
                 password: saved.password,
                 remote_path: saved.remote_path,
+                supported_source_types: saved.supported_source_types,
                 priority: saved.priority,
             })
             .expect("engine settings should rename");
@@ -460,6 +498,7 @@ mod tests {
                 username: Some("admin".to_string()),
                 password: Some("adminadmin".to_string()),
                 remote_path: Some(String::new()),
+                supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
                 priority: 0,
             })
             .expect("qBittorrent settings should save");

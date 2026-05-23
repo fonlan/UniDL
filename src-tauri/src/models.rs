@@ -196,6 +196,7 @@ pub struct EngineSettingsInput {
     pub username: Option<String>,
     pub password: Option<String>,
     pub remote_path: Option<String>,
+    pub supported_source_types: Vec<SourceType>,
     pub priority: i64,
 }
 

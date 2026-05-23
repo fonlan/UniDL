@@ -60,8 +60,11 @@ export function createDownloadTask(input: CreateDownloadTaskInput): Promise<Down
     const settings = input.engineSettingsId
       ? engineSettings.find((item) => item.id === input.engineSettingsId)
       : engineSettings.find(
-          (item) => item.engine === input.engine && item.enabled,
-        ) ?? engineSettings.find((item) => item.engine === input.engine);
+          (item) =>
+            item.engine === input.engine &&
+            item.enabled &&
+            item.supportedSourceTypes.includes(input.sourceType),
+        );
     if (!settings) {
       return Promise.reject(
         new Error(
@@ -76,6 +79,11 @@ export function createDownloadTask(input: CreateDownloadTaskInput): Promise<Down
         new Error(
           `engine settings ${settings.id} does not match ${input.engine}`,
         ),
+      );
+    }
+    if (!settings.supportedSourceTypes.includes(input.sourceType)) {
+      return Promise.reject(
+        new Error(`${settings.id} does not support ${input.sourceType} tasks`),
       );
     }
 
@@ -141,7 +149,10 @@ export function saveEngineSettings(
     if (!preview) {
       const next = cloneEngineSettings({
         ...nextInput,
-        supportedSourceTypes: supportedSourceTypes(nextInput.engine),
+        supportedSourceTypes: normalizeSourceTypes(
+          nextInput.engine,
+          nextInput.supportedSourceTypes,
+        ),
         updatedAt: new Date().toISOString(),
       });
       previewEngineSettings = [...previewEngineSettings, next];
@@ -151,6 +162,10 @@ export function saveEngineSettings(
     const next = cloneEngineSettings({
       ...preview,
       ...nextInput,
+      supportedSourceTypes: normalizeSourceTypes(
+        nextInput.engine,
+        nextInput.supportedSourceTypes,
+      ),
       updatedAt: new Date().toISOString(),
     });
     previewEngineSettings = previewEngineSettings.map((item) =>
@@ -245,6 +260,16 @@ function cloneEngineSettings(settings: EngineSettings): EngineSettings {
     ...settings,
     supportedSourceTypes: [...settings.supportedSourceTypes],
   };
+}
+
+function normalizeSourceTypes(engine: EngineKind, selected: SourceType[]) {
+  const supported = supportedSourceTypes(engine);
+  const invalid = selected.find((sourceType) => !supported.includes(sourceType));
+  if (invalid) {
+    throw new Error(`${engine} does not support ${invalid} tasks`);
+  }
+
+  return supported.filter((sourceType) => selected.includes(sourceType));
 }
 
 function sortEngineSettings(settings: EngineSettings[]) {

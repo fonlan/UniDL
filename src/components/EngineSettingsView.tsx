@@ -128,6 +128,7 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     username: emptyToNull(settings.username ?? ""),
     password: emptyToNull(settings.password ?? ""),
     remotePath: emptyToNull(settings.remotePath ?? ""),
+    supportedSourceTypes: settings.supportedSourceTypes,
     priority: settings.priority,
   };
 }
@@ -810,6 +811,23 @@ export default function EngineSettingsView() {
                                   </div>
 
                                   <div className="flex items-center gap-2">
+                                    <label
+                                      className="relative inline-flex h-6 w-11 cursor-pointer items-center"
+                                      title={draft.enabled ? "停用" : "启用"}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={draft.enabled}
+                                        onChange={(event) =>
+                                          updateDraft(draft.id, {
+                                            enabled: event.currentTarget.checked,
+                                          })
+                                        }
+                                        className="peer sr-only"
+                                      />
+                                      <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-emerald-600 peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-100" />
+                                      <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5" />
+                                    </label>
                                     {savedEngineId === draft.id && (
                                       <InstalledBadge label="已保存" />
                                     )}
@@ -838,35 +856,44 @@ export default function EngineSettingsView() {
                                 </div>
 
                                 <div className="grid gap-4 px-3 py-3 lg:grid-cols-[220px_1fr]">
-                                  <div className="flex flex-col gap-3">
-                                    <div className="flex flex-wrap gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
-                                      {sourceTypes.map((sourceType) => (
-                                        <span
+                                  <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+                                    {supportedSourceTypes(draft.engine).map((sourceType) => {
+                                      const checked = draft.supportedSourceTypes.includes(sourceType);
+
+                                      return (
+                                        <label
                                           key={sourceType}
                                           className={classNames(
-                                            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                                            draft.supportedSourceTypes.includes(sourceType)
+                                            "flex h-8 cursor-pointer items-center gap-2 rounded-md border px-2 text-xs transition",
+                                            checked
                                               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                                              : "border-slate-200 bg-slate-50 text-slate-400",
+                                              : "border-slate-200 bg-slate-50 text-slate-500",
                                           )}
                                         >
-                                          {sourceLabels[sourceType]}
-                                        </span>
-                                      ))}
-                                    </div>
-                                    <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                                      <span className="font-medium">启用</span>
-                                      <input
-                                        type="checkbox"
-                                        checked={draft.enabled}
-                                        onChange={(event) =>
-                                          updateDraft(draft.id, {
-                                            enabled: event.currentTarget.checked,
-                                          })
-                                        }
-                                        className="h-4 w-4 accent-emerald-700"
-                                      />
-                                    </label>
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={(event) => {
+                                              const nextSourceTypes = event.currentTarget.checked
+                                                ? sourceTypes.filter(
+                                                    (item) =>
+                                                      item === sourceType ||
+                                                      draft.supportedSourceTypes.includes(item),
+                                                  )
+                                                : draft.supportedSourceTypes.filter(
+                                                    (item) => item !== sourceType,
+                                                  );
+
+                                              updateDraft(draft.id, {
+                                                supportedSourceTypes: nextSourceTypes,
+                                              });
+                                            }}
+                                            className="h-4 w-4 accent-emerald-700"
+                                          />
+                                          <span>{sourceLabels[sourceType]}</span>
+                                        </label>
+                                      );
+                                    })}
                                   </div>
 
                                   <div className="grid gap-4 md:grid-cols-2">

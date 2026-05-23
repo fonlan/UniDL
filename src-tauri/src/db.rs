@@ -32,6 +32,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             username TEXT,
             password TEXT,
             remote_path TEXT,
+            supported_source_types TEXT NOT NULL DEFAULT '',
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -76,6 +77,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_ids(connection)?;
     migrate_engine_settings_name(connection)?;
     migrate_engine_settings_priority(connection)?;
+    migrate_engine_settings_supported_source_types(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     seed_app_settings(connection)
@@ -119,6 +121,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             username TEXT,
             password TEXT,
             remote_path TEXT,
+            supported_source_types TEXT NOT NULL DEFAULT '',
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -136,6 +139,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             username,
             password,
             remote_path,
+            supported_source_types,
             priority,
             created_at,
             updated_at
@@ -152,6 +156,12 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             username,
             password,
             remote_path,
+            CASE engine
+                WHEN 'aria2' THEN 'http,ftp,magnet,torrent'
+                WHEN 'yt-dlp' THEN 'http,ftp'
+                WHEN 'qbittorrent' THEN 'magnet,torrent'
+                ELSE ''
+            END,
             CASE engine
                 WHEN 'aria2' THEN 0
                 WHEN 'yt-dlp' THEN 1
@@ -200,6 +210,29 @@ fn migrate_engine_settings_priority(connection: &Connection) -> Result<(), rusql
             WHEN 'yt-dlp' THEN 1
             WHEN 'qbittorrent' THEN 2
             ELSE 3
+        END;
+        "#,
+    )
+}
+
+fn migrate_engine_settings_supported_source_types(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "engine_settings", "supported_source_types")? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE engine_settings
+            ADD COLUMN supported_source_types TEXT NOT NULL DEFAULT '';
+
+        UPDATE engine_settings
+        SET supported_source_types = CASE engine
+            WHEN 'aria2' THEN 'http,ftp,magnet,torrent'
+            WHEN 'yt-dlp' THEN 'http,ftp'
+            WHEN 'qbittorrent' THEN 'magnet,torrent'
+            ELSE ''
         END;
         "#,
     )
