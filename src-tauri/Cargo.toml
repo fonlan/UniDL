@@ -16,7 +16,12 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
-reqwest = { version = "0.12", features = ["blocking", "cookies", "json", "multipart"] }
+reqwest = { version = "0.12", features = [
+    "blocking",
+    "cookies",
+    "json",
+    "multipart",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
@@ -24,6 +29,15 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tiny_http = "0.12"
 uuid = { version = "1", features = ["v4"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-registry = "0.6"
+
+[profile.release]
+codegen-units = 1 # 最大化优化，牺牲编译速度
+lto = true        # 开启链接时优化 (Link Time Optimization)
+opt-level = 3     # 针对体积进行优化 (如果追求极致性能可改为 3)
+panic = "abort"   # 移除 Panic 回溯信息，减小体积
+# 注释掉以保留 panic 堆栈信息，便于调试闪退问题
+strip = true # 自动剥离符号表

@@ -1,10 +1,10 @@
 use std::error::Error;
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 use crate::models::{
-    supported_source_types, AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadStatus,
-    DownloadTask, EngineKind, EngineSettings, EngineSettingsInput, SourceType,
+    supported_source_types, AppSettings, AppSettingsInput, DownloadStatus, DownloadTask,
+    EngineKind, EngineSettings, EngineSettingsInput, NewDownloadTask, SourceType,
 };
 
 pub struct DownloadTaskRepository<'connection> {
@@ -78,6 +78,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
         let mut statement = self.connection.prepare(
             r#"
             SELECT
+                id,
                 engine,
                 enabled,
                 executable_path,
@@ -94,7 +95,9 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 WHEN 'yt-dlp' THEN 2
                 WHEN 'qbittorrent' THEN 3
                 ELSE 4
-            END
+            END,
+            datetime(created_at) ASC,
+            id ASC
             "#,
         )?;
 
@@ -112,6 +115,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
         self.connection.execute(
             r#"
             INSERT INTO engine_settings (
+                id,
                 engine,
                 enabled,
                 executable_path,
@@ -123,8 +127,8 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'), datetime('now'))
-            ON CONFLICT(engine) DO UPDATE SET
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'), datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET
                 enabled = excluded.enabled,
                 executable_path = excluded.executable_path,
                 default_download_dir = excluded.default_download_dir,
@@ -136,6 +140,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 updated_at = datetime('now')
             "#,
             (
+                input.id.as_str(),
                 input.engine.as_db(),
                 if input.enabled { 1_i64 } else { 0_i64 },
                 input.executable_path.as_deref(),
@@ -148,13 +153,14 @@ impl<'connection> EngineSettingsRepository<'connection> {
             ),
         )?;
 
-        self.get(input.engine)
+        self.get(&input.id)
     }
 
-    pub fn get(&self, engine: EngineKind) -> Result<EngineSettings, Box<dyn Error>> {
+    pub fn get(&self, id: &str) -> Result<EngineSettings, Box<dyn Error>> {
         let mut statement = self.connection.prepare(
             r#"
             SELECT
+                id,
                 engine,
                 enabled,
                 executable_path,
@@ -166,16 +172,16 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path,
                 updated_at
             FROM engine_settings
-            WHERE engine = ?1
+            WHERE id = ?1
             "#,
         )?;
 
-        let mut rows = statement.query([engine.as_db()])?;
+        let mut rows = statement.query([id])?;
         if let Some(row) = rows.next()? {
             return read_engine_settings(row);
         }
 
-        Err(format!("engine settings not found: {}", engine.as_db()).into())
+        Err(format!("engine settings not found: {id}").into())
     }
 }
 
@@ -185,6 +191,7 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
     let engine = EngineKind::from_db(&engine_value)?;
 
     Ok(EngineSettings {
+        id: row.get("id")?,
         engine,
         enabled: enabled == 1,
         executable_path: row.get("executable_path")?,
@@ -211,6 +218,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 id,
                 source_type,
                 source,
+                engine_settings_id,
                 engine,
                 engine_task_id,
                 file_name,
@@ -253,6 +261,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 id,
                 source_type,
                 source,
+                engine_settings_id,
                 engine,
                 engine_task_id,
                 file_name,
@@ -285,6 +294,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 id,
                 source_type,
                 source,
+                engine_settings_id,
                 engine,
                 engine_task_id,
                 file_name,
@@ -317,6 +327,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 id,
                 source_type,
                 source,
+                engine_settings_id,
                 engine,
                 engine_task_id,
                 file_name,
@@ -341,13 +352,14 @@ impl<'connection> DownloadTaskRepository<'connection> {
         Err(format!("download task not found: {}", id).into())
     }
 
-    pub fn create(&self, id: &str, input: &CreateDownloadTaskInput) -> Result<(), rusqlite::Error> {
+    pub fn create(&self, id: &str, input: &NewDownloadTask) -> Result<(), rusqlite::Error> {
         self.connection.execute(
             r#"
             INSERT INTO download_tasks (
                 id,
                 source_type,
                 source,
+                engine_settings_id,
                 engine,
                 file_name,
                 status,
@@ -355,18 +367,19 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec,
                 save_path,
                 engine_args
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?8)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9)
             "#,
-            (
+            params![
                 id,
                 input.source_type.as_db(),
                 input.source.as_str(),
+                input.engine_settings_id.as_str(),
                 input.engine.as_db(),
                 input.file_name.as_str(),
                 DownloadStatus::Queued.as_db(),
                 input.save_path.as_str(),
                 input.engine_args.as_str(),
-            ),
+            ],
         )?;
         Ok(())
     }
@@ -450,6 +463,7 @@ fn read_download_task(row: &rusqlite::Row<'_>) -> Result<DownloadTask, Box<dyn E
         id: row.get("id")?,
         source_type: SourceType::from_db(&source_type)?,
         source: row.get("source")?,
+        engine_settings_id: row.get("engine_settings_id")?,
         engine: EngineKind::from_db(&engine)?,
         engine_task_id: row.get("engine_task_id")?,
         file_name: row.get("file_name")?,

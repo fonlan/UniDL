@@ -130,7 +130,7 @@ export default function NewTaskDialog({
   const [sourceInput, setSourceInput] = useState("");
   const [fileName, setFileName] = useState("");
   const [engineSettings, setEngineSettings] = useState<EngineSettings[]>([]);
-  const [selectedEngine, setSelectedEngine] = useState<EngineKind | "">("");
+  const [selectedEngineSettingsId, setSelectedEngineSettingsId] = useState("");
   const [savePath, setSavePath] = useState("");
   const [engineArgs, setEngineArgs] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -147,9 +147,9 @@ export default function NewTaskDialog({
     );
   }, [engineSettings, parsedSource]);
   const selectedSettings =
-    selectedEngine === ""
+    selectedEngineSettingsId === ""
       ? null
-      : engineSettings.find((settings) => settings.engine === selectedEngine) ?? null;
+      : engineSettings.find((settings) => settings.id === selectedEngineSettingsId) ?? null;
   const canCreate =
     Boolean(parsedSource) &&
     Boolean(selectedSettings?.enabled) &&
@@ -193,16 +193,16 @@ export default function NewTaskDialog({
 
   useEffect(() => {
     if (!parsedSource) {
-      setSelectedEngine("");
+      setSelectedEngineSettingsId("");
       return;
     }
 
     const current = compatibleSettings.find(
-      (settings) => settings.engine === selectedEngine && settings.enabled,
+      (settings) => settings.id === selectedEngineSettingsId && settings.enabled,
     );
     const next = current ?? compatibleSettings.find((settings) => settings.enabled);
-    setSelectedEngine(next?.engine ?? "");
-  }, [compatibleSettings, parsedSource, selectedEngine]);
+    setSelectedEngineSettingsId(next?.id ?? "");
+  }, [compatibleSettings, parsedSource, selectedEngineSettingsId]);
 
   useEffect(() => {
     if (!selectedSettings) {
@@ -218,7 +218,7 @@ export default function NewTaskDialog({
   function resetAndClose() {
     setSourceInput("");
     setFileName("");
-    setSelectedEngine("");
+    setSelectedEngineSettingsId("");
     setSavePath("");
     setEngineArgs("");
     setError(null);
@@ -261,6 +261,7 @@ export default function NewTaskDialog({
         sourceType: parsedSource.sourceType,
         source: parsedSource.source,
         engine: selectedSettings.engine,
+        engineSettingsId: selectedSettings.id,
         fileName: fileName.trim(),
         savePath: savePath.trim(),
         engineArgs,
@@ -342,19 +343,22 @@ export default function NewTaskDialog({
               <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
                 <span className="font-medium">引擎</span>
                 <select
-                  value={selectedEngine}
+                  value={selectedEngineSettingsId}
                   disabled={!parsedSource || isLoading}
-                  onChange={(event) => setSelectedEngine(event.currentTarget.value as EngineKind)}
+                  onChange={(event) =>
+                    setSelectedEngineSettingsId(event.currentTarget.value)
+                  }
                   className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <option value="">-</option>
                   {compatibleSettings.map((settings) => (
                     <option
-                      key={settings.engine}
-                      value={settings.engine}
+                      key={settings.id}
+                      value={settings.id}
                       disabled={!settings.enabled}
                     >
                       {engineLabels[settings.engine]}
+                      {settings.id === settings.engine ? "" : ` / ${settings.id}`}
                       {settings.enabled ? "" : " / 未启用"}
                     </option>
                   ))}
@@ -363,7 +367,7 @@ export default function NewTaskDialog({
 
               <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
                 <span className="font-medium">
-                  {selectedEngine === "qbittorrent" ? "远程保存路径" : "本地目录"}
+                  {selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
                 </span>
                 <input
                   value={savePath}

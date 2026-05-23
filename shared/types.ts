@@ -14,6 +14,7 @@ export interface DownloadTask {
   id: string;
   sourceType: SourceType;
   source: string;
+  engineSettingsId: string;
   engine: EngineKind;
   engineTaskId: string | null;
   fileName: string;
@@ -31,12 +32,14 @@ export interface CreateDownloadTaskInput {
   sourceType: SourceType;
   source: string;
   engine: EngineKind;
+  engineSettingsId?: string | null;
   fileName: string;
   savePath: string;
   engineArgs: string;
 }
 
 export interface EngineSettings {
+  id: string;
   engine: EngineKind;
   enabled: boolean;
   executablePath: string | null;
@@ -54,6 +57,11 @@ export type EngineSettingsInput = Omit<
   EngineSettings,
   "supportedSourceTypes" | "updatedAt"
 >;
+
+export interface EngineInstallResult {
+  settings: EngineSettings;
+  version: string;
+}
 
 export interface AppSettings {
   webAccessEnabled: boolean;

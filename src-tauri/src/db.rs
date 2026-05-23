@@ -21,7 +21,8 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
         PRAGMA foreign_keys = ON;
 
         CREATE TABLE IF NOT EXISTS engine_settings (
-            engine TEXT PRIMARY KEY CHECK (engine IN ('aria2', 'yt-dlp', 'qbittorrent')),
+            id TEXT PRIMARY KEY,
+            engine TEXT NOT NULL CHECK (engine IN ('aria2', 'yt-dlp', 'qbittorrent')),
             enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
             executable_path TEXT,
             default_download_dir TEXT NOT NULL DEFAULT '',
@@ -46,6 +47,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
                 source_type IN ('http', 'ftp', 'magnet', 'torrent')
             ),
             source TEXT NOT NULL,
+            engine_settings_id TEXT NOT NULL,
             engine TEXT NOT NULL CHECK (engine IN ('aria2', 'yt-dlp', 'qbittorrent')),
             engine_task_id TEXT,
             file_name TEXT NOT NULL,
@@ -69,19 +71,91 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     )?;
 
     migrate_engine_settings_default_args(connection)?;
+    migrate_engine_settings_ids(connection)?;
+    migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     seed_engine_settings(connection)?;
     seed_app_settings(connection)
 }
 
-fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), rusqlite::Error> {
-    let mut statement = connection.prepare("PRAGMA table_info(engine_settings)")?;
+fn has_column(
+    connection: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> Result<bool, rusqlite::Error> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table_name})"))?;
     let columns = statement.query_map([], |row| row.get::<_, String>("name"))?;
 
     for column in columns {
-        if column? == "default_args" {
-            return Ok(());
+        if column? == column_name {
+            return Ok(true);
         }
+    }
+
+    Ok(false)
+}
+
+fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "engine_settings", "id")? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE engine_settings RENAME TO engine_settings_legacy;
+
+        CREATE TABLE engine_settings (
+            id TEXT PRIMARY KEY,
+            engine TEXT NOT NULL CHECK (engine IN ('aria2', 'yt-dlp', 'qbittorrent')),
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            executable_path TEXT,
+            default_download_dir TEXT NOT NULL DEFAULT '',
+            default_args TEXT NOT NULL DEFAULT '',
+            connection_url TEXT,
+            username TEXT,
+            password TEXT,
+            remote_path TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO engine_settings (
+            id,
+            engine,
+            enabled,
+            executable_path,
+            default_download_dir,
+            default_args,
+            connection_url,
+            username,
+            password,
+            remote_path,
+            created_at,
+            updated_at
+        )
+        SELECT
+            engine,
+            engine,
+            enabled,
+            executable_path,
+            default_download_dir,
+            default_args,
+            connection_url,
+            username,
+            password,
+            remote_path,
+            created_at,
+            updated_at
+        FROM engine_settings_legacy;
+
+        DROP TABLE engine_settings_legacy;
+        "#,
+    )
+}
+
+fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "engine_settings", "default_args")? {
+        return Ok(());
     }
 
     connection.execute_batch(
@@ -92,14 +166,28 @@ fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), r
     )
 }
 
-fn migrate_download_tasks_engine_args(connection: &Connection) -> Result<(), rusqlite::Error> {
-    let mut statement = connection.prepare("PRAGMA table_info(download_tasks)")?;
-    let columns = statement.query_map([], |row| row.get::<_, String>("name"))?;
+fn migrate_download_tasks_engine_settings_id(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "download_tasks", "engine_settings_id")? {
+        return Ok(());
+    }
 
-    for column in columns {
-        if column? == "engine_args" {
-            return Ok(());
-        }
+    connection.execute_batch(
+        r#"
+        ALTER TABLE download_tasks
+            ADD COLUMN engine_settings_id TEXT NOT NULL DEFAULT '';
+
+        UPDATE download_tasks
+        SET engine_settings_id = engine
+        WHERE engine_settings_id = '';
+        "#,
+    )
+}
+
+fn migrate_download_tasks_engine_args(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "download_tasks", "engine_args")? {
+        return Ok(());
     }
 
     connection.execute_batch(
@@ -114,16 +202,18 @@ fn seed_engine_settings(connection: &Connection) -> Result<(), rusqlite::Error> 
     connection.execute_batch(
         r#"
         INSERT OR IGNORE INTO engine_settings (
+            id,
             engine,
             enabled,
+            executable_path,
             default_download_dir,
             default_args,
             connection_url,
             remote_path
         ) VALUES
-            ('aria2', 0, '', '--continue=true', 'http://127.0.0.1:6800/jsonrpc', NULL),
-            ('yt-dlp', 0, '', '--newline', NULL, NULL),
-            ('qbittorrent', 0, '', '', 'http://127.0.0.1:8080', '');
+            ('aria2', 'aria2', 0, '%AppData%\UniDL\engines\aria2c.exe', '', '--continue=true', 'http://127.0.0.1:6800/jsonrpc', NULL),
+            ('yt-dlp', 'yt-dlp', 0, '%AppData%\UniDL\engines\yt-dlp.exe', '', '--newline', NULL, NULL),
+            ('qbittorrent', 'qbittorrent', 0, NULL, '', '', 'http://127.0.0.1:8080', '');
         "#,
     )
 }

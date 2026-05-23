@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod engine_adapters;
+mod engine_install;
 mod models;
 mod repositories;
 mod services;
@@ -134,6 +135,7 @@ pub fn run() {
             commands::save_app_settings,
             commands::list_engine_settings,
             commands::save_engine_settings,
+            commands::install_latest_engine,
             commands::validate_engine_source_type
         ])
         .run(tauri::generate_context!())

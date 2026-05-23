@@ -16,9 +16,13 @@ let failed = false;
 check("desktop build stays exe-only", () => {
   assertEqual(packageJson.scripts["build:desktop"], "tauri build --no-bundle");
   assertEqual(tauriConfig.bundle.active, false);
+  assertEqual(tauriConfig.bundle.icon.includes("icons/icon.ico"), true);
   assertExists(desktopExe);
   assertExists(releaseExe);
   assertMissing(bundleDir);
+  const main = readText("src-tauri/src/main.rs");
+  assertIncludes(main, 'windows_subsystem = "windows"');
+  assertExists(join(root, "src-tauri", "icons", "icon.ico"));
 });
 
 check("extension package contains the MV3 files", () => {

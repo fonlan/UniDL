@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Check, RotateCcw, Save } from "lucide-react";
+import { Check, Download, Plus, RotateCcw, Save } from "lucide-react";
 
 import {
   getAppSettings,
+  installLatestEngine,
   listEngineSettings,
   saveAppSettings,
   saveEngineSettings,
@@ -19,6 +20,7 @@ import type {
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
+const engineInstallDir = "%AppData%\\UniDL\\engines";
 
 const engineLabels: Record<EngineKind, string> = {
   aria2: "aria2",
@@ -33,10 +35,61 @@ const sourceLabels: Record<SourceType, string> = {
   torrent: "Torrent",
 };
 
-type EngineSettingsMap = Record<EngineKind, EngineSettings>;
-
 function classNames(...names: Array<string | false | null | undefined>) {
   return names.filter(Boolean).join(" ");
+}
+
+function supportedSourceTypes(engine: EngineKind): SourceType[] {
+  switch (engine) {
+    case "aria2":
+      return ["http", "ftp", "magnet", "torrent"];
+    case "yt-dlp":
+      return ["http", "ftp"];
+    case "qbittorrent":
+      return ["magnet", "torrent"];
+  }
+}
+
+function defaultEngineSettings(engine: EngineKind): EngineSettings {
+  return {
+    id: crypto.randomUUID(),
+    engine,
+    enabled: false,
+    executablePath:
+      engine === "aria2"
+        ? `${engineInstallDir}\\aria2c.exe`
+        : engine === "yt-dlp"
+          ? `${engineInstallDir}\\yt-dlp.exe`
+          : null,
+    defaultDownloadDir: "",
+    defaultArgs:
+      engine === "aria2" ? "--continue=true" : engine === "yt-dlp" ? "--newline" : "",
+    connectionUrl:
+      engine === "aria2"
+        ? "http://127.0.0.1:6800/jsonrpc"
+        : engine === "qbittorrent"
+          ? "http://127.0.0.1:8080"
+          : null,
+    username: null,
+    password: null,
+    remotePath: engine === "qbittorrent" ? "" : null,
+    supportedSourceTypes: supportedSourceTypes(engine),
+    updatedAt: "",
+  };
+}
+
+function sortSettings(settings: EngineSettings[]) {
+  return [...settings].sort((left, right) => {
+    const leftIndex = engineOrder.indexOf(left.engine);
+    const rightIndex = engineOrder.indexOf(right.engine);
+    if (leftIndex !== rightIndex) {
+      return leftIndex - rightIndex;
+    }
+
+    const leftKey = `${left.updatedAt || ""}${left.id}`;
+    const rightKey = `${right.updatedAt || ""}${right.id}`;
+    return leftKey.localeCompare(rightKey);
+  });
 }
 
 function emptyToNull(value: string) {
@@ -46,6 +99,7 @@ function emptyToNull(value: string) {
 
 function toInput(settings: EngineSettings): EngineSettingsInput {
   return {
+    id: settings.id,
     engine: settings.engine,
     enabled: settings.enabled,
     executablePath: emptyToNull(settings.executablePath ?? ""),
@@ -56,12 +110,6 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     password: emptyToNull(settings.password ?? ""),
     remotePath: emptyToNull(settings.remotePath ?? ""),
   };
-}
-
-function toMap(settings: EngineSettings[]): EngineSettingsMap {
-  return Object.fromEntries(
-    settings.map((item) => [item.engine, item]),
-  ) as EngineSettingsMap;
 }
 
 function isDirty(saved: EngineSettings, draft: EngineSettings) {
@@ -125,6 +173,53 @@ function TextAreaField({
   );
 }
 
+function IconField({
+  label,
+  value,
+  onChange,
+  onClick,
+  buttonTitle,
+  buttonDisabled,
+  buttonLabel,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onClick: () => void;
+  buttonTitle: string;
+  buttonDisabled?: boolean;
+  buttonLabel: ReactNode;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+      <span className="font-medium">{label}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        />
+        <button
+          type="button"
+          title={buttonTitle}
+          aria-label={buttonTitle}
+          disabled={buttonDisabled}
+          onClick={onClick}
+          className={classNames(
+            "grid h-9 w-9 shrink-0 place-items-center rounded-md border transition",
+            buttonDisabled &&
+              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+            !buttonDisabled &&
+              "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+          )}
+        >
+          {buttonLabel}
+        </button>
+      </div>
+    </label>
+  );
+}
+
 function SmallIconButton({
   title,
   disabled,
@@ -155,29 +250,58 @@ function SmallIconButton({
   );
 }
 
+function InstalledBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-800">
+      <Check size={13} />
+      {label}
+    </span>
+  );
+}
+
 export default function EngineSettingsView() {
   const [savedAppSettings, setSavedAppSettings] = useState<AppSettings | null>(null);
   const [draftAppSettings, setDraftAppSettings] = useState<AppSettings | null>(null);
-  const [savedSettings, setSavedSettings] = useState<EngineSettingsMap | null>(null);
-  const [draftSettings, setDraftSettings] = useState<EngineSettingsMap | null>(null);
+  const [savedSettings, setSavedSettings] = useState<EngineSettings[]>([]);
+  const [draftSettings, setDraftSettings] = useState<EngineSettings[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingApp, setIsSavingApp] = useState(false);
-  const [savingEngine, setSavingEngine] = useState<EngineKind | null>(null);
+  const [savingEngineId, setSavingEngineId] = useState<string | null>(null);
+  const [installingEngineId, setInstallingEngineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedApp, setSavedApp] = useState(false);
-  const [savedEngine, setSavedEngine] = useState<EngineKind | null>(null);
+  const [savedEngineId, setSavedEngineId] = useState<string | null>(null);
 
-  const ready = savedSettings && draftSettings && savedAppSettings && draftAppSettings;
-  const appDirty = ready ? isAppDirty(savedAppSettings, draftAppSettings) : false;
-  const hasDirtySettings = useMemo(() => {
-    if (!ready) {
-      return false;
-    }
-    return (
-      appDirty ||
-      engineOrder.some((engine) => isDirty(savedSettings[engine], draftSettings[engine]))
-    );
-  }, [appDirty, draftSettings, ready, savedSettings]);
+  const ready = Boolean(savedAppSettings && draftAppSettings);
+  const appDirty =
+    savedAppSettings && draftAppSettings
+      ? isAppDirty(savedAppSettings, draftAppSettings)
+      : false;
+
+  const savedById = useMemo(
+    () => new Map(savedSettings.map((item) => [item.id, item])),
+    [savedSettings],
+  );
+
+  const dirtySettings = useMemo(
+    () =>
+      draftSettings.some((draft) => {
+        const saved = savedById.get(draft.id);
+        return !saved || isDirty(saved, draft);
+      }),
+    [draftSettings, savedById],
+  );
+
+  const hasDirtySettings = appDirty || dirtySettings;
+
+  const groupedSettings = useMemo(
+    () =>
+      engineOrder.map((engine) => ({
+        engine,
+        settings: draftSettings.filter((item) => item.engine === engine),
+      })),
+    [draftSettings],
+  );
 
   useEffect(() => {
     async function loadSettings() {
@@ -189,9 +313,9 @@ export default function EngineSettingsView() {
           listEngineSettings(),
           getAppSettings(),
         ]);
-        const next = toMap(settings);
-        setSavedSettings(next);
-        setDraftSettings(next);
+        const nextSettings = sortSettings(settings);
+        setSavedSettings(nextSettings);
+        setDraftSettings(nextSettings.map((item) => ({ ...item })));
         setSavedAppSettings(appSettings);
         setDraftAppSettings(appSettings);
       } catch (nextError) {
@@ -238,51 +362,78 @@ export default function EngineSettingsView() {
     setDraftAppSettings(savedAppSettings);
   }
 
-  function updateDraft(engine: EngineKind, patch: Partial<EngineSettings>) {
-    setDraftSettings((current) => {
-      if (!current) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [engine]: {
-          ...current[engine],
-          ...patch,
-        },
-      };
-    });
+  function updateDraft(settingsId: string, patch: Partial<EngineSettings>) {
+    setDraftSettings((current) =>
+      sortSettings(
+        current.map((item) => (item.id === settingsId ? { ...item, ...patch } : item)),
+      ),
+    );
   }
 
-  async function saveEngine(engine: EngineKind) {
-    if (!draftSettings) {
+  function addEngineSettings(engine: EngineKind) {
+    const next = defaultEngineSettings(engine);
+    setSavedEngineId(null);
+    setDraftSettings((current) => sortSettings([...current, next]));
+  }
+
+  async function saveEngine(settingsId: string) {
+    const draft = draftSettings.find((item) => item.id === settingsId);
+    if (!draft) {
       return;
     }
 
-    setSavingEngine(engine);
+    setSavingEngineId(settingsId);
     setError(null);
-    setSavedEngine(null);
+    setSavedEngineId(null);
 
     try {
-      const next = await saveEngineSettings(toInput(draftSettings[engine]));
-      setSavedSettings((current) => (current ? { ...current, [engine]: next } : current));
-      setDraftSettings((current) => (current ? { ...current, [engine]: next } : current));
-      setSavedEngine(engine);
+      const next = await saveEngineSettings(toInput(draft));
+      setSavedSettings((current) =>
+        sortSettings([...current.filter((item) => item.id !== next.id), next]),
+      );
+      setDraftSettings((current) =>
+        sortSettings([...current.filter((item) => item.id !== next.id), next]),
+      );
+      setSavedEngineId(next.id);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
-      setSavingEngine(null);
+      setSavingEngineId(null);
     }
   }
 
-  function resetEngine(engine: EngineKind) {
-    if (!savedSettings) {
+  function resetEngine(settingsId: string) {
+    const saved = savedById.get(settingsId);
+    if (!saved) {
+      setDraftSettings((current) => current.filter((item) => item.id !== settingsId));
       return;
     }
 
     setDraftSettings((current) =>
-      current ? { ...current, [engine]: savedSettings[engine] } : current,
+      sortSettings(
+        current.map((item) => (item.id === settingsId ? { ...saved } : item)),
+      ),
     );
+  }
+
+  async function installLatest(settingsId: string) {
+    setInstallingEngineId(settingsId);
+    setError(null);
+
+    try {
+      const next = await installLatestEngine(settingsId);
+      setSavedSettings((current) =>
+        sortSettings([...current.filter((item) => item.id !== next.settings.id), next.settings]),
+      );
+      setDraftSettings((current) =>
+        sortSettings([...current.filter((item) => item.id !== next.settings.id), next.settings]),
+      );
+      setSavedEngineId(next.settings.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setInstallingEngineId(null);
+    }
   }
 
   return (
@@ -313,9 +464,7 @@ export default function EngineSettingsView() {
           <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
               <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-slate-950">
-                  Web 访问
-                </h2>
+                <h2 className="truncate text-sm font-semibold text-slate-950">Web 访问</h2>
                 <div className="mt-1 text-xs text-slate-500">
                   {draftAppSettings.webAccessEnabled
                     ? draftAppSettings.webAccessUrl
@@ -324,12 +473,7 @@ export default function EngineSettingsView() {
               </div>
 
               <div className="flex items-center gap-2">
-                {savedApp && (
-                  <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-800">
-                    <Check size={13} />
-                    已保存
-                  </span>
-                )}
+                {savedApp && <InstalledBadge label="已保存" />}
                 <SmallIconButton
                   title="撤销"
                   disabled={!appDirty || isSavingApp}
@@ -384,145 +528,186 @@ export default function EngineSettingsView() {
 
         {!isLoading &&
           ready &&
-          engineOrder.map((engine) => {
-            const draft = draftSettings[engine];
-            const saved = savedSettings[engine];
-            const dirty = isDirty(saved, draft);
-            const supports = new Set(draft.supportedSourceTypes);
-            const isQBittorrent = engine === "qbittorrent";
-            const usesConnection = engine === "aria2" || engine === "qbittorrent";
-            const usesExecutable = engine === "aria2" || engine === "yt-dlp";
-
-            return (
-              <article
-                key={engine}
-                className="rounded-lg border border-slate-200 bg-white shadow-sm"
-              >
-                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-sm font-semibold text-slate-950">
-                      {engineLabels[engine]}
-                    </h2>
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      {sourceTypes.map((sourceType) => {
-                        const supported = supports.has(sourceType);
-                        return (
-                          <label
-                            key={sourceType}
-                            className={classNames(
-                              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                              supported
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                                : "border-slate-200 bg-slate-50 text-slate-400",
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={supported}
-                              disabled
-                              className="h-3.5 w-3.5 accent-emerald-700"
-                              readOnly
-                            />
-                            {sourceLabels[sourceType]}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {savedEngine === engine && (
-                      <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-800">
-                        <Check size={13} />
-                        已保存
+          groupedSettings.map(({ engine, settings }) => (
+            <article key={engine} className="rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-semibold text-slate-950">
+                    {engineLabels[engine]}
+                  </h2>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {sourceTypes.map((sourceType) => (
+                      <span
+                        key={sourceType}
+                        className={classNames(
+                          "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
+                          settings.some((item) =>
+                            item.supportedSourceTypes.includes(sourceType),
+                          )
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-slate-200 bg-slate-50 text-slate-400",
+                        )}
+                      >
+                        {sourceLabels[sourceType]}
                       </span>
-                    )}
-                    <SmallIconButton
-                      title="撤销"
-                      disabled={!dirty || savingEngine === engine}
-                      onClick={() => resetEngine(engine)}
-                    >
-                      <RotateCcw size={15} />
-                    </SmallIconButton>
-                    <SmallIconButton
-                      title="保存"
-                      disabled={!dirty || savingEngine === engine}
-                      onClick={() => void saveEngine(engine)}
-                    >
-                      <Save size={15} />
-                    </SmallIconButton>
+                    ))}
                   </div>
                 </div>
 
-                <div className="grid gap-4 px-4 py-4 lg:grid-cols-[220px_1fr]">
-                  <div className="flex flex-col gap-3">
-                    <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
-                      <span className="font-medium">启用</span>
-                      <input
-                        type="checkbox"
-                        checked={draft.enabled}
-                        onChange={(event) =>
-                          updateDraft(engine, { enabled: event.currentTarget.checked })
-                        }
-                        className="h-4 w-4 accent-emerald-700"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {usesExecutable && (
-                      <Field
-                        label="可执行文件"
-                        value={draft.executablePath ?? ""}
-                        onChange={(value) => updateDraft(engine, { executablePath: value })}
-                      />
-                    )}
-                    <Field
-                      label="默认下载目录"
-                      value={draft.defaultDownloadDir}
-                      onChange={(value) =>
-                        updateDraft(engine, { defaultDownloadDir: value })
-                      }
-                    />
-                    {usesConnection && (
-                      <Field
-                        label="连接地址"
-                        value={draft.connectionUrl ?? ""}
-                        onChange={(value) => updateDraft(engine, { connectionUrl: value })}
-                      />
-                    )}
-                    {isQBittorrent && (
-                      <>
-                        <Field
-                          label="保存路径"
-                          value={draft.remotePath ?? ""}
-                          onChange={(value) => updateDraft(engine, { remotePath: value })}
-                        />
-                        <Field
-                          label="用户名"
-                          value={draft.username ?? ""}
-                          onChange={(value) => updateDraft(engine, { username: value })}
-                        />
-                        <Field
-                          label="密码"
-                          type="password"
-                          value={draft.password ?? ""}
-                          onChange={(value) => updateDraft(engine, { password: value })}
-                        />
-                      </>
-                    )}
-                    <div className="md:col-span-2">
-                      <TextAreaField
-                        label="默认参数"
-                        value={draft.defaultArgs}
-                        onChange={(value) => updateDraft(engine, { defaultArgs: value })}
-                      />
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    title={`添加 ${engineLabels[engine]} 配置`}
+                    aria-label={`添加 ${engineLabels[engine]} 配置`}
+                    onClick={() => addEngineSettings(engine)}
+                    className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <Plus size={15} />
+                  </button>
                 </div>
-              </article>
-            );
-          })}
+              </div>
+
+              <div className="flex flex-col gap-4 px-4 py-4">
+                {settings.length === 0 ? (
+                  <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
+                    暂无配置
+                  </div>
+                ) : (
+                  settings.map((draft) => {
+                    const saved = savedById.get(draft.id);
+                    const dirty = saved ? isDirty(saved, draft) : true;
+                    const usesConnection = draft.engine === "aria2" || draft.engine === "qbittorrent";
+                    const usesExecutable = draft.engine === "aria2" || draft.engine === "yt-dlp";
+                    const canInstall = usesExecutable && Boolean(saved);
+                    const isSaving = savingEngineId === draft.id;
+                    const isInstalling = installingEngineId === draft.id;
+
+                    return (
+                      <div
+                        key={draft.id}
+                        className="rounded-md border border-slate-200 bg-slate-50/60"
+                      >
+                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-slate-950">
+                              {draft.engine} / {draft.id}
+                            </div>
+                            <div className="mt-0.5 text-xs text-slate-500">
+                              {draft.updatedAt || "未保存"}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {savedEngineId === draft.id && <InstalledBadge label="已保存" />}
+                            <SmallIconButton
+                              title="撤销"
+                              disabled={!dirty || isSaving}
+                              onClick={() => resetEngine(draft.id)}
+                            >
+                              <RotateCcw size={15} />
+                            </SmallIconButton>
+                            <SmallIconButton
+                              title="保存"
+                              disabled={!dirty || isSaving}
+                              onClick={() => void saveEngine(draft.id)}
+                            >
+                              <Save size={15} />
+                            </SmallIconButton>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-4 px-3 py-3 lg:grid-cols-[220px_1fr]">
+                          <div className="flex flex-col gap-3">
+                            <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                              <span className="font-medium">启用</span>
+                              <input
+                                type="checkbox"
+                                checked={draft.enabled}
+                                onChange={(event) =>
+                                  updateDraft(draft.id, {
+                                    enabled: event.currentTarget.checked,
+                                  })
+                                }
+                                className="h-4 w-4 accent-emerald-700"
+                              />
+                            </label>
+
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            {usesExecutable && (
+                              <IconField
+                                label="可执行文件"
+                                value={draft.executablePath ?? ""}
+                              onChange={(value) =>
+                                  updateDraft(draft.id, { executablePath: value })
+                                }
+                                onClick={() => void installLatest(draft.id)}
+                                buttonTitle="下载最新版"
+                                buttonDisabled={isInstalling || !canInstall || dirty}
+                                buttonLabel={<Download size={15} />}
+                              />
+                            )}
+                            <Field
+                              label="默认下载目录"
+                              value={draft.defaultDownloadDir}
+                              onChange={(value) =>
+                                updateDraft(draft.id, { defaultDownloadDir: value })
+                              }
+                            />
+                            {usesConnection && (
+                              <Field
+                                label="连接地址"
+                                value={draft.connectionUrl ?? ""}
+                                onChange={(value) =>
+                                  updateDraft(draft.id, { connectionUrl: value })
+                                }
+                              />
+                            )}
+                            {draft.engine === "qbittorrent" && (
+                              <>
+                                <Field
+                                  label="保存路径"
+                                  value={draft.remotePath ?? ""}
+                                  onChange={(value) =>
+                                    updateDraft(draft.id, { remotePath: value })
+                                  }
+                                />
+                                <Field
+                                  label="用户名"
+                                  value={draft.username ?? ""}
+                                  onChange={(value) =>
+                                    updateDraft(draft.id, { username: value })
+                                  }
+                                />
+                                <Field
+                                  label="密码"
+                                  type="password"
+                                  value={draft.password ?? ""}
+                                  onChange={(value) =>
+                                    updateDraft(draft.id, { password: value })
+                                  }
+                                />
+                              </>
+                            )}
+                            <div className="md:col-span-2">
+                              <TextAreaField
+                                label="默认参数"
+                                value={draft.defaultArgs}
+                                onChange={(value) =>
+                                  updateDraft(draft.id, { defaultArgs: value })
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </article>
+          ))}
       </div>
     </section>
   );

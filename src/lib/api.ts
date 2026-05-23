@@ -5,6 +5,8 @@ import type {
   AppSettingsInput,
   CreateDownloadTaskInput,
   DownloadTask,
+  EngineInstallResult,
+  EngineKind,
   EngineSettings,
   EngineSettingsInput,
   SourceType,
@@ -14,11 +16,14 @@ export interface SystemOpenRequestPayload {
   sources: string[];
 }
 
-const previewEngineSettings: EngineSettings[] = [
+const defaultEngineDir = "%AppData%\\UniDL\\engines";
+
+let previewEngineSettings: EngineSettings[] = [
   {
+    id: "aria2",
     engine: "aria2",
     enabled: false,
-    executablePath: null,
+    executablePath: `${defaultEngineDir}\\aria2c.exe`,
     defaultDownloadDir: "",
     defaultArgs: "--continue=true",
     connectionUrl: "http://127.0.0.1:6800/jsonrpc",
@@ -29,9 +34,10 @@ const previewEngineSettings: EngineSettings[] = [
     updatedAt: "",
   },
   {
+    id: "yt-dlp",
     engine: "yt-dlp",
     enabled: false,
-    executablePath: null,
+    executablePath: `${defaultEngineDir}\\yt-dlp.exe`,
     defaultDownloadDir: "",
     defaultArgs: "--newline",
     connectionUrl: null,
@@ -42,6 +48,7 @@ const previewEngineSettings: EngineSettings[] = [
     updatedAt: "",
   },
   {
+    id: "qbittorrent",
     engine: "qbittorrent",
     enabled: false,
     executablePath: null,
@@ -50,7 +57,7 @@ const previewEngineSettings: EngineSettings[] = [
     connectionUrl: "http://127.0.0.1:8080",
     username: null,
     password: null,
-    remotePath: "",
+    remotePath: null,
     supportedSourceTypes: ["magnet", "torrent"],
     updatedAt: "",
   },
@@ -92,11 +99,34 @@ export function refreshDownloadTasks(): Promise<DownloadTask[]> {
 
 export function createDownloadTask(input: CreateDownloadTaskInput): Promise<DownloadTask> {
   if (!hasTauriRuntime()) {
+    const settings = input.engineSettingsId
+      ? previewEngineSettings.find((item) => item.id === input.engineSettingsId)
+      : previewEngineSettings.find(
+          (item) => item.engine === input.engine && item.enabled,
+        ) ?? previewEngineSettings.find((item) => item.engine === input.engine);
+    if (!settings) {
+      return Promise.reject(
+        new Error(
+          input.engineSettingsId
+            ? `Unknown engine settings: ${input.engineSettingsId}`
+            : `Unknown engine: ${input.engine}`,
+        ),
+      );
+    }
+    if (settings.engine !== input.engine) {
+      return Promise.reject(
+        new Error(
+          `engine settings ${settings.id} does not match ${input.engine}`,
+        ),
+      );
+    }
+
     return Promise.resolve({
       id: crypto.randomUUID(),
       sourceType: input.sourceType,
       source: input.source,
-      engine: input.engine,
+      engineSettingsId: settings.id,
+      engine: settings.engine,
       engineTaskId: null,
       fileName: input.fileName,
       status: "queued",
@@ -144,15 +174,59 @@ export function saveEngineSettings(
   settings: EngineSettingsInput,
 ): Promise<EngineSettings> {
   if (!hasTauriRuntime()) {
-    const preview = previewEngineSettings.find((item) => item.engine === settings.engine);
+    const preview = previewEngineSettings.find((item) => item.id === settings.id);
     if (!preview) {
-      return Promise.reject(new Error(`Unknown engine: ${settings.engine}`));
+      const next = cloneEngineSettings({
+        ...settings,
+        supportedSourceTypes: supportedSourceTypes(settings.engine),
+        updatedAt: new Date().toISOString(),
+      });
+      previewEngineSettings = [...previewEngineSettings, next];
+      return Promise.resolve(next);
     }
 
-    return Promise.resolve(cloneEngineSettings({ ...preview, ...settings }));
+    const next = cloneEngineSettings({
+      ...preview,
+      ...settings,
+      updatedAt: new Date().toISOString(),
+    });
+    previewEngineSettings = previewEngineSettings.map((item) =>
+      item.id === next.id ? next : item,
+    );
+    return Promise.resolve(next);
   }
 
   return invoke("save_engine_settings", { settings });
+}
+
+export function installLatestEngine(settingsId: string): Promise<EngineInstallResult> {
+  if (!hasTauriRuntime()) {
+    const settings = previewEngineSettings.find((item) => item.id === settingsId);
+    if (!settings) {
+      return Promise.reject(new Error(`Unknown engine settings: ${settingsId}`));
+    }
+    if (settings.engine === "qbittorrent") {
+      return Promise.reject(
+        new Error("qBittorrent does not have a managed executable"),
+      );
+    }
+
+    const executablePath =
+      settings.engine === "aria2"
+        ? `${defaultEngineDir}\\aria2c.exe`
+        : `${defaultEngineDir}\\yt-dlp.exe`;
+    const next = cloneEngineSettings({
+      ...settings,
+      executablePath,
+      updatedAt: new Date().toISOString(),
+    });
+    previewEngineSettings = previewEngineSettings.map((item) =>
+      item.id === next.id ? next : item,
+    );
+    return Promise.resolve({ settings: next, version: "preview" });
+  }
+
+  return invoke("install_latest_engine", { settingsId });
 }
 
 export function validateEngineSourceType(
@@ -195,4 +269,15 @@ function cloneEngineSettings(settings: EngineSettings): EngineSettings {
     ...settings,
     supportedSourceTypes: [...settings.supportedSourceTypes],
   };
+}
+
+function supportedSourceTypes(engine: EngineKind): SourceType[] {
+  switch (engine) {
+    case "aria2":
+      return ["http", "ftp", "magnet", "torrent"];
+    case "yt-dlp":
+      return ["http", "ftp"];
+    case "qbittorrent":
+      return ["magnet", "torrent"];
+  }
 }

@@ -37,6 +37,7 @@
   "bundle": {
     "active": false,
     "targets": "all",
+    "icon": ["icons/icon.ico"],
     "fileAssociations": [
       {
         "ext": ["torrent"],

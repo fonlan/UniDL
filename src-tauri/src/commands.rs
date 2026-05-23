@@ -3,7 +3,7 @@ use tauri::State;
 use crate::{
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineKind,
-        EngineSettings, EngineSettingsInput, SourceType,
+        EngineInstallResult, EngineSettings, EngineSettingsInput, SourceType,
     },
     services::{AppSettingsService, DownloadTaskService, EngineSettingsService},
     AppState,
@@ -135,6 +135,17 @@ pub fn save_engine_settings(
     let connection = state.lock_connection()?;
     EngineSettingsService::new(&connection)
         .save(settings)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn install_latest_engine(
+    settings_id: String,
+    state: State<'_, AppState>,
+) -> Result<EngineInstallResult, String> {
+    let connection = state.lock_connection()?;
+    EngineSettingsService::new(&connection)
+        .install_latest(&settings_id)
         .map_err(|error| error.to_string())
 }
 

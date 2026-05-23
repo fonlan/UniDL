@@ -5,9 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     engine_adapters,
+    engine_install,
     models::{
         engine_supports_source_type, AppSettings, AppSettingsInput, CreateDownloadTaskInput,
-        DownloadStatus, DownloadTask, EngineKind, EngineSettings, EngineSettingsInput, SourceType,
+        DownloadStatus, DownloadTask, EngineInstallResult, EngineKind, EngineSettings,
+        EngineSettingsInput, NewDownloadTask, SourceType,
     },
     repositories::{AppSettingsRepository, DownloadTaskRepository, EngineSettingsRepository},
 };
@@ -34,21 +36,30 @@ impl<'connection> DownloadTaskService<'connection> {
     pub fn create(&self, input: CreateDownloadTaskInput) -> Result<DownloadTask, Box<dyn Error>> {
         validate_create_task_input(&input)?;
 
-        let engine_settings = EngineSettingsRepository::new(self.connection).get(input.engine)?;
+        let engine_settings = self.resolve_engine_settings(&input)?;
         if !engine_settings.enabled {
-            return Err(format!("{} is disabled", input.engine.as_db()).into());
+            return Err(format!("{} is disabled", engine_settings.id).into());
         }
-        if !engine_supports_source_type(input.engine, input.source_type) {
+        if !engine_supports_source_type(engine_settings.engine, input.source_type) {
             return Err(format!(
                 "{} does not support {} tasks",
-                input.engine.as_db(),
+                engine_settings.engine.as_db(),
                 input.source_type.as_db()
             )
             .into());
         }
 
         let id = Uuid::new_v4().to_string();
-        self.repository.create(&id, &input)?;
+        let task_input = NewDownloadTask {
+            source_type: input.source_type,
+            source: input.source,
+            engine_settings_id: engine_settings.id.clone(),
+            engine: engine_settings.engine,
+            file_name: input.file_name,
+            save_path: input.save_path,
+            engine_args: input.engine_args,
+        };
+        self.repository.create(&id, &task_input)?;
         let task = self.repository.get_by_id(&id)?;
 
         match engine_adapters::add_task(&engine_settings, &task, self.database_path.clone()) {
@@ -85,7 +96,7 @@ impl<'connection> DownloadTaskService<'connection> {
     pub fn pause_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
             let engine_settings =
-                EngineSettingsRepository::new(self.connection).get(task.engine)?;
+                EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             match engine_adapters::pause_task(&engine_settings, &task) {
                 Ok(state) => self.apply_engine_state(&task.id, state)?,
                 Err(error) => {
@@ -100,7 +111,7 @@ impl<'connection> DownloadTaskService<'connection> {
     pub fn resume_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
             let engine_settings =
-                EngineSettingsRepository::new(self.connection).get(task.engine)?;
+                EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             match engine_adapters::resume_task(&engine_settings, &task) {
                 Ok(state) => self.apply_engine_state(&task.id, state)?,
                 Err(error) => {
@@ -115,7 +126,7 @@ impl<'connection> DownloadTaskService<'connection> {
     pub fn delete_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
             let engine_settings =
-                EngineSettingsRepository::new(self.connection).get(task.engine)?;
+                EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             match engine_adapters::delete_task(&engine_settings, &task) {
                 Ok(()) => self.repository.delete_tasks(&[task.id])?,
                 Err(error) => {
@@ -148,7 +159,8 @@ impl<'connection> DownloadTaskService<'connection> {
     }
 
     fn refresh_one(&self, task: &DownloadTask) -> Result<(), Box<dyn Error>> {
-        let engine_settings = EngineSettingsRepository::new(self.connection).get(task.engine)?;
+        let engine_settings =
+            EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
         let state = engine_adapters::refresh_task(&engine_settings, task)?;
         self.apply_engine_state(&task.id, state)
     }
@@ -167,6 +179,30 @@ impl<'connection> DownloadTaskService<'connection> {
             state.error_message.as_deref(),
         )?;
         Ok(())
+    }
+
+    fn resolve_engine_settings(
+        &self,
+        input: &CreateDownloadTaskInput,
+    ) -> Result<EngineSettings, Box<dyn Error>> {
+        if let Some(engine_settings_id) = input.engine_settings_id.as_deref() {
+            let settings = EngineSettingsRepository::new(self.connection).get(engine_settings_id)?;
+            if settings.engine != input.engine {
+                return Err(format!(
+                    "engine settings {} does not match {}",
+                    settings.id,
+                    input.engine.as_db()
+                )
+                .into());
+            }
+            return Ok(settings);
+        }
+
+        let settings = EngineSettingsRepository::new(self.connection).list_all()?;
+        settings
+            .into_iter()
+            .find(|settings| settings.engine == input.engine && settings.enabled)
+            .ok_or_else(|| format!("no enabled {} settings found", input.engine.as_db()).into())
     }
 }
 
@@ -230,6 +266,28 @@ impl<'connection> EngineSettingsService<'connection> {
         self.repository.save(&input)
     }
 
+    pub fn install_latest(&self, settings_id: &str) -> Result<EngineInstallResult, Box<dyn Error>> {
+        let current = self.repository.get(settings_id)?;
+        let installed = engine_install::install_latest(current.engine)?;
+        let next = self.repository.save(&EngineSettingsInput {
+            id: current.id,
+            engine: current.engine,
+            enabled: current.enabled,
+            executable_path: Some(installed.executable_path.to_string_lossy().into_owned()),
+            default_download_dir: current.default_download_dir,
+            default_args: current.default_args,
+            connection_url: current.connection_url,
+            username: current.username,
+            password: current.password,
+            remote_path: current.remote_path,
+        })?;
+
+        Ok(EngineInstallResult {
+            settings: next,
+            version: installed.version,
+        })
+    }
+
     pub fn validate_source_type(
         &self,
         engine: EngineKind,
@@ -272,6 +330,7 @@ mod tests {
 
         EngineSettingsService::new(&connection)
             .save(EngineSettingsInput {
+                id: "qbittorrent".to_string(),
                 engine: EngineKind::QBittorrent,
                 enabled: true,
                 executable_path: None,
@@ -289,7 +348,7 @@ mod tests {
             .create(CreateDownloadTaskInput {
                 source_type: SourceType::Magnet,
                 source: "magnet:?xt=urn:btih:ABCDEF123456&dn=unidl".to_string(),
-                engine: EngineKind::QBittorrent,
+                engine_settings_id: "qbittorrent".to_string(),
                 file_name: "unidl".to_string(),
                 save_path: "C:\\Downloads".to_string(),
                 engine_args: String::new(),

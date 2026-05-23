@@ -126,6 +126,7 @@ pub struct DownloadTask {
     pub id: String,
     pub source_type: SourceType,
     pub source: String,
+    pub engine_settings_id: String,
     pub engine: EngineKind,
     pub engine_task_id: Option<String>,
     pub file_name: String,
@@ -145,6 +146,18 @@ pub struct CreateDownloadTaskInput {
     pub source_type: SourceType,
     pub source: String,
     pub engine: EngineKind,
+    pub engine_settings_id: Option<String>,
+    pub file_name: String,
+    pub save_path: String,
+    pub engine_args: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewDownloadTask {
+    pub source_type: SourceType,
+    pub source: String,
+    pub engine_settings_id: String,
+    pub engine: EngineKind,
     pub file_name: String,
     pub save_path: String,
     pub engine_args: String,
@@ -153,6 +166,7 @@ pub struct CreateDownloadTaskInput {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSettings {
+    pub id: String,
     pub engine: EngineKind,
     pub enabled: bool,
     pub executable_path: Option<String>,
@@ -169,6 +183,7 @@ pub struct EngineSettings {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSettingsInput {
+    pub id: String,
     pub engine: EngineKind,
     pub enabled: bool,
     pub executable_path: Option<String>,
@@ -178,6 +193,13 @@ pub struct EngineSettingsInput {
     pub username: Option<String>,
     pub password: Option<String>,
     pub remote_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineInstallResult {
+    pub settings: EngineSettings,
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
