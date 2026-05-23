@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   Check,
-  Download,
   Minus,
   Pause,
   Play,
@@ -19,6 +18,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import logoUrl from "../logo.png";
 import {
   deleteDownloadTasks,
   pauseAllUnfinishedDownloadTasks,
@@ -339,18 +339,61 @@ function App() {
 
   return (
     <div className="flex h-screen min-h-[620px] flex-col bg-surface text-ink">
-      <header
-        data-tauri-drag-region
-        className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white"
-      >
-        <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center gap-2 px-4">
-          <div className="grid h-7 w-7 place-items-center rounded-md bg-emerald-700 text-white">
-            <Download size={16} strokeWidth={2.3} />
-          </div>
+      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white">
+        <div data-tauri-drag-region className="flex min-w-0 items-center gap-2 px-4">
+          <img src={logoUrl} alt="UniDL" className="h-7 w-7 rounded-md" />
           <div data-tauri-drag-region className="truncate text-sm font-semibold">
             UniDL
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {view === "tasks" ? (
+            <>
+              <IconButton
+                title="新建"
+                tone="primary"
+                onClick={() => openNewTaskDialog()}
+              >
+                <Plus size={18} />
+              </IconButton>
+              <IconButton
+                title={shouldResume ? "开始" : "暂停"}
+                disabled={toggleDisabled}
+                onClick={() => void togglePaused()}
+              >
+                {shouldResume ? <Play size={17} /> : <Pause size={17} />}
+              </IconButton>
+              <IconButton
+                title="删除"
+                tone="danger"
+                disabled={deleteDisabled}
+                onClick={() => void deleteSelectedTasks()}
+              >
+                <Trash2 size={17} />
+              </IconButton>
+              <IconButton
+                title="刷新"
+                disabled={isLoading}
+                onClick={() => void refreshTasks()}
+              >
+                <RefreshCw size={17} className={isLoading ? "animate-spin" : ""} />
+              </IconButton>
+            </>
+          ) : (
+            <IconButton title="返回" onClick={() => setView("tasks")}>
+              <ArrowLeft size={18} />
+            </IconButton>
+          )}
+
+          <IconButton
+            title="设置"
+            disabled={view === "settings"}
+            onClick={() => setView("settings")}
+          >
+            <Settings size={17} />
+          </IconButton>
+        </div>
+        <div data-tauri-drag-region className="min-w-0 flex-1" />
         <div className="flex h-full items-center">
           <button
             type="button"
@@ -383,59 +426,6 @@ function App() {
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col">
-        <section className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
-          <div className="flex items-center gap-2">
-            {view === "tasks" ? (
-              <>
-                <IconButton
-                  title="新建"
-                  tone="primary"
-                  onClick={() => openNewTaskDialog()}
-                >
-                  <Plus size={18} />
-                </IconButton>
-                <IconButton
-                  title={shouldResume ? "开始" : "暂停"}
-                  disabled={toggleDisabled}
-                  onClick={() => void togglePaused()}
-                >
-                  {shouldResume ? <Play size={17} /> : <Pause size={17} />}
-                </IconButton>
-                <IconButton
-                  title="删除"
-                  tone="danger"
-                  disabled={deleteDisabled}
-                  onClick={() => void deleteSelectedTasks()}
-                >
-                  <Trash2 size={17} />
-                </IconButton>
-              </>
-            ) : (
-              <IconButton title="返回" onClick={() => setView("tasks")}>
-                <ArrowLeft size={18} />
-              </IconButton>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {view === "tasks" && (
-              <IconButton
-                title="刷新"
-                disabled={isLoading}
-                onClick={() => void refreshTasks()}
-              >
-                <RefreshCw size={17} className={isLoading ? "animate-spin" : ""} />
-              </IconButton>
-            )}
-            <IconButton
-              title="设置"
-              disabled={view === "settings"}
-              onClick={() => setView("settings")}
-            >
-              <Settings size={17} />
-            </IconButton>
-          </div>
-        </section>
 
         {view === "tasks" && error && (
           <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
