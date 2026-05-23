@@ -20,9 +20,9 @@ import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import {
   deleteDownloadTasks,
-  listDownloadTasks,
   pauseAllUnfinishedDownloadTasks,
   pauseDownloadTasks,
+  refreshDownloadTasks,
   resumeAllPausedDownloadTasks,
   resumeDownloadTasks,
 } from "@/lib/api";
@@ -181,7 +181,7 @@ function App() {
     setError(null);
 
     try {
-      const nextTasks = await listDownloadTasks();
+      const nextTasks = await refreshDownloadTasks();
       setTasks(nextTasks);
       setSelectedIds((current) => {
         const nextIds = new Set(nextTasks.map((task) => task.id));

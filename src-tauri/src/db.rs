@@ -1,13 +1,16 @@
-use std::{error::Error, fs};
+use std::{error::Error, fs, path::PathBuf};
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
 
-pub fn connect(app: &AppHandle) -> Result<Connection, Box<dyn Error>> {
+pub fn database_path(app: &AppHandle) -> Result<PathBuf, Box<dyn Error>> {
     let data_dir = app.path().app_data_dir()?;
     fs::create_dir_all(&data_dir)?;
+    Ok(data_dir.join("unidl.sqlite3"))
+}
 
-    let connection = Connection::open(data_dir.join("unidl.sqlite3"))?;
+pub fn connect_path(path: PathBuf) -> Result<Connection, Box<dyn Error>> {
+    let connection = Connection::open(path)?;
     migrate(&connection)?;
     Ok(connection)
 }
@@ -70,9 +73,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     seed_engine_settings(connection)
 }
 
-fn migrate_engine_settings_default_args(
-    connection: &Connection,
-) -> Result<(), rusqlite::Error> {
+fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), rusqlite::Error> {
     let mut statement = connection.prepare("PRAGMA table_info(engine_settings)")?;
     let columns = statement.query_map([], |row| row.get::<_, String>("name"))?;
 
@@ -119,7 +120,7 @@ fn seed_engine_settings(connection: &Connection) -> Result<(), rusqlite::Error> 
             connection_url,
             remote_path
         ) VALUES
-            ('aria2', 0, '', '--continue=true', NULL, NULL),
+            ('aria2', 0, '', '--continue=true', 'http://127.0.0.1:6800/jsonrpc', NULL),
             ('yt-dlp', 0, '', '--newline', NULL, NULL),
             ('qbittorrent', 0, '', '', 'http://127.0.0.1:8080', '');
         "#,

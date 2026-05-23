@@ -15,7 +15,7 @@ const previewEngineSettings: EngineSettings[] = [
     executablePath: null,
     defaultDownloadDir: "",
     defaultArgs: "--continue=true",
-    connectionUrl: null,
+    connectionUrl: "http://127.0.0.1:6800/jsonrpc",
     username: null,
     password: null,
     remotePath: null,
@@ -60,6 +60,14 @@ export function listDownloadTasks(): Promise<DownloadTask[]> {
   }
 
   return invoke("list_download_tasks");
+}
+
+export function refreshDownloadTasks(): Promise<DownloadTask[]> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve([]);
+  }
+
+  return invoke("refresh_download_tasks");
 }
 
 export function createDownloadTask(input: CreateDownloadTaskInput): Promise<DownloadTask> {

@@ -254,6 +254,7 @@ export default function EngineSettingsView() {
             const dirty = isDirty(saved, draft);
             const supports = new Set(draft.supportedSourceTypes);
             const isQBittorrent = engine === "qbittorrent";
+            const usesConnection = engine === "aria2" || engine === "qbittorrent";
             const usesExecutable = engine === "aria2" || engine === "yt-dlp";
 
             return (
@@ -347,13 +348,15 @@ export default function EngineSettingsView() {
                         updateDraft(engine, { defaultDownloadDir: value })
                       }
                     />
+                    {usesConnection && (
+                      <Field
+                        label="连接地址"
+                        value={draft.connectionUrl ?? ""}
+                        onChange={(value) => updateDraft(engine, { connectionUrl: value })}
+                      />
+                    )}
                     {isQBittorrent && (
                       <>
-                        <Field
-                          label="连接地址"
-                          value={draft.connectionUrl ?? ""}
-                          onChange={(value) => updateDraft(engine, { connectionUrl: value })}
-                        />
                         <Field
                           label="保存路径"
                           value={draft.remotePath ?? ""}

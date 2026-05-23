@@ -1,22 +1,25 @@
 mod commands;
 mod db;
+mod engine_adapters;
 mod models;
 mod repositories;
 mod services;
 
-use std::sync::Mutex;
+use std::{path::PathBuf, sync::Mutex};
 
 use rusqlite::Connection;
 use tauri::Manager;
 
 pub struct AppState {
     connection: Mutex<Connection>,
+    database_path: PathBuf,
 }
 
 impl AppState {
-    fn new(connection: Connection) -> Self {
+    fn new(connection: Connection, database_path: PathBuf) -> Self {
         Self {
             connection: Mutex::new(connection),
+            database_path,
         }
     }
 
@@ -24,6 +27,10 @@ impl AppState {
         self.connection
             .lock()
             .map_err(|_| "database connection lock was poisoned".to_string())
+    }
+
+    fn database_path(&self) -> PathBuf {
+        self.database_path.clone()
     }
 }
 
@@ -36,12 +43,14 @@ pub fn run() {
             }
         }))
         .setup(|app| {
-            let connection = db::connect(app.handle())?;
-            app.manage(AppState::new(connection));
+            let database_path = db::database_path(app.handle())?;
+            let connection = db::connect_path(database_path.clone())?;
+            app.manage(AppState::new(connection, database_path));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_download_tasks,
+            commands::refresh_download_tasks,
             commands::create_download_task,
             commands::pause_download_tasks,
             commands::resume_download_tasks,

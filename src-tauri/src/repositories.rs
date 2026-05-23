@@ -184,6 +184,78 @@ impl<'connection> DownloadTaskRepository<'connection> {
         Ok(tasks)
     }
 
+    pub fn list_by_ids(&self, ids: &[String]) -> Result<Vec<DownloadTask>, Box<dyn Error>> {
+        let mut tasks = Vec::new();
+        for id in ids {
+            tasks.push(self.get_by_id(id)?);
+        }
+        Ok(tasks)
+    }
+
+    pub fn list_unfinished(&self) -> Result<Vec<DownloadTask>, Box<dyn Error>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT
+                id,
+                source_type,
+                source,
+                engine,
+                engine_task_id,
+                file_name,
+                status,
+                progress,
+                speed_bytes_per_sec,
+                save_path,
+                engine_args,
+                created_at,
+                completed_at,
+                error_message
+            FROM download_tasks
+            WHERE status IN ('queued', 'running')
+            ORDER BY datetime(created_at) DESC, created_at DESC
+            "#,
+        )?;
+
+        let mut rows = statement.query([])?;
+        let mut tasks = Vec::new();
+        while let Some(row) = rows.next()? {
+            tasks.push(read_download_task(row)?);
+        }
+        Ok(tasks)
+    }
+
+    pub fn list_paused(&self) -> Result<Vec<DownloadTask>, Box<dyn Error>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT
+                id,
+                source_type,
+                source,
+                engine,
+                engine_task_id,
+                file_name,
+                status,
+                progress,
+                speed_bytes_per_sec,
+                save_path,
+                engine_args,
+                created_at,
+                completed_at,
+                error_message
+            FROM download_tasks
+            WHERE status = 'paused'
+            ORDER BY datetime(created_at) DESC, created_at DESC
+            "#,
+        )?;
+
+        let mut rows = statement.query([])?;
+        let mut tasks = Vec::new();
+        while let Some(row) = rows.next()? {
+            tasks.push(read_download_task(row)?);
+        }
+        Ok(tasks)
+    }
+
     pub fn get_by_id(&self, id: &str) -> Result<DownloadTask, Box<dyn Error>> {
         let mut statement = self.connection.prepare(
             r#"
@@ -215,11 +287,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
         Err(format!("download task not found: {}", id).into())
     }
 
-    pub fn create(
-        &self,
-        id: &str,
-        input: &CreateDownloadTaskInput,
-    ) -> Result<(), rusqlite::Error> {
+    pub fn create(&self, id: &str, input: &CreateDownloadTaskInput) -> Result<(), rusqlite::Error> {
         self.connection.execute(
             r#"
             INSERT INTO download_tasks (
@@ -249,31 +317,58 @@ impl<'connection> DownloadTaskRepository<'connection> {
         Ok(())
     }
 
-    pub fn pause_tasks(&self, ids: &[String]) -> Result<(), rusqlite::Error> {
-        for id in ids {
-            self.connection.execute(
-                r#"
-                UPDATE download_tasks
-                SET status = ?1
-                WHERE id = ?2 AND status IN ('queued', 'running')
-                "#,
-                (DownloadStatus::Paused.as_db(), id),
-            )?;
-        }
+    pub fn update_engine_state(
+        &self,
+        id: &str,
+        status: DownloadStatus,
+        progress: f64,
+        speed_bytes_per_sec: i64,
+        engine_task_id: Option<&str>,
+        error_message: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let completed_at_sql = if status == DownloadStatus::Completed {
+            "datetime('now')"
+        } else {
+            "completed_at"
+        };
+        let sql = format!(
+            r#"
+            UPDATE download_tasks
+            SET
+                status = ?1,
+                progress = ?2,
+                speed_bytes_per_sec = ?3,
+                engine_task_id = COALESCE(?4, engine_task_id),
+                error_message = ?5,
+                completed_at = {}
+            WHERE id = ?6
+            "#,
+            completed_at_sql
+        );
+
+        self.connection.execute(
+            &sql,
+            (
+                status.as_db(),
+                progress,
+                speed_bytes_per_sec,
+                engine_task_id,
+                error_message,
+                id,
+            ),
+        )?;
         Ok(())
     }
 
-    pub fn resume_tasks(&self, ids: &[String]) -> Result<(), rusqlite::Error> {
-        for id in ids {
-            self.connection.execute(
-                r#"
-                UPDATE download_tasks
-                SET status = ?1
-                WHERE id = ?2 AND status = 'paused'
-                "#,
-                (DownloadStatus::Queued.as_db(), id),
-            )?;
-        }
+    pub fn mark_failed(&self, id: &str, error: &str) -> Result<(), rusqlite::Error> {
+        self.connection.execute(
+            r#"
+            UPDATE download_tasks
+            SET status = ?1, error_message = ?2
+            WHERE id = ?3
+            "#,
+            (DownloadStatus::Failed.as_db(), error, id),
+        )?;
         Ok(())
     }
 
@@ -288,30 +383,6 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 (DownloadStatus::Deleted.as_db(), id),
             )?;
         }
-        Ok(())
-    }
-
-    pub fn pause_all_unfinished(&self) -> Result<(), rusqlite::Error> {
-        self.connection.execute(
-            r#"
-            UPDATE download_tasks
-            SET status = ?1
-            WHERE status IN ('queued', 'running')
-            "#,
-            [DownloadStatus::Paused.as_db()],
-        )?;
-        Ok(())
-    }
-
-    pub fn resume_all_paused(&self) -> Result<(), rusqlite::Error> {
-        self.connection.execute(
-            r#"
-            UPDATE download_tasks
-            SET status = ?1
-            WHERE status = 'paused'
-            "#,
-            [DownloadStatus::Queued.as_db()],
-        )?;
         Ok(())
     }
 }

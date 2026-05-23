@@ -2,8 +2,8 @@ use tauri::State;
 
 use crate::{
     models::{
-        CreateDownloadTaskInput, DownloadTask, EngineKind, EngineSettings,
-        EngineSettingsInput, SourceType,
+        CreateDownloadTaskInput, DownloadTask, EngineKind, EngineSettings, EngineSettingsInput,
+        SourceType,
     },
     services::{DownloadTaskService, EngineSettingsService},
     AppState,
@@ -12,8 +12,16 @@ use crate::{
 #[tauri::command]
 pub fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .list_created_desc()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn refresh_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .refresh_all()
         .map_err(|error| error.to_string())
 }
 
@@ -23,7 +31,7 @@ pub fn create_download_task(
     state: State<'_, AppState>,
 ) -> Result<DownloadTask, String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .create(input)
         .map_err(|error| error.to_string())
 }
@@ -31,7 +39,7 @@ pub fn create_download_task(
 #[tauri::command]
 pub fn pause_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .pause_tasks(&ids)
         .map_err(|error| error.to_string())
 }
@@ -39,7 +47,7 @@ pub fn pause_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Res
 #[tauri::command]
 pub fn resume_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .resume_tasks(&ids)
         .map_err(|error| error.to_string())
 }
@@ -47,17 +55,15 @@ pub fn resume_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Re
 #[tauri::command]
 pub fn delete_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .delete_tasks(&ids)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn pause_all_unfinished_download_tasks(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub fn pause_all_unfinished_download_tasks(state: State<'_, AppState>) -> Result<(), String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .pause_all_unfinished()
         .map_err(|error| error.to_string())
 }
@@ -65,7 +71,7 @@ pub fn pause_all_unfinished_download_tasks(
 #[tauri::command]
 pub fn resume_all_paused_download_tasks(state: State<'_, AppState>) -> Result<(), String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection)
+    DownloadTaskService::new(&connection, state.database_path())
         .resume_all_paused()
         .map_err(|error| error.to_string())
 }
