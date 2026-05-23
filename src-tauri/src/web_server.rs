@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     error::Error,
-    io::Read,
+    io::{Cursor, Read},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -12,7 +12,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
+use tiny_http::{Header, Method, Request, Response, ResponseBox, Server, StatusCode};
 use uuid::Uuid;
 
 use crate::{db, models::CreateDownloadTaskInput, services::DownloadTaskService};
@@ -50,6 +50,7 @@ struct WebServerContext {
     database_path: PathBuf,
     password: String,
     sessions: Arc<Mutex<HashSet<String>>>,
+    stop: Arc<AtomicBool>,
 }
 
 #[derive(Deserialize)]
@@ -87,12 +88,16 @@ pub fn start(
         database_path,
         password,
         sessions: Arc::new(Mutex::new(HashSet::new())),
+        stop: Arc::clone(&stop),
     };
 
     let thread = thread::spawn(move || {
         while !thread_stop.load(Ordering::Relaxed) {
             match server.recv_timeout(Duration::from_millis(250)) {
-                Ok(Some(request)) => handle_request(request, &context),
+                Ok(Some(request)) => {
+                    let context = context.clone();
+                    thread::spawn(move || handle_request(request, &context));
+                }
                 Ok(None) => {}
                 Err(error) => eprintln!("web server request error: {error}"),
             }
@@ -148,7 +153,7 @@ fn handle_request(mut request: Request, context: &WebServerContext) {
 fn handle_login(
     request: &mut Request,
     context: &WebServerContext,
-) -> Result<Response<std::io::Cursor<Vec<u8>>>, Box<dyn Error>> {
+) -> Result<ResponseBox, Box<dyn Error>> {
     let input: LoginInput = read_json(request)?;
     if input.password != context.password {
         return json_response(
@@ -174,8 +179,9 @@ fn handle_authorized_request(
     context: &WebServerContext,
     method: &Method,
     path: &str,
-) -> Result<Response<std::io::Cursor<Vec<u8>>>, Box<dyn Error>> {
+) -> Result<ResponseBox, Box<dyn Error>> {
     match (method, path) {
+        (&Method::Get, "/api/events") => Ok(event_stream_response(context)),
         (&Method::Get, "/api/tasks") => with_task_service(context, |service| {
             json_response(StatusCode(200), &service.list_created_desc()?)
         }),
@@ -218,6 +224,56 @@ fn handle_authorized_request(
     }
 }
 
+struct TaskEventStream {
+    database_path: PathBuf,
+    stop: Arc<AtomicBool>,
+    buffer: Cursor<Vec<u8>>,
+    sent_once: bool,
+}
+
+impl TaskEventStream {
+    fn new(database_path: PathBuf, stop: Arc<AtomicBool>) -> Self {
+        Self {
+            database_path,
+            stop,
+            buffer: Cursor::new(Vec::new()),
+            sent_once: false,
+        }
+    }
+
+    fn next_event(&mut self) -> std::io::Result<Vec<u8>> {
+        if self.sent_once {
+            thread::sleep(Duration::from_secs(2));
+        }
+        self.sent_once = true;
+
+        let payload = match self.load_tasks() {
+            Ok(tasks) => serde_json::json!({ "tasks": tasks }),
+            Err(error) => serde_json::json!({ "error": error.to_string() }),
+        };
+        let data = serde_json::to_string(&payload).map_err(std::io::Error::other)?;
+        Ok(format!("event: tasks\ndata: {data}\n\n").into_bytes())
+    }
+
+    fn load_tasks(&self) -> Result<Vec<crate::models::DownloadTask>, Box<dyn Error>> {
+        let connection = db::connect_path(self.database_path.clone())?;
+        DownloadTaskService::new(&connection, self.database_path.clone()).refresh_all()
+    }
+}
+
+impl Read for TaskEventStream {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        while self.buffer.position() as usize >= self.buffer.get_ref().len() {
+            if self.stop.load(Ordering::Relaxed) {
+                return Ok(0);
+            }
+            self.buffer = Cursor::new(self.next_event()?);
+        }
+
+        self.buffer.read(output)
+    }
+}
+
 fn with_task_service<T>(
     context: &WebServerContext,
     run: impl FnOnce(&DownloadTaskService<'_>) -> Result<T, Box<dyn Error>>,
@@ -256,24 +312,43 @@ fn is_authorized(request: &Request, context: &WebServerContext) -> bool {
         .unwrap_or(false)
 }
 
-fn empty_json_response() -> Result<Response<std::io::Cursor<Vec<u8>>>, Box<dyn Error>> {
+fn event_stream_response(context: &WebServerContext) -> ResponseBox {
+    let stream = TaskEventStream::new(context.database_path.clone(), Arc::clone(&context.stop));
+    with_cors(
+        Response::new(
+            StatusCode(200),
+            vec![
+                header("content-type", "text/event-stream"),
+                header("cache-control", "no-cache"),
+            ],
+            stream,
+            None,
+            None,
+        )
+        .with_chunked_threshold(1),
+    )
+    .boxed()
+}
+
+fn empty_json_response() -> Result<ResponseBox, Box<dyn Error>> {
     json_response(StatusCode(200), &serde_json::json!({}))
 }
 
-fn empty_response(status: StatusCode) -> Response<std::io::Cursor<Vec<u8>>> {
-    with_cors(Response::from_data(Vec::new()).with_status_code(status))
+fn empty_response(status: StatusCode) -> ResponseBox {
+    with_cors(Response::from_data(Vec::new()).with_status_code(status)).boxed()
 }
 
 fn json_response<T: Serialize>(
     status: StatusCode,
     value: &T,
-) -> Result<Response<std::io::Cursor<Vec<u8>>>, Box<dyn Error>> {
+) -> Result<ResponseBox, Box<dyn Error>> {
     let body = serde_json::to_vec(value)?;
     Ok(with_cors(
         Response::from_data(body)
             .with_status_code(status)
             .with_header(header("content-type", "application/json")),
     ))
+    .map(Response::boxed)
 }
 
 fn with_cors<R: Read>(response: Response<R>) -> Response<R> {
