@@ -81,7 +81,15 @@ pub fn start(
     database_path: PathBuf,
     password: String,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
-    let server = Server::http(WEB_BIND_ADDRESS)?;
+    start_on(WEB_BIND_ADDRESS, database_path, password)
+}
+
+fn start_on(
+    bind_address: &str,
+    database_path: PathBuf,
+    password: String,
+) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
+    let server = Server::http(bind_address)?;
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
     let context = WebServerContext {
@@ -363,4 +371,82 @@ fn with_cors<R: Read>(response: Response<R>) -> Response<R> {
 
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("invalid HTTP header")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, net::TcpListener, path::PathBuf};
+
+    use reqwest::{blocking::Client, StatusCode};
+    use serde_json::Value;
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::db;
+
+    #[test]
+    fn local_api_requires_login_and_lists_tasks() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        drop(connection);
+
+        let bind_address = free_bind_address();
+        let base_url = format!("http://{bind_address}");
+        let handle = start_on(&bind_address, database_path.clone(), "secret".to_string())
+            .expect("web server should start");
+        let client = Client::new();
+
+        let health = client
+            .get(format!("{base_url}/api/health"))
+            .send()
+            .expect("health request should succeed");
+        assert_eq!(health.status(), StatusCode::OK);
+
+        let unauthorized = client
+            .get(format!("{base_url}/api/tasks"))
+            .send()
+            .expect("tasks request should complete");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let rejected = client
+            .post(format!("{base_url}/api/login"))
+            .json(&serde_json::json!({ "password": "wrong" }))
+            .send()
+            .expect("login request should complete");
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+        let login: Value = client
+            .post(format!("{base_url}/api/login"))
+            .json(&serde_json::json!({ "password": "secret" }))
+            .send()
+            .expect("login request should complete")
+            .json()
+            .expect("login response should be json");
+        let token = login["token"].as_str().expect("login should return token");
+
+        let tasks: Value = client
+            .get(format!("{base_url}/api/tasks"))
+            .bearer_auth(token)
+            .send()
+            .expect("authorized tasks request should complete")
+            .json()
+            .expect("tasks response should be json");
+        assert_eq!(tasks.as_array().expect("tasks should be an array").len(), 0);
+
+        handle.stop();
+        let _ = fs::remove_file(database_path);
+    }
+
+    fn free_bind_address() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test port should bind");
+        let address = listener
+            .local_addr()
+            .expect("test port should have address");
+        drop(listener);
+        address.to_string()
+    }
+
+    fn temp_database_path() -> PathBuf {
+        std::env::temp_dir().join(format!("unidl-test-{}.sqlite3", Uuid::new_v4()))
+    }
 }

@@ -78,3 +78,26 @@ fn is_torrent_path(value: &str) -> bool {
     let clean = value.split(['?', '#']).next().unwrap_or(value);
     clean.ends_with(".torrent")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_open_sources_keeps_only_magnet_and_torrent_inputs() {
+        let sources = parse_open_sources([
+            "unidl.exe",
+            "magnet:?xt=urn:btih:ABC",
+            "\"C:\\Downloads\\demo.torrent\"",
+            "https://example.com/file.zip",
+        ]);
+
+        assert_eq!(
+            sources,
+            vec![
+                "magnet:?xt=urn:btih:ABC".to_string(),
+                "C:\\Downloads\\demo.torrent".to_string(),
+            ]
+        );
+    }
+}
