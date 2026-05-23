@@ -89,14 +89,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username,
                 password,
                 remote_path,
+                priority,
                 updated_at
             FROM engine_settings
-            ORDER BY CASE engine
-                WHEN 'aria2' THEN 1
-                WHEN 'yt-dlp' THEN 2
-                WHEN 'qbittorrent' THEN 3
-                ELSE 4
-            END,
+            ORDER BY priority ASC,
             datetime(created_at) ASC,
             id ASC
             "#,
@@ -127,9 +123,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username,
                 password,
                 remote_path,
+                priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -140,6 +137,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username = excluded.username,
                 password = excluded.password,
                 remote_path = excluded.remote_path,
+                priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
             (
@@ -154,6 +152,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 input.username.as_deref(),
                 input.password.as_deref(),
                 input.remote_path.as_deref(),
+                input.priority,
             ),
         )?;
 
@@ -175,6 +174,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 username,
                 password,
                 remote_path,
+                priority,
                 updated_at
             FROM engine_settings
             WHERE id = ?1
@@ -233,6 +233,7 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         password: row.get("password")?,
         remote_path: row.get("remote_path")?,
         supported_source_types: supported_source_types(engine),
+        priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })
 }

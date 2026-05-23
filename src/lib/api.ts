@@ -56,11 +56,12 @@ export function refreshDownloadTasks(): Promise<DownloadTask[]> {
 
 export function createDownloadTask(input: CreateDownloadTaskInput): Promise<DownloadTask> {
   if (!hasTauriRuntime()) {
+    const engineSettings = sortEngineSettings(previewEngineSettings);
     const settings = input.engineSettingsId
-      ? previewEngineSettings.find((item) => item.id === input.engineSettingsId)
-      : previewEngineSettings.find(
+      ? engineSettings.find((item) => item.id === input.engineSettingsId)
+      : engineSettings.find(
           (item) => item.engine === input.engine && item.enabled,
-        ) ?? previewEngineSettings.find((item) => item.engine === input.engine);
+        ) ?? engineSettings.find((item) => item.engine === input.engine);
     if (!settings) {
       return Promise.reject(
         new Error(
@@ -102,7 +103,7 @@ export function createDownloadTask(input: CreateDownloadTaskInput): Promise<Down
 
 export function listEngineSettings(): Promise<EngineSettings[]> {
   if (!hasTauriRuntime()) {
-    return Promise.resolve(previewEngineSettings.map(cloneEngineSettings));
+    return Promise.resolve(sortEngineSettings(previewEngineSettings).map(cloneEngineSettings));
   }
 
   return invoke("list_engine_settings");
@@ -244,6 +245,15 @@ function cloneEngineSettings(settings: EngineSettings): EngineSettings {
     ...settings,
     supportedSourceTypes: [...settings.supportedSourceTypes],
   };
+}
+
+function sortEngineSettings(settings: EngineSettings[]) {
+  return [...settings].sort((left, right) => {
+    if (left.priority !== right.priority) {
+      return left.priority - right.priority;
+    }
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function supportedSourceTypes(engine: EngineKind): SourceType[] {

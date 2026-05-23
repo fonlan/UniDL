@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { DragEvent as ReactDragEvent, ReactNode } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Check,
   ChevronDown,
   Download,
   Globe2,
+  GripVertical,
   HardDrive,
   Plus,
   RotateCcw,
@@ -88,22 +89,25 @@ function defaultEngineSettings(engine: EngineKind): EngineSettings {
     password: null,
     remotePath: engine === "qbittorrent" ? "" : null,
     supportedSourceTypes: supportedSourceTypes(engine),
+    priority: 0,
     updatedAt: "",
   };
 }
 
 function sortSettings(settings: EngineSettings[]) {
   return [...settings].sort((left, right) => {
-    const leftIndex = engineOrder.indexOf(left.engine);
-    const rightIndex = engineOrder.indexOf(right.engine);
-    if (leftIndex !== rightIndex) {
-      return leftIndex - rightIndex;
+    if (left.priority !== right.priority) {
+      return left.priority - right.priority;
     }
 
     const leftKey = `${left.updatedAt || ""}${left.id}`;
     const rightKey = `${right.updatedAt || ""}${right.id}`;
     return leftKey.localeCompare(rightKey);
   });
+}
+
+function assignPriorities(settings: EngineSettings[]) {
+  return settings.map((item, index) => ({ ...item, priority: index }));
 }
 
 function emptyToNull(value: string) {
@@ -124,6 +128,7 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     username: emptyToNull(settings.username ?? ""),
     password: emptyToNull(settings.password ?? ""),
     remotePath: emptyToNull(settings.remotePath ?? ""),
+    priority: settings.priority,
   };
 }
 
@@ -283,12 +288,14 @@ export default function EngineSettingsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isSavingApp, setIsSavingApp] = useState(false);
+  const [isSavingEngines, setIsSavingEngines] = useState(false);
   const [savingEngineId, setSavingEngineId] = useState<string | null>(null);
   const [deletingEngineId, setDeletingEngineId] = useState<string | null>(null);
   const [installingEngineId, setInstallingEngineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedApp, setSavedApp] = useState(false);
   const [savedEngineId, setSavedEngineId] = useState<string | null>(null);
+  const [draggedEngineId, setDraggedEngineId] = useState<string | null>(null);
 
   const ready = Boolean(savedAppSettings && draftAppSettings);
   const appDirty =
@@ -313,15 +320,6 @@ export default function EngineSettingsView() {
   const hasDirtySettings = appDirty || dirtySettings;
   const engineSettingsCount = draftSettings.length;
 
-  const groupedSettings = useMemo(
-    () =>
-      engineOrder.map((engine) => ({
-        engine,
-        settings: draftSettings.filter((item) => item.engine === engine),
-      })),
-    [draftSettings],
-  );
-
   useEffect(() => {
     async function loadSettings() {
       setIsLoading(true);
@@ -332,7 +330,7 @@ export default function EngineSettingsView() {
           listEngineSettings(),
           getAppSettings(),
         ]);
-        const nextSettings = sortSettings(settings);
+        const nextSettings = assignPriorities(sortSettings(settings));
         setSavedSettings(nextSettings);
         setDraftSettings(nextSettings.map((item) => ({ ...item })));
         setSavedAppSettings(appSettings);
@@ -383,17 +381,58 @@ export default function EngineSettingsView() {
 
   function updateDraft(settingsId: string, patch: Partial<EngineSettings>) {
     setDraftSettings((current) =>
-      sortSettings(
-        current.map((item) => (item.id === settingsId ? { ...item, ...patch } : item)),
-      ),
+      current.map((item) => (item.id === settingsId ? { ...item, ...patch } : item)),
     );
   }
 
   function addEngineSettings(engine: EngineKind) {
-    const next = defaultEngineSettings(engine);
     setSavedEngineId(null);
     setIsAddMenuOpen(false);
-    setDraftSettings((current) => sortSettings([...current, next]));
+    setDraftSettings((current) => {
+      const next = { ...defaultEngineSettings(engine), priority: current.length };
+      return assignPriorities([...sortSettings(current), next]);
+    });
+  }
+
+  function reorderEngineSettings(sourceId: string, targetId: string) {
+    if (sourceId === targetId) {
+      return;
+    }
+
+    setSavedEngineId(null);
+    setDraftSettings((current) => {
+      const ordered = sortSettings(current);
+      const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
+      const targetIndex = ordered.findIndex((item) => item.id === targetId);
+      if (sourceIndex === -1 || targetIndex === -1) {
+        return current;
+      }
+
+      const next = [...ordered];
+      const [source] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, source);
+      return assignPriorities(next);
+    });
+  }
+
+  function handleDragStart(event: ReactDragEvent<HTMLDivElement>, settingsId: string) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", settingsId);
+    setDraggedEngineId(settingsId);
+  }
+
+  function handleDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleDrop(event: ReactDragEvent<HTMLDivElement>, targetId: string) {
+    event.preventDefault();
+    const sourceId = event.dataTransfer.getData("text/plain") || draggedEngineId;
+    if (sourceId) {
+      reorderEngineSettings(sourceId, targetId);
+    }
+    setDraggedEngineId(null);
   }
 
   async function deleteEngine(settingsId: string) {
@@ -455,6 +494,32 @@ export default function EngineSettingsView() {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setSavingEngineId(null);
+    }
+  }
+
+  async function saveAllEngines() {
+    setIsSavingEngines(true);
+    setError(null);
+    setSavedEngineId(null);
+
+    try {
+      const saved: EngineSettings[] = [];
+      for (const draft of sortSettings(draftSettings)) {
+        const current = savedById.get(draft.id);
+        if (!current || isDirty(current, draft)) {
+          saved.push(await saveEngineSettings(toInput(draft)));
+        } else {
+          saved.push(draft);
+        }
+      }
+
+      const nextSettings = assignPriorities(sortSettings(saved));
+      setSavedSettings(nextSettings);
+      setDraftSettings(nextSettings.map((item) => ({ ...item })));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setIsSavingEngines(false);
     }
   }
 
@@ -634,7 +699,25 @@ export default function EngineSettingsView() {
                       </div>
                     </div>
 
-                    <div className="relative">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!dirtySettings || isSavingEngines}
+                        onClick={() => void saveAllEngines()}
+                        className={classNames(
+                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                          (!dirtySettings || isSavingEngines) &&
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          dirtySettings &&
+                            !isSavingEngines &&
+                            "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+                        )}
+                      >
+                        <Save size={15} />
+                        <span>保存全部</span>
+                      </button>
+
+                      <div className="relative">
                       <button
                         type="button"
                         title="添加下载引擎"
@@ -661,48 +744,29 @@ export default function EngineSettingsView() {
                           ))}
                         </div>
                       )}
+                      </div>
                     </div>
                   </div>
 
-                  {groupedSettings.map(({ engine, settings }) => (
-                    <article
-                      key={engine}
-                      className="rounded-lg border border-slate-200 bg-white shadow-sm"
-                    >
-                      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                        <div className="min-w-0">
-                          <h2 className="truncate text-sm font-semibold text-slate-950">
-                            {engineLabels[engine]}
-                          </h2>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            {sourceTypes.map((sourceType) => (
-                              <span
-                                key={sourceType}
-                                className={classNames(
-                                  "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                                  supportedSourceTypes(engine).includes(sourceType)
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                                    : "border-slate-200 bg-slate-50 text-slate-400",
-                                )}
-                              >
-                                {sourceLabels[sourceType]}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="text-xs text-slate-500">
-                          {settings.length} 个
+                  <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                      <div className="min-w-0">
+                        <h2 className="truncate text-sm font-semibold text-slate-950">
+                          下载引擎优先级
+                        </h2>
+                        <div className="mt-1 text-xs text-slate-500">
+                          拖拽调整顺序，越靠上优先级越高
                         </div>
                       </div>
+                    </div>
 
-                      <div className="flex flex-col gap-4 px-4 py-4">
-                        {settings.length === 0 ? (
-                          <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
-                            暂无配置
-                          </div>
-                        ) : (
-                          settings.map((draft) => {
+                    <div className="flex flex-col gap-4 px-4 py-4">
+                      {draftSettings.length === 0 ? (
+                        <div className="grid min-h-24 place-items-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
+                          暂无配置
+                        </div>
+                      ) : (
+                        sortSettings(draftSettings).map((draft, index) => {
                             const saved = savedById.get(draft.id);
                             const dirty = saved ? isDirty(saved, draft) : true;
                             const usesConnection =
@@ -718,16 +782,30 @@ export default function EngineSettingsView() {
                             return (
                               <div
                                 key={draft.id}
+                                draggable
+                                onDragStart={(event) => handleDragStart(event, draft.id)}
+                                onDragEnd={() => setDraggedEngineId(null)}
+                                onDragOver={handleDragOver}
+                                onDrop={(event) => handleDrop(event, draft.id)}
                                 className="rounded-md border border-slate-200 bg-slate-50/60"
                               >
                                 <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-medium text-slate-950">
-                                      {draft.name}
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <GripVertical
+                                      size={16}
+                                      className="shrink-0 cursor-grab text-slate-400"
+                                    />
+                                    <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600">
+                                      {index + 1}
                                     </div>
-                                    <div className="mt-0.5 text-xs text-slate-500">
-                                      {engineLabels[draft.engine]} / {draft.id} /{" "}
-                                      {draft.updatedAt || "未保存"}
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-medium text-slate-950">
+                                        {draft.name}
+                                      </div>
+                                      <div className="mt-0.5 text-xs text-slate-500">
+                                        {engineLabels[draft.engine]} / {draft.id} /{" "}
+                                        {draft.updatedAt || "未保存"}
+                                      </div>
                                     </div>
                                   </div>
 
@@ -761,6 +839,21 @@ export default function EngineSettingsView() {
 
                                 <div className="grid gap-4 px-3 py-3 lg:grid-cols-[220px_1fr]">
                                   <div className="flex flex-col gap-3">
+                                    <div className="flex flex-wrap gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+                                      {sourceTypes.map((sourceType) => (
+                                        <span
+                                          key={sourceType}
+                                          className={classNames(
+                                            "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
+                                            draft.supportedSourceTypes.includes(sourceType)
+                                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                              : "border-slate-200 bg-slate-50 text-slate-400",
+                                          )}
+                                        >
+                                          {sourceLabels[sourceType]}
+                                        </span>
+                                      ))}
+                                    </div>
                                     <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
                                       <span className="font-medium">启用</span>
                                       <input
@@ -852,11 +945,10 @@ export default function EngineSettingsView() {
                                 </div>
                               </div>
                             );
-                          })
-                        )}
-                      </div>
-                    </article>
-                  ))}
+                        })
+                      )}
+                    </div>
+                  </article>
                 </div>
               )}
             </div>

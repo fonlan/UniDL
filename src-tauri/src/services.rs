@@ -296,6 +296,7 @@ impl<'connection> EngineSettingsService<'connection> {
             username: current.username,
             password: current.password,
             remote_path: current.remote_path,
+            priority: current.priority,
         })?;
 
         Ok(EngineInstallResult {
@@ -371,6 +372,7 @@ mod tests {
                 username: None,
                 password: None,
                 remote_path: None,
+                priority: 0,
             })
             .expect("engine settings should save");
         assert_eq!(saved.name, "aria2");
@@ -388,6 +390,7 @@ mod tests {
                 username: saved.username,
                 password: saved.password,
                 remote_path: saved.remote_path,
+                priority: saved.priority,
             })
             .expect("engine settings should rename");
         assert_eq!(renamed.name, "fast aria2");
@@ -457,6 +460,7 @@ mod tests {
                 username: Some("admin".to_string()),
                 password: Some("adminadmin".to_string()),
                 remote_path: Some(String::new()),
+                priority: 0,
             })
             .expect("qBittorrent settings should save");
 

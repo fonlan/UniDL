@@ -51,6 +51,7 @@ export interface EngineSettings {
   password: string | null;
   remotePath: string | null;
   supportedSourceTypes: SourceType[];
+  priority: number;
   updatedAt: string;
 }
 

@@ -32,6 +32,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             username TEXT,
             password TEXT,
             remote_path TEXT,
+            priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -74,6 +75,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_default_args(connection)?;
     migrate_engine_settings_ids(connection)?;
     migrate_engine_settings_name(connection)?;
+    migrate_engine_settings_priority(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     seed_app_settings(connection)
@@ -117,6 +119,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             username TEXT,
             password TEXT,
             remote_path TEXT,
+            priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -133,6 +136,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             username,
             password,
             remote_path,
+            priority,
             created_at,
             updated_at
         )
@@ -148,6 +152,12 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             username,
             password,
             remote_path,
+            CASE engine
+                WHEN 'aria2' THEN 0
+                WHEN 'yt-dlp' THEN 1
+                WHEN 'qbittorrent' THEN 2
+                ELSE 3
+            END,
             created_at,
             updated_at
         FROM engine_settings_legacy;
@@ -170,6 +180,27 @@ fn migrate_engine_settings_name(connection: &Connection) -> Result<(), rusqlite:
         UPDATE engine_settings
         SET name = engine
         WHERE name = '';
+        "#,
+    )
+}
+
+fn migrate_engine_settings_priority(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "engine_settings", "priority")? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE engine_settings
+            ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+
+        UPDATE engine_settings
+        SET priority = CASE engine
+            WHEN 'aria2' THEN 0
+            WHEN 'yt-dlp' THEN 1
+            WHEN 'qbittorrent' THEN 2
+            ELSE 3
+        END;
         "#,
     )
 }
