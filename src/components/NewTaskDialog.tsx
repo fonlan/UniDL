@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ClipboardEvent, DragEvent } from "react";
-import { FilePlus, X } from "lucide-react";
+import { FilePlus, FolderOpen, X } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { createDownloadTask, listEngineSettings } from "@/lib/api";
 import type {
@@ -163,6 +164,7 @@ export default function NewTaskDialog({
     fileName.trim().length > 0 &&
     savePath.trim().length > 0 &&
     !isCreating;
+  const canSelectLocalSavePath = selectedSettings?.engine !== "qbittorrent";
 
   useEffect(() => {
     if (!open) {
@@ -281,6 +283,19 @@ export default function NewTaskDialog({
     }
   }
 
+  async function selectSavePath() {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath: savePath.trim() || undefined,
+      title: "选择下载目录",
+    });
+
+    if (typeof selected === "string") {
+      setSavePath(selected);
+    }
+  }
+
   if (!open) {
     return null;
   }
@@ -376,16 +391,28 @@ export default function NewTaskDialog({
                 </select>
               </label>
 
-              <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+              <div className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
                 <span className="font-medium">
                   {selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
                 </span>
-                <input
-                  value={savePath}
-                  onChange={(event) => setSavePath(event.currentTarget.value)}
-                  className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-                />
-              </label>
+                <div className="flex min-w-0 gap-2">
+                  <input
+                    value={savePath}
+                    onChange={(event) => setSavePath(event.currentTarget.value)}
+                    className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                  />
+                  {canSelectLocalSavePath && (
+                    <button
+                      type="button"
+                      onClick={() => void selectSavePath()}
+                      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <FolderOpen size={15} />
+                      选择
+                    </button>
+                  )}
+                </div>
+              </div>
 
               <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700 md:col-span-2">
                 <span className="font-medium">参数</span>
