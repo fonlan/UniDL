@@ -22,6 +22,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
             executable_path TEXT,
             default_download_dir TEXT NOT NULL DEFAULT '',
+            default_args TEXT NOT NULL DEFAULT '',
             connection_url TEXT,
             username TEXT,
             password TEXT,
@@ -51,6 +52,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             progress REAL NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
             speed_bytes_per_sec INTEGER NOT NULL DEFAULT 0 CHECK (speed_bytes_per_sec >= 0),
             save_path TEXT NOT NULL,
+            engine_args TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             completed_at TEXT,
             error_message TEXT
@@ -60,6 +62,66 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             ON download_tasks (created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_download_tasks_status
             ON download_tasks (status);
+        "#,
+    )?;
+
+    migrate_engine_settings_default_args(connection)?;
+    migrate_download_tasks_engine_args(connection)?;
+    seed_engine_settings(connection)
+}
+
+fn migrate_engine_settings_default_args(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
+    let mut statement = connection.prepare("PRAGMA table_info(engine_settings)")?;
+    let columns = statement.query_map([], |row| row.get::<_, String>("name"))?;
+
+    for column in columns {
+        if column? == "default_args" {
+            return Ok(());
+        }
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE engine_settings
+            ADD COLUMN default_args TEXT NOT NULL DEFAULT '';
+        "#,
+    )
+}
+
+fn migrate_download_tasks_engine_args(connection: &Connection) -> Result<(), rusqlite::Error> {
+    let mut statement = connection.prepare("PRAGMA table_info(download_tasks)")?;
+    let columns = statement.query_map([], |row| row.get::<_, String>("name"))?;
+
+    for column in columns {
+        if column? == "engine_args" {
+            return Ok(());
+        }
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE download_tasks
+            ADD COLUMN engine_args TEXT NOT NULL DEFAULT '';
+        "#,
+    )
+}
+
+fn seed_engine_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
+    connection.execute_batch(
+        r#"
+        INSERT OR IGNORE INTO engine_settings (
+            engine,
+            enabled,
+            default_download_dir,
+            default_args,
+            connection_url,
+            remote_path
+        ) VALUES
+            ('aria2', 0, '', '--continue=true', NULL, NULL),
+            ('yt-dlp', 0, '', '--newline', NULL, NULL),
+            ('qbittorrent', 0, '', '', 'http://127.0.0.1:8080', '');
         "#,
     )
 }

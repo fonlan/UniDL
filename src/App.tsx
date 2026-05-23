@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  ArrowLeft,
   Check,
   Download,
   Minus,
@@ -15,6 +16,8 @@ import {
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import EngineSettingsView from "@/components/EngineSettingsView";
+import NewTaskDialog from "@/components/NewTaskDialog";
 import {
   deleteDownloadTasks,
   listDownloadTasks,
@@ -153,6 +156,8 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
 }
 
 function App() {
+  const [view, setView] = useState<"tasks" | "settings">("tasks");
+  const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -250,6 +255,11 @@ function App() {
     }
   }
 
+  function handleTaskCreated(task: DownloadTask) {
+    setView("tasks");
+    setTasks((current) => [task, ...current]);
+  }
+
   return (
     <div className="flex h-screen min-h-[620px] flex-col bg-surface text-ink">
       <header
@@ -298,48 +308,69 @@ function App() {
       <main className="flex min-h-0 flex-1 flex-col">
         <section className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
           <div className="flex items-center gap-2">
-            <IconButton title="新建" tone="primary" disabled>
-              <Plus size={18} />
-            </IconButton>
-            <IconButton
-              title={shouldResume ? "开始" : "暂停"}
-              disabled={toggleDisabled}
-              onClick={() => void togglePaused()}
-            >
-              {shouldResume ? <Play size={17} /> : <Pause size={17} />}
-            </IconButton>
-            <IconButton
-              title="删除"
-              tone="danger"
-              disabled={deleteDisabled}
-              onClick={() => void deleteSelectedTasks()}
-            >
-              <Trash2 size={17} />
-            </IconButton>
+            {view === "tasks" ? (
+              <>
+                <IconButton
+                  title="新建"
+                  tone="primary"
+                  onClick={() => setShowNewTaskDialog(true)}
+                >
+                  <Plus size={18} />
+                </IconButton>
+                <IconButton
+                  title={shouldResume ? "开始" : "暂停"}
+                  disabled={toggleDisabled}
+                  onClick={() => void togglePaused()}
+                >
+                  {shouldResume ? <Play size={17} /> : <Pause size={17} />}
+                </IconButton>
+                <IconButton
+                  title="删除"
+                  tone="danger"
+                  disabled={deleteDisabled}
+                  onClick={() => void deleteSelectedTasks()}
+                >
+                  <Trash2 size={17} />
+                </IconButton>
+              </>
+            ) : (
+              <IconButton title="返回" onClick={() => setView("tasks")}>
+                <ArrowLeft size={18} />
+              </IconButton>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {view === "tasks" && (
+              <IconButton
+                title="刷新"
+                disabled={isLoading}
+                onClick={() => void refreshTasks()}
+              >
+                <RefreshCw size={17} className={isLoading ? "animate-spin" : ""} />
+              </IconButton>
+            )}
             <IconButton
-              title="刷新"
-              disabled={isLoading}
-              onClick={() => void refreshTasks()}
+              title="设置"
+              disabled={view === "settings"}
+              onClick={() => setView("settings")}
             >
-              <RefreshCw size={17} className={isLoading ? "animate-spin" : ""} />
-            </IconButton>
-            <IconButton title="设置" disabled>
               <Settings size={17} />
             </IconButton>
           </div>
         </section>
 
-        {error && (
+        {view === "tasks" && error && (
           <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
             {error}
           </div>
         )}
 
-        <section className="min-h-0 flex-1 overflow-auto">
-          <table className="min-w-[1120px] table-fixed border-separate border-spacing-0 text-left text-sm">
+        {view === "settings" ? (
+          <EngineSettingsView />
+        ) : (
+          <section className="min-h-0 flex-1 overflow-auto">
+            <table className="min-w-[1120px] table-fixed border-separate border-spacing-0 text-left text-sm">
             <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-normal text-slate-600">
               <tr>
                 <th className="w-12 border-b border-slate-200 px-4 py-3">
@@ -436,15 +467,22 @@ function App() {
                 );
               })}
             </tbody>
-          </table>
+            </table>
 
-          {!isLoading && tasks.length === 0 && (
-            <div className="grid h-[calc(100vh-180px)] min-h-[320px] place-items-center text-sm text-slate-500">
-              暂无任务
-            </div>
-          )}
-        </section>
+            {!isLoading && tasks.length === 0 && (
+              <div className="grid h-[calc(100vh-180px)] min-h-[320px] place-items-center text-sm text-slate-500">
+                暂无任务
+              </div>
+            )}
+          </section>
+        )}
       </main>
+
+      <NewTaskDialog
+        open={showNewTaskDialog}
+        onClose={() => setShowNewTaskDialog(false)}
+        onCreated={handleTaskCreated}
+      />
     </div>
   );
 }

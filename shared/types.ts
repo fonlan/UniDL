@@ -21,7 +21,36 @@ export interface DownloadTask {
   progress: number;
   speedBytesPerSec: number;
   savePath: string;
+  engineArgs: string;
   createdAt: string;
   completedAt: string | null;
   errorMessage: string | null;
 }
+
+export interface CreateDownloadTaskInput {
+  sourceType: SourceType;
+  source: string;
+  engine: EngineKind;
+  fileName: string;
+  savePath: string;
+  engineArgs: string;
+}
+
+export interface EngineSettings {
+  engine: EngineKind;
+  enabled: boolean;
+  executablePath: string | null;
+  defaultDownloadDir: string;
+  defaultArgs: string;
+  connectionUrl: string | null;
+  username: string | null;
+  password: string | null;
+  remotePath: string | null;
+  supportedSourceTypes: SourceType[];
+  updatedAt: string;
+}
+
+export type EngineSettingsInput = Omit<
+  EngineSettings,
+  "supportedSourceTypes" | "updatedAt"
+>;
