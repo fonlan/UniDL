@@ -12,6 +12,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tiny_http::{Header, Method, Request, Response, ResponseBox, Server, StatusCode};
 use uuid::Uuid;
 
@@ -19,6 +20,7 @@ use crate::{
     db,
     models::{AppSettings, CreateDownloadTaskInput, SourceType},
     services::DownloadTaskService,
+    system_open,
 };
 
 pub const WEB_ACCESS_URL: &str = "http://127.0.0.1:18080";
@@ -51,7 +53,9 @@ impl Drop for WebServerHandle {
 
 #[derive(Clone)]
 struct WebServerContext {
+    app_handle: Option<tauri::AppHandle>,
     database_path: PathBuf,
+    pending_open_sources: Arc<Mutex<Vec<String>>>,
     web_access_enabled: bool,
     password: String,
     sessions: Arc<Mutex<HashSet<String>>>,
@@ -86,27 +90,45 @@ struct ExtensionTaskInput {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ExtensionTaskOutput {
+    file_name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ErrorOutput {
     error: String,
 }
 
 pub fn start(
+    app_handle: tauri::AppHandle,
     database_path: PathBuf,
+    pending_open_sources: Arc<Mutex<Vec<String>>>,
     settings: &AppSettings,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
-    start_on(WEB_BIND_ADDRESS, database_path, settings)
+    start_on(
+        WEB_BIND_ADDRESS,
+        Some(app_handle),
+        database_path,
+        pending_open_sources,
+        settings,
+    )
 }
 
 fn start_on(
     bind_address: &str,
+    app_handle: Option<tauri::AppHandle>,
     database_path: PathBuf,
+    pending_open_sources: Arc<Mutex<Vec<String>>>,
     settings: &AppSettings,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
     let server = Server::http(bind_address)?;
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
     let context = WebServerContext {
+        app_handle,
         database_path,
+        pending_open_sources,
         web_access_enabled: settings.web_access_enabled,
         password: settings.web_access_password.clone(),
         sessions: Arc::new(Mutex::new(HashSet::new())),
@@ -210,12 +232,33 @@ fn handle_extension_task(
     context: &WebServerContext,
 ) -> Result<ResponseBox, Box<dyn Error>> {
     let input: ExtensionTaskInput = read_json(request)?;
-    with_task_service(context, |service| {
-        json_response(
-            StatusCode(200),
-            &service.create_from_extension(input.source_type, input.source, input.file_name)?,
-        )
-    })
+    let source = input.source.trim().to_string();
+    let file_name = input.file_name.trim().to_string();
+    let _ = input.source_type;
+
+    if source.is_empty() {
+        return Err("download source is required".into());
+    }
+    if file_name.is_empty() {
+        return Err("file name is required".into());
+    }
+
+    let sources = vec![source];
+    context
+        .pending_open_sources
+        .lock()
+        .map_err(|_| "system open request lock was poisoned")?
+        .extend(sources.clone());
+
+    if let Some(app_handle) = &context.app_handle {
+        system_open::emit_open_sources(app_handle, sources)?;
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }
+
+    json_response(StatusCode(200), &ExtensionTaskOutput { file_name })
 }
 
 fn handle_authorized_request(
@@ -413,11 +456,9 @@ fn header(name: &str, value: &str) -> Header {
 mod tests {
     use std::{
         fs,
-        io::Write,
         net::TcpListener,
         path::PathBuf,
         sync::{Arc, Mutex},
-        thread,
     };
 
     use reqwest::{blocking::Client, StatusCode};
@@ -425,11 +466,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::{
-        db,
-        models::{EngineKind, EngineSettingsInput},
-        services::EngineSettingsService,
-    };
+    use crate::db;
 
     #[test]
     fn local_api_requires_login_and_lists_tasks() {
@@ -439,9 +476,12 @@ mod tests {
 
         let bind_address = free_bind_address();
         let base_url = format!("http://{bind_address}");
+        let pending_open_sources = Arc::new(Mutex::new(Vec::new()));
         let handle = start_on(
             &bind_address,
+            None,
             database_path.clone(),
+            Arc::clone(&pending_open_sources),
             &app_settings(true, "secret"),
         )
         .expect("web server should start");
@@ -489,34 +529,19 @@ mod tests {
     }
 
     #[test]
-    fn extension_task_endpoint_uses_app_engine_settings_without_login() {
-        let (qbittorrent_url, hits, server) = start_fake_qbittorrent(2);
+    fn extension_task_endpoint_queues_source_for_new_task_dialog_without_login() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
-        EngineSettingsService::new(&connection)
-            .save(EngineSettingsInput {
-                id: "qbittorrent".to_string(),
-                engine: EngineKind::QBittorrent,
-                name: "qBittorrent".to_string(),
-                enabled: true,
-                executable_path: None,
-                default_download_dir: "C:\\Downloads".to_string(),
-                default_args: String::new(),
-                connection_url: Some(qbittorrent_url),
-                username: Some("admin".to_string()),
-                password: Some("adminadmin".to_string()),
-                remote_path: Some(String::new()),
-                supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
-                priority: 0,
-            })
-            .expect("qBittorrent settings should save");
         drop(connection);
 
         let bind_address = free_bind_address();
         let base_url = format!("http://{bind_address}");
+        let pending_open_sources = Arc::new(Mutex::new(Vec::new()));
         let handle = start_on(
             &bind_address,
+            None,
             database_path.clone(),
+            Arc::clone(&pending_open_sources),
             &app_settings(false, "secret"),
         )
         .expect("web server should start");
@@ -547,14 +572,16 @@ mod tests {
             .json()
             .expect("extension task response should be json");
 
-        assert_eq!(task["engine"], "qbittorrent");
-        assert_eq!(task["engineSettingsId"], "qbittorrent");
-        assert_eq!(task["savePath"], "C:\\Downloads");
+        assert_eq!(task["fileName"], "unidl");
+        assert_eq!(
+            pending_open_sources
+                .lock()
+                .expect("pending sources should lock")
+                .as_slice(),
+            &["magnet:?xt=urn:btih:ABCDEF123456&dn=unidl".to_string()]
+        );
 
         handle.stop();
-        server.join().expect("fake qBittorrent should finish");
-        let paths = hits.lock().expect("hits should lock").clone();
-        assert_eq!(paths, vec!["/api/v2/auth/login", "/api/v2/torrents/add"]);
         let _ = fs::remove_file(database_path);
     }
 
@@ -577,36 +604,5 @@ mod tests {
             web_access_password: password.to_string(),
             web_access_url: WEB_ACCESS_URL.to_string(),
         }
-    }
-
-    fn start_fake_qbittorrent(
-        expected_requests: usize,
-    ) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("fake server should bind");
-        let address = listener
-            .local_addr()
-            .expect("fake server should have address");
-        let hits = Arc::new(Mutex::new(Vec::new()));
-        let server_hits = Arc::clone(&hits);
-        let server = thread::spawn(move || {
-            for stream in listener.incoming().take(expected_requests) {
-                let mut stream = stream.expect("fake server stream should open");
-                let mut buffer = [0_u8; 4096];
-                let read = stream.read(&mut buffer).expect("request should read");
-                let request = String::from_utf8_lossy(&buffer[..read]);
-                let path = request
-                    .lines()
-                    .next()
-                    .and_then(|line| line.split_whitespace().nth(1))
-                    .expect("request should include path")
-                    .to_string();
-                server_hits.lock().expect("hits should lock").push(path);
-                stream
-                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                    .expect("response should write");
-            }
-        });
-
-        (format!("http://{address}"), hits, server)
     }
 }

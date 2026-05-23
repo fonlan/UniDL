@@ -8,7 +8,10 @@ mod services;
 mod system_open;
 mod web_server;
 
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use rusqlite::Connection;
 use tauri::Manager;
@@ -18,7 +21,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 pub struct AppState {
     connection: Mutex<Connection>,
     database_path: PathBuf,
-    pending_open_sources: Mutex<Vec<String>>,
+    pending_open_sources: Arc<Mutex<Vec<String>>>,
     web_server: Mutex<Option<web_server::WebServerHandle>>,
 }
 
@@ -31,7 +34,7 @@ impl AppState {
         Self {
             connection: Mutex::new(connection),
             database_path,
-            pending_open_sources: Mutex::new(pending_open_sources),
+            pending_open_sources: Arc::new(Mutex::new(pending_open_sources)),
             web_server: Mutex::new(None),
         }
     }
@@ -63,7 +66,11 @@ impl AppState {
         Ok(std::mem::take(&mut *pending))
     }
 
-    fn apply_web_settings(&self, settings: &models::AppSettings) -> Result<(), String> {
+    fn apply_web_settings(
+        &self,
+        app_handle: tauri::AppHandle,
+        settings: &models::AppSettings,
+    ) -> Result<(), String> {
         let mut web_server = self
             .web_server
             .lock()
@@ -73,8 +80,13 @@ impl AppState {
             current.stop();
         }
 
-        let next =
-            web_server::start(self.database_path(), settings).map_err(|error| error.to_string())?;
+        let next = web_server::start(
+            app_handle,
+            self.database_path(),
+            Arc::clone(&self.pending_open_sources),
+            settings,
+        )
+        .map_err(|error| error.to_string())?;
         *web_server = Some(next);
 
         Ok(())
@@ -115,7 +127,7 @@ pub fn run() {
                 pending_open_sources,
             ));
             app.state::<AppState>()
-                .apply_web_settings(&app_settings)
+                .apply_web_settings(app.handle().clone(), &app_settings)
                 .map_err(std::io::Error::other)?;
             Ok(())
         })

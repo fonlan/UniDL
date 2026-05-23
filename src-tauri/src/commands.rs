@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     models::{
@@ -92,6 +92,7 @@ pub fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettings, Strin
 #[tauri::command]
 pub fn save_app_settings(
     settings: AppSettingsInput,
+    app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AppSettings, String> {
     AppSettingsService::validate_input(&settings).map_err(|error| error.to_string())?;
@@ -102,7 +103,7 @@ pub fn save_app_settings(
         .map_err(|error| error.to_string())?;
     drop(connection);
 
-    state.apply_web_settings(&next)?;
+    state.apply_web_settings(app_handle, &next)?;
 
     Ok(next)
 }
