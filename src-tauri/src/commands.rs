@@ -2,10 +2,10 @@ use tauri::State;
 
 use crate::{
     models::{
-        CreateDownloadTaskInput, DownloadTask, EngineKind, EngineSettings, EngineSettingsInput,
-        SourceType,
+        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineKind,
+        EngineSettings, EngineSettingsInput, SourceType,
     },
-    services::{DownloadTaskService, EngineSettingsService},
+    services::{AppSettingsService, DownloadTaskService, EngineSettingsService},
     AppState,
 };
 
@@ -79,6 +79,44 @@ pub fn resume_all_paused_download_tasks(state: State<'_, AppState>) -> Result<()
     DownloadTaskService::new(&connection, state.database_path())
         .resume_all_paused()
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
+    let connection = state.lock_connection()?;
+    AppSettingsService::new(&connection)
+        .get()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_app_settings(
+    settings: AppSettingsInput,
+    state: State<'_, AppState>,
+) -> Result<AppSettings, String> {
+    AppSettingsService::validate_input(&settings).map_err(|error| error.to_string())?;
+
+    let candidate = AppSettings {
+        web_access_enabled: settings.web_access_enabled,
+        web_access_password: settings.web_access_password.clone(),
+        web_access_url: crate::web_server::WEB_ACCESS_URL.to_string(),
+    };
+
+    if candidate.web_access_enabled {
+        state.apply_web_settings(&candidate)?;
+    }
+
+    let connection = state.lock_connection()?;
+    let next = AppSettingsService::new(&connection)
+        .save(settings)
+        .map_err(|error| error.to_string())?;
+    drop(connection);
+
+    if !next.web_access_enabled {
+        state.apply_web_settings(&next)?;
+    }
+
+    Ok(next)
 }
 
 #[tauri::command]

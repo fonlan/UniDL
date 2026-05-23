@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type {
+  AppSettings,
+  AppSettingsInput,
   CreateDownloadTaskInput,
   DownloadTask,
   EngineSettings,
@@ -53,6 +55,12 @@ const previewEngineSettings: EngineSettings[] = [
     updatedAt: "",
   },
 ];
+
+const previewAppSettings: AppSettings = {
+  webAccessEnabled: false,
+  webAccessPassword: "",
+  webAccessUrl: "http://127.0.0.1:18080",
+};
 
 function hasTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -111,6 +119,25 @@ export function listEngineSettings(): Promise<EngineSettings[]> {
   }
 
   return invoke("list_engine_settings");
+}
+
+export function getAppSettings(): Promise<AppSettings> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve({ ...previewAppSettings });
+  }
+
+  return invoke("get_app_settings");
+}
+
+export function saveAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve({
+      ...previewAppSettings,
+      ...settings,
+    });
+  }
+
+  return invoke("save_app_settings", { settings });
 }
 
 export function saveEngineSettings(

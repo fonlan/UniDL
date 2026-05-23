@@ -54,3 +54,11 @@ export type EngineSettingsInput = Omit<
   EngineSettings,
   "supportedSourceTypes" | "updatedAt"
 >;
+
+export interface AppSettings {
+  webAccessEnabled: boolean;
+  webAccessPassword: string;
+  webAccessUrl: string;
+}
+
+export type AppSettingsInput = Omit<AppSettings, "webAccessUrl">;

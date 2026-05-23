@@ -2,8 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Check, RotateCcw, Save } from "lucide-react";
 
-import { listEngineSettings, saveEngineSettings } from "@/lib/api";
+import {
+  getAppSettings,
+  listEngineSettings,
+  saveAppSettings,
+  saveEngineSettings,
+} from "@/lib/api";
 import type {
+  AppSettings,
+  AppSettingsInput,
   EngineKind,
   EngineSettings,
   EngineSettingsInput,
@@ -59,6 +66,17 @@ function toMap(settings: EngineSettings[]): EngineSettingsMap {
 
 function isDirty(saved: EngineSettings, draft: EngineSettings) {
   return JSON.stringify(toInput(saved)) !== JSON.stringify(toInput(draft));
+}
+
+function toAppInput(settings: AppSettings): AppSettingsInput {
+  return {
+    webAccessEnabled: settings.webAccessEnabled,
+    webAccessPassword: settings.webAccessPassword,
+  };
+}
+
+function isAppDirty(saved: AppSettings, draft: AppSettings) {
+  return JSON.stringify(toAppInput(saved)) !== JSON.stringify(toAppInput(draft));
 }
 
 function Field({
@@ -138,22 +156,28 @@ function SmallIconButton({
 }
 
 export default function EngineSettingsView() {
+  const [savedAppSettings, setSavedAppSettings] = useState<AppSettings | null>(null);
+  const [draftAppSettings, setDraftAppSettings] = useState<AppSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<EngineSettingsMap | null>(null);
   const [draftSettings, setDraftSettings] = useState<EngineSettingsMap | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSavingApp, setIsSavingApp] = useState(false);
   const [savingEngine, setSavingEngine] = useState<EngineKind | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedApp, setSavedApp] = useState(false);
   const [savedEngine, setSavedEngine] = useState<EngineKind | null>(null);
 
-  const ready = savedSettings && draftSettings;
+  const ready = savedSettings && draftSettings && savedAppSettings && draftAppSettings;
+  const appDirty = ready ? isAppDirty(savedAppSettings, draftAppSettings) : false;
   const hasDirtySettings = useMemo(() => {
     if (!ready) {
       return false;
     }
-    return engineOrder.some((engine) =>
-      isDirty(savedSettings[engine], draftSettings[engine]),
+    return (
+      appDirty ||
+      engineOrder.some((engine) => isDirty(savedSettings[engine], draftSettings[engine]))
     );
-  }, [draftSettings, ready, savedSettings]);
+  }, [appDirty, draftSettings, ready, savedSettings]);
 
   useEffect(() => {
     async function loadSettings() {
@@ -161,10 +185,15 @@ export default function EngineSettingsView() {
       setError(null);
 
       try {
-        const settings = await listEngineSettings();
+        const [settings, appSettings] = await Promise.all([
+          listEngineSettings(),
+          getAppSettings(),
+        ]);
         const next = toMap(settings);
         setSavedSettings(next);
         setDraftSettings(next);
+        setSavedAppSettings(appSettings);
+        setDraftAppSettings(appSettings);
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       } finally {
@@ -174,6 +203,40 @@ export default function EngineSettingsView() {
 
     void loadSettings();
   }, []);
+
+  function updateAppDraft(patch: Partial<AppSettings>) {
+    setSavedApp(false);
+    setDraftAppSettings((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  async function saveAppAccess() {
+    if (!draftAppSettings) {
+      return;
+    }
+
+    setIsSavingApp(true);
+    setError(null);
+    setSavedApp(false);
+
+    try {
+      const next = await saveAppSettings(toAppInput(draftAppSettings));
+      setSavedAppSettings(next);
+      setDraftAppSettings(next);
+      setSavedApp(true);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setIsSavingApp(false);
+    }
+  }
+
+  function resetAppAccess() {
+    if (!savedAppSettings) {
+      return;
+    }
+
+    setDraftAppSettings(savedAppSettings);
+  }
 
   function updateDraft(engine: EngineKind, patch: Partial<EngineSettings>) {
     setDraftSettings((current) => {
@@ -227,7 +290,7 @@ export default function EngineSettingsView() {
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4">
         <div className="flex min-h-10 items-center justify-between gap-3">
           <div>
-            <h1 className="text-base font-semibold text-slate-950">引擎设置</h1>
+            <h1 className="text-base font-semibold text-slate-950">设置</h1>
             <div className="mt-1 text-xs text-slate-500">
               {hasDirtySettings ? "有未保存更改" : "配置已同步"}
             </div>
@@ -244,6 +307,79 @@ export default function EngineSettingsView() {
           <div className="grid min-h-[320px] place-items-center text-sm text-slate-500">
             加载中
           </div>
+        )}
+
+        {!isLoading && savedAppSettings && draftAppSettings && (
+          <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold text-slate-950">
+                  Web 访问
+                </h2>
+                <div className="mt-1 text-xs text-slate-500">
+                  {draftAppSettings.webAccessEnabled
+                    ? draftAppSettings.webAccessUrl
+                    : "未启用"}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {savedApp && (
+                  <span className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-800">
+                    <Check size={13} />
+                    已保存
+                  </span>
+                )}
+                <SmallIconButton
+                  title="撤销"
+                  disabled={!appDirty || isSavingApp}
+                  onClick={resetAppAccess}
+                >
+                  <RotateCcw size={15} />
+                </SmallIconButton>
+                <SmallIconButton
+                  title="保存"
+                  disabled={!appDirty || isSavingApp}
+                  onClick={() => void saveAppAccess()}
+                >
+                  <Save size={15} />
+                </SmallIconButton>
+              </div>
+            </div>
+
+            <div className="grid gap-4 px-4 py-4 lg:grid-cols-[220px_1fr]">
+              <div className="flex flex-col gap-3">
+                <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                  <span className="font-medium">启用</span>
+                  <input
+                    type="checkbox"
+                    checked={draftAppSettings.webAccessEnabled}
+                    onChange={(event) =>
+                      updateAppDraft({ webAccessEnabled: event.currentTarget.checked })
+                    }
+                    className="h-4 w-4 accent-emerald-700"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                  <span className="font-medium">访问地址</span>
+                  <input
+                    value={draftAppSettings.webAccessUrl}
+                    readOnly
+                    className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
+                  />
+                </label>
+                <Field
+                  label="访问密码"
+                  type="password"
+                  value={draftAppSettings.webAccessPassword}
+                  onChange={(value) => updateAppDraft({ webAccessPassword: value })}
+                />
+              </div>
+            </div>
+          </article>
         )}
 
         {!isLoading &&

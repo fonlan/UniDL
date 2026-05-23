@@ -70,7 +70,8 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
 
     migrate_engine_settings_default_args(connection)?;
     migrate_download_tasks_engine_args(connection)?;
-    seed_engine_settings(connection)
+    seed_engine_settings(connection)?;
+    seed_app_settings(connection)
 }
 
 fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), rusqlite::Error> {
@@ -123,6 +124,16 @@ fn seed_engine_settings(connection: &Connection) -> Result<(), rusqlite::Error> 
             ('aria2', 0, '', '--continue=true', 'http://127.0.0.1:6800/jsonrpc', NULL),
             ('yt-dlp', 0, '', '--newline', NULL, NULL),
             ('qbittorrent', 0, '', '', 'http://127.0.0.1:8080', '');
+        "#,
+    )
+}
+
+fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
+    connection.execute_batch(
+        r#"
+        INSERT OR IGNORE INTO app_settings (key, value) VALUES
+            ('web_access_enabled', '0'),
+            ('web_access_password', '');
         "#,
     )
 }

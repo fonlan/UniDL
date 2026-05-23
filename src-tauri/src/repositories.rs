@@ -3,16 +3,70 @@ use std::error::Error;
 use rusqlite::Connection;
 
 use crate::models::{
-    supported_source_types, CreateDownloadTaskInput, DownloadStatus, DownloadTask, EngineKind,
-    EngineSettings, EngineSettingsInput, SourceType,
+    supported_source_types, AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadStatus,
+    DownloadTask, EngineKind, EngineSettings, EngineSettingsInput, SourceType,
 };
 
 pub struct DownloadTaskRepository<'connection> {
     connection: &'connection Connection,
 }
 
+pub struct AppSettingsRepository<'connection> {
+    connection: &'connection Connection,
+}
+
 pub struct EngineSettingsRepository<'connection> {
     connection: &'connection Connection,
+}
+
+impl<'connection> AppSettingsRepository<'connection> {
+    pub fn new(connection: &'connection Connection) -> Self {
+        Self { connection }
+    }
+
+    pub fn get(&self) -> Result<AppSettings, Box<dyn Error>> {
+        Ok(AppSettings {
+            web_access_enabled: self.get_value("web_access_enabled")? == "1",
+            web_access_password: self.get_value("web_access_password")?,
+            web_access_url: crate::web_server::WEB_ACCESS_URL.to_string(),
+        })
+    }
+
+    pub fn save(&self, input: &AppSettingsInput) -> Result<AppSettings, Box<dyn Error>> {
+        self.save_value(
+            "web_access_enabled",
+            if input.web_access_enabled { "1" } else { "0" },
+        )?;
+        self.save_value("web_access_password", &input.web_access_password)?;
+        self.get()
+    }
+
+    fn get_value(&self, key: &str) -> Result<String, Box<dyn Error>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT value FROM app_settings WHERE key = ?1")?;
+        let mut rows = statement.query([key])?;
+
+        if let Some(row) = rows.next()? {
+            return Ok(row.get("value")?);
+        }
+
+        Err(format!("app setting not found: {key}").into())
+    }
+
+    fn save_value(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
+        self.connection.execute(
+            r#"
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?1, ?2, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            "#,
+            (key, value),
+        )?;
+        Ok(())
+    }
 }
 
 impl<'connection> EngineSettingsRepository<'connection> {

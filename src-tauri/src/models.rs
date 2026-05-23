@@ -180,6 +180,21 @@ pub struct EngineSettingsInput {
     pub remote_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub web_access_enabled: bool,
+    pub web_access_password: String,
+    pub web_access_url: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsInput {
+    pub web_access_enabled: bool,
+    pub web_access_password: String,
+}
+
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {
     match engine {
         EngineKind::Aria2 => vec![

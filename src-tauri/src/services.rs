@@ -6,10 +6,10 @@ use uuid::Uuid;
 use crate::{
     engine_adapters,
     models::{
-        engine_supports_source_type, CreateDownloadTaskInput, DownloadStatus, DownloadTask,
-        EngineKind, EngineSettings, EngineSettingsInput, SourceType,
+        engine_supports_source_type, AppSettings, AppSettingsInput, CreateDownloadTaskInput,
+        DownloadStatus, DownloadTask, EngineKind, EngineSettings, EngineSettingsInput, SourceType,
     },
-    repositories::{DownloadTaskRepository, EngineSettingsRepository},
+    repositories::{AppSettingsRepository, DownloadTaskRepository, EngineSettingsRepository},
 };
 
 pub struct DownloadTaskService<'connection> {
@@ -185,6 +185,34 @@ fn validate_create_task_input(input: &CreateDownloadTaskInput) -> Result<(), Box
 
 pub struct EngineSettingsService<'connection> {
     repository: EngineSettingsRepository<'connection>,
+}
+
+pub struct AppSettingsService<'connection> {
+    repository: AppSettingsRepository<'connection>,
+}
+
+impl<'connection> AppSettingsService<'connection> {
+    pub fn new(connection: &'connection Connection) -> Self {
+        Self {
+            repository: AppSettingsRepository::new(connection),
+        }
+    }
+
+    pub fn get(&self) -> Result<AppSettings, Box<dyn Error>> {
+        self.repository.get()
+    }
+
+    pub fn save(&self, input: AppSettingsInput) -> Result<AppSettings, Box<dyn Error>> {
+        Self::validate_input(&input)?;
+        self.repository.save(&input)
+    }
+
+    pub fn validate_input(input: &AppSettingsInput) -> Result<(), Box<dyn Error>> {
+        if input.web_access_enabled && input.web_access_password.trim().is_empty() {
+            return Err("web access password is required".into());
+        }
+        Ok(())
+    }
 }
 
 impl<'connection> EngineSettingsService<'connection> {

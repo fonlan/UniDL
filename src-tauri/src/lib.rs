@@ -5,6 +5,7 @@ mod models;
 mod repositories;
 mod services;
 mod system_open;
+mod web_server;
 
 use std::{path::PathBuf, sync::Mutex};
 
@@ -17,6 +18,7 @@ pub struct AppState {
     connection: Mutex<Connection>,
     database_path: PathBuf,
     pending_open_sources: Mutex<Vec<String>>,
+    web_server: Mutex<Option<web_server::WebServerHandle>>,
 }
 
 impl AppState {
@@ -29,6 +31,7 @@ impl AppState {
             connection: Mutex::new(connection),
             database_path,
             pending_open_sources: Mutex::new(pending_open_sources),
+            web_server: Mutex::new(None),
         }
     }
 
@@ -58,6 +61,26 @@ impl AppState {
             .map_err(|_| "system open request lock was poisoned".to_string())?;
         Ok(std::mem::take(&mut *pending))
     }
+
+    fn apply_web_settings(&self, settings: &models::AppSettings) -> Result<(), String> {
+        let mut web_server = self
+            .web_server
+            .lock()
+            .map_err(|_| "web server lock was poisoned".to_string())?;
+
+        if let Some(current) = web_server.take() {
+            current.stop();
+        }
+
+        if settings.web_access_enabled {
+            let next =
+                web_server::start(self.database_path(), settings.web_access_password.clone())
+                    .map_err(|error| error.to_string())?;
+            *web_server = Some(next);
+        }
+
+        Ok(())
+    }
 }
 
 pub fn run() {
@@ -86,11 +109,15 @@ pub fn run() {
             let pending_open_sources = system_open::parse_open_sources(std::env::args());
             let database_path = db::database_path(app.handle())?;
             let connection = db::connect_path(database_path.clone())?;
+            let app_settings = services::AppSettingsService::new(&connection).get()?;
             app.manage(AppState::new(
                 connection,
                 database_path,
                 pending_open_sources,
             ));
+            app.state::<AppState>()
+                .apply_web_settings(&app_settings)
+                .map_err(std::io::Error::other)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -103,6 +130,8 @@ pub fn run() {
             commands::delete_download_tasks,
             commands::pause_all_unfinished_download_tasks,
             commands::resume_all_paused_download_tasks,
+            commands::get_app_settings,
+            commands::save_app_settings,
             commands::list_engine_settings,
             commands::save_engine_settings,
             commands::validate_engine_source_type
