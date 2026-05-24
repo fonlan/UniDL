@@ -302,7 +302,46 @@ fn remove_downloaded_entry(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn downloaded_entry_path(task: &DownloadTask) -> PathBuf {
-    Path::new(&task.save_path).join(&task.file_name)
+    let save_path = Path::new(&task.save_path);
+    let path = save_path.join(&task.file_name);
+    if path.exists() || task.engine != EngineKind::YtDlp || task.status != DownloadStatus::Completed
+    {
+        return path;
+    }
+
+    resolve_ytdlp_downloaded_entry_path(save_path, &task.file_name).unwrap_or(path)
+}
+
+fn resolve_ytdlp_downloaded_entry_path(save_path: &Path, file_name: &str) -> Option<PathBuf> {
+    let file_name = engine_adapters::sanitize_ytdlp_output_name(file_name.trim());
+    if file_name.is_empty() {
+        return None;
+    }
+
+    let sanitized_path = save_path.join(&file_name);
+    if sanitized_path.exists() {
+        return Some(sanitized_path);
+    }
+
+    if Path::new(&file_name).extension().is_some() {
+        return None;
+    }
+
+    let prefix = format!("{file_name}.");
+    let entries = fs::read_dir(save_path).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(&prefix) && !name.ends_with(".part") {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 fn downloaded_partial_entry_path(path: &Path) -> PathBuf {
@@ -943,6 +982,50 @@ mod tests {
     }
 
     #[test]
+    fn completed_ytdlp_path_uses_real_ext_file() {
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let download_file = download_dir.join("Page Title.mp4");
+        fs::write(&download_file, b"complete").expect("download file should write");
+
+        let mut task = local_file_task(
+            EngineKind::YtDlp,
+            DownloadStatus::Completed,
+            download_dir.to_string_lossy().as_ref(),
+            "Page Title",
+        );
+
+        assert_eq!(downloaded_entry_path(&task), download_file);
+
+        task.file_name = "Page Title.mp4".to_string();
+        assert_eq!(
+            downloaded_entry_path(&task),
+            download_dir.join("Page Title.mp4")
+        );
+
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn completed_ytdlp_path_uses_sanitized_file_name() {
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let download_file = download_dir.join("探索_海洋.mp4");
+        fs::write(&download_file, b"complete").expect("download file should write");
+
+        let task = local_file_task(
+            EngineKind::YtDlp,
+            DownloadStatus::Completed,
+            download_dir.to_string_lossy().as_ref(),
+            "探索:海洋",
+        );
+
+        assert_eq!(downloaded_entry_path(&task), download_file);
+
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
     fn failed_task_creation_does_not_leave_local_task() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
@@ -1176,6 +1259,35 @@ mod tests {
                 ),
             )
             .expect("download task should insert");
+    }
+
+    fn local_file_task(
+        engine: EngineKind,
+        status: DownloadStatus,
+        save_path: &str,
+        file_name: &str,
+    ) -> DownloadTask {
+        DownloadTask {
+            id: "local-file-task".to_string(),
+            source_type: SourceType::Http,
+            source: "http://example.test/file".to_string(),
+            engine_settings_id: engine.as_db().to_string(),
+            engine,
+            engine_task_id: Some("engine-task".to_string()),
+            file_name: file_name.to_string(),
+            status,
+            progress: 100.0,
+            speed_bytes_per_sec: 0,
+            downloaded_bytes: 0,
+            total_bytes: 0,
+            save_path: save_path.to_string(),
+            engine_args: String::new(),
+            selected_file_indexes: None,
+            browser_cookies: None,
+            created_at: String::new(),
+            completed_at: Some(String::new()),
+            error_message: None,
+        }
     }
 
     fn temp_download_dir() -> PathBuf {

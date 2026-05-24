@@ -865,7 +865,7 @@ fn ytdlp_output_template(file_name: &str) -> String {
     }
 }
 
-fn sanitize_ytdlp_output_name(file_name: &str) -> String {
+pub(crate) fn sanitize_ytdlp_output_name(file_name: &str) -> String {
     file_name
         .chars()
         .map(|value| match value {
