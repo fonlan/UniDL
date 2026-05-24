@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     error::Error,
     io::{Cursor, Read},
+    net::SocketAddr,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,9 +25,6 @@ use crate::{
     task_events,
 };
 
-pub const WEB_ACCESS_URL: &str = "http://127.0.0.1:18080";
-
-const WEB_BIND_ADDRESS: &str = "127.0.0.1:18080";
 
 pub struct WebServerHandle {
     stop: Arc<AtomicBool>,
@@ -107,13 +105,25 @@ pub fn start(
     pending_open_sources: Arc<Mutex<Vec<String>>>,
     settings: &AppSettings,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
+    let bind_address = bind_address_from_url(&settings.web_access_url)?;
     start_on(
-        WEB_BIND_ADDRESS,
+        &bind_address.to_string(),
         Some(app_handle),
         database_path,
         pending_open_sources,
         settings,
     )
+}
+
+pub fn bind_address_from_url(url: &str) -> Result<SocketAddr, Box<dyn Error + Send + Sync>> {
+    let trimmed = url.trim();
+    let address = trimmed
+        .strip_prefix("http://")
+        .ok_or("web access URL must start with http://")?;
+    if address.contains('/') || address.contains('?') || address.contains('#') {
+        return Err("web access URL must only include host and port".into());
+    }
+    address.parse::<SocketAddr>().map_err(|error| error.into())
 }
 
 fn start_on(
@@ -603,7 +613,7 @@ mod tests {
         AppSettings {
             web_access_enabled,
             web_access_password: password.to_string(),
-            web_access_url: WEB_ACCESS_URL.to_string(),
+            web_access_url: "http://127.0.0.1:18080".to_string(),
         }
     }
 }

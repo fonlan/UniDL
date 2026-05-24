@@ -20,7 +20,7 @@ const defaultEngineDir = "%AppData%\\UniDL\\engines";
 
 let previewEngineSettings: EngineSettings[] = [];
 
-const previewAppSettings: AppSettings = {
+let previewAppSettings: AppSettings = {
   webAccessEnabled: false,
   webAccessPassword: "",
   webAccessUrl: "http://127.0.0.1:18080",
@@ -137,10 +137,11 @@ export function getSystemDownloadDir(): Promise<string> {
 
 export function saveAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
   if (!hasTauriRuntime()) {
-    return Promise.resolve({
+    previewAppSettings = {
       ...previewAppSettings,
       ...settings,
-    });
+    };
+    return Promise.resolve({ ...previewAppSettings });
   }
 
   return invoke("save_app_settings", { settings });

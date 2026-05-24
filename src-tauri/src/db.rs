@@ -288,7 +288,8 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
         r#"
         INSERT OR IGNORE INTO app_settings (key, value) VALUES
             ('web_access_enabled', '0'),
-            ('web_access_password', '');
+            ('web_access_password', ''),
+            ('web_access_url', 'http://127.0.0.1:18080');
         "#,
     )
 }

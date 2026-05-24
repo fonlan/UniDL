@@ -68,4 +68,4 @@ export interface AppSettings {
   webAccessUrl: string;
 }
 
-export type AppSettingsInput = Omit<AppSettings, "webAccessUrl">;
+export type AppSettingsInput = AppSettings;

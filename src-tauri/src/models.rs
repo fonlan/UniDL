@@ -220,6 +220,7 @@ pub struct AppSettings {
 pub struct AppSettingsInput {
     pub web_access_enabled: bool,
     pub web_access_password: String,
+    pub web_access_url: String,
 }
 
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {

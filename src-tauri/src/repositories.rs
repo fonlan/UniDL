@@ -28,7 +28,7 @@ impl<'connection> AppSettingsRepository<'connection> {
         Ok(AppSettings {
             web_access_enabled: self.get_value("web_access_enabled")? == "1",
             web_access_password: self.get_value("web_access_password")?,
-            web_access_url: crate::web_server::WEB_ACCESS_URL.to_string(),
+            web_access_url: self.get_value("web_access_url")?,
         })
     }
 
@@ -38,6 +38,7 @@ impl<'connection> AppSettingsRepository<'connection> {
             if input.web_access_enabled { "1" } else { "0" },
         )?;
         self.save_value("web_access_password", &input.web_access_password)?;
+        self.save_value("web_access_url", &input.web_access_url)?;
         self.get()
     }
 

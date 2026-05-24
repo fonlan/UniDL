@@ -153,6 +153,7 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
   return {
     webAccessEnabled: settings.webAccessEnabled,
     webAccessPassword: settings.webAccessPassword,
+    webAccessUrl: settings.webAccessUrl,
   };
 }
 
@@ -661,6 +662,32 @@ export default function EngineSettingsView() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={draftAppSettings.webAccessEnabled}
+                        onClick={() =>
+                          updateAppDraft({
+                            webAccessEnabled: !draftAppSettings.webAccessEnabled,
+                          })
+                        }
+                        className={classNames(
+                          "inline-flex h-8 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition",
+                          draftAppSettings.webAccessEnabled
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-slate-200 bg-slate-50 text-slate-500",
+                        )}
+                      >
+                        <span
+                          className={classNames(
+                            "h-3.5 w-3.5 rounded-full transition",
+                            draftAppSettings.webAccessEnabled
+                              ? "bg-emerald-600"
+                              : "bg-slate-300",
+                          )}
+                        />
+                        {draftAppSettings.webAccessEnabled ? "已启用" : "已关闭"}
+                      </button>
                       {savedApp && <InstalledBadge label="已保存" />}
                       <SmallIconButton
                         title="撤销"
@@ -679,37 +706,29 @@ export default function EngineSettingsView() {
                     </div>
                   </div>
 
-                  <div className="grid gap-4 px-4 py-4 lg:grid-cols-[220px_1fr]">
-                    <div className="flex flex-col gap-3">
-                      <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
-                        <span className="font-medium">启用</span>
-                        <input
-                          type="checkbox"
-                          checked={draftAppSettings.webAccessEnabled}
-                          onChange={(event) =>
-                            updateAppDraft({ webAccessEnabled: event.currentTarget.checked })
-                          }
-                          className="h-4 w-4 accent-emerald-700"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
-                        <span className="font-medium">访问地址</span>
-                        <input
-                          value={draftAppSettings.webAccessUrl}
-                          readOnly
-                          className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
-                        />
-                      </label>
-                      <Field
-                        label="访问密码"
-                        type="password"
-                        value={draftAppSettings.webAccessPassword}
-                        onChange={(value) => updateAppDraft({ webAccessPassword: value })}
+                  <div className="grid gap-4 px-4 py-4 md:grid-cols-2">
+                    <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                      <span className="font-medium">访问地址</span>
+                      <input
+                        value={draftAppSettings.webAccessUrl}
+                        readOnly={draftAppSettings.webAccessEnabled}
+                        onChange={(event) =>
+                          updateAppDraft({ webAccessUrl: event.currentTarget.value })
+                        }
+                        className={classNames(
+                          "h-9 rounded-md border px-3 text-sm outline-none transition",
+                          draftAppSettings.webAccessEnabled
+                            ? "border-slate-200 bg-slate-50 text-slate-700"
+                            : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+                        )}
                       />
-                    </div>
+                    </label>
+                    <Field
+                      label="访问密码"
+                      type="password"
+                      value={draftAppSettings.webAccessPassword}
+                      onChange={(value) => updateAppDraft({ webAccessPassword: value })}
+                    />
                   </div>
                 </article>
               )}

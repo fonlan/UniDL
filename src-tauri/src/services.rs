@@ -261,6 +261,8 @@ impl<'connection> AppSettingsService<'connection> {
         if input.web_access_enabled && input.web_access_password.trim().is_empty() {
             return Err("web access password is required".into());
         }
+        crate::web_server::bind_address_from_url(&input.web_access_url)
+            .map_err(|error| -> Box<dyn Error> { error.to_string().into() })?;
         Ok(())
     }
 }
