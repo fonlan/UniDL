@@ -74,7 +74,7 @@ impl<'connection> DownloadTaskService<'connection> {
                 self.repository.get_by_id(&task.id)
             }
             Err(error) => {
-                self.repository.mark_failed(&task.id, &error.to_string())?;
+                self.repository.delete_tasks(&[task.id])?;
                 Err(error)
             }
         }
@@ -139,9 +139,18 @@ impl<'connection> DownloadTaskService<'connection> {
                 task.status != DownloadStatus::Completed || delete_completed_files;
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
-            match engine_adapters::delete_task(&engine_settings, &task, delete_downloaded) {
+            let delete_result =
+                if task.engine_task_id.is_none() && task.status == DownloadStatus::Failed {
+                    Ok(())
+                } else {
+                    engine_adapters::delete_task(&engine_settings, &task, delete_downloaded)
+                };
+            match delete_result {
                 Ok(()) => {
-                    if delete_downloaded && task.engine != EngineKind::QBittorrent {
+                    if delete_downloaded
+                        && task.engine != EngineKind::QBittorrent
+                        && task.engine_task_id.is_some()
+                    {
                         delete_downloaded_entry(&task)?;
                     }
                     self.repository.delete_tasks(&[task.id])?;
@@ -628,6 +637,72 @@ mod tests {
         drop(connection);
         let _ = fs::remove_file(database_path);
         let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn failed_task_creation_does_not_leave_local_task() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        let result = service.create(CreateDownloadTaskInput {
+            source_type: SourceType::Http,
+            source: "http://example.test/file.bin".to_string(),
+            engine: EngineKind::Aria2,
+            engine_settings_id: Some("aria2".to_string()),
+            file_name: "file.bin".to_string(),
+            save_path: "C:\\Downloads".to_string(),
+            engine_args: String::new(),
+        });
+
+        assert!(result.is_err());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn deleting_failed_task_without_engine_task_id_removes_local_record() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+
+        let repository = DownloadTaskRepository::new(&connection);
+        repository
+            .create(
+                "failed-without-engine-id",
+                &NewDownloadTask {
+                    source_type: SourceType::Http,
+                    source: "http://example.test/file.bin".to_string(),
+                    engine_settings_id: "aria2".to_string(),
+                    engine: EngineKind::Aria2,
+                    file_name: "file.bin".to_string(),
+                    save_path: "C:\\Downloads".to_string(),
+                    engine_args: String::new(),
+                },
+            )
+            .expect("failed task should insert");
+        repository
+            .mark_failed("failed-without-engine-id", "engine failed before id")
+            .expect("failed task should mark failed");
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["failed-without-engine-id".to_string()], false)
+            .expect("failed task without engine id should delete locally");
+
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
     }
 
     #[test]
