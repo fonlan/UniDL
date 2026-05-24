@@ -21,6 +21,7 @@ use crate::{
     models::{AppSettings, CreateDownloadTaskInput, SourceType},
     services::DownloadTaskService,
     system_open,
+    task_events,
 };
 
 pub const WEB_ACCESS_URL: &str = "http://127.0.0.1:18080";
@@ -339,7 +340,7 @@ impl TaskEventStream {
             Err(error) => serde_json::json!({ "error": error.to_string() }),
         };
         let data = serde_json::to_string(&payload).map_err(std::io::Error::other)?;
-        Ok(format!("event: tasks\ndata: {data}\n\n").into_bytes())
+        Ok(format!("event: {}\ndata: {data}\n\n", task_events::DOWNLOAD_TASKS_UPDATED_EVENT).into_bytes())
     }
 
     fn load_tasks(&self) -> Result<Vec<crate::models::DownloadTask>, Box<dyn Error>> {
