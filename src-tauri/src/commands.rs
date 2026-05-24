@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Manager, State};
 
 use crate::{
+    engine_install,
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineInstallResult,
         EngineKind, EngineSettings, EngineSettingsInput, SourceType,
@@ -119,6 +120,11 @@ pub fn get_system_download_dir(app_handle: AppHandle) -> Result<String, String> 
         .download_dir()
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_managed_engine_executable_path(engine: EngineKind) -> Option<String> {
+    engine_install::managed_executable_path(engine).map(|path| path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

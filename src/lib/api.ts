@@ -16,7 +16,6 @@ export interface SystemOpenRequestPayload {
   sources: string[];
 }
 
-const defaultEngineDir = "%AppData%\\UniDL\\engines";
 
 let previewEngineSettings: EngineSettings[] = [];
 
@@ -135,6 +134,16 @@ export function getSystemDownloadDir(): Promise<string> {
   return invoke("get_system_download_dir");
 }
 
+export function getManagedEngineExecutablePath(
+  engine: EngineKind,
+): Promise<string | null> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve(null);
+  }
+
+  return invoke("get_managed_engine_executable_path", { engine });
+}
+
 export function saveAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
   if (!hasTauriRuntime()) {
     previewAppSettings = {
@@ -213,13 +222,8 @@ export function installLatestEngine(settingsId: string): Promise<EngineInstallRe
       );
     }
 
-    const executablePath =
-      settings.engine === "aria2"
-        ? `${defaultEngineDir}\\aria2c.exe`
-        : `${defaultEngineDir}\\yt-dlp.exe`;
     const next = cloneEngineSettings({
       ...settings,
-      executablePath,
       updatedAt: new Date().toISOString(),
     });
     previewEngineSettings = previewEngineSettings.map((item) =>

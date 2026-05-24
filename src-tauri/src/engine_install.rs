@@ -40,6 +40,16 @@ pub fn install_latest(engine: EngineKind) -> Result<InstalledEngine, Box<dyn Err
     }
 }
 
+pub fn managed_executable_path(engine: EngineKind) -> Option<PathBuf> {
+    let executable_path = match engine {
+        EngineKind::Aria2 => engines_dir().join("aria2c.exe"),
+        EngineKind::YtDlp => engines_dir().join("yt-dlp.exe"),
+        EngineKind::QBittorrent => return None,
+    };
+
+    executable_path.is_file().then_some(executable_path)
+}
+
 fn install_ytdlp() -> Result<InstalledEngine, Box<dyn Error>> {
     let client = github_client()?;
     let release = latest_release(&client, YTDLP_RELEASE_URL)?;

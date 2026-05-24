@@ -149,6 +149,7 @@ pub fn run() {
             commands::get_app_settings,
             commands::save_app_settings,
             commands::get_system_download_dir,
+            commands::get_managed_engine_executable_path,
             commands::list_engine_settings,
             commands::save_engine_settings,
             commands::delete_engine_settings,

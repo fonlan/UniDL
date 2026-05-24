@@ -17,6 +17,7 @@ import {
 import {
   deleteEngineSettings,
   getAppSettings,
+  getManagedEngineExecutablePath,
   getSystemDownloadDir,
   installLatestEngine,
   listEngineSettings,
@@ -34,7 +35,6 @@ import type {
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
-const engineInstallDir = "%AppData%\\UniDL\\engines";
 type SettingsGroup = "web-access" | "download-engines";
 
 const engineLabels: Record<EngineKind, string> = {
@@ -72,18 +72,14 @@ function isLocalDownloadEngine(engine: EngineKind) {
 function defaultEngineSettings(
   engine: EngineKind,
   defaultDownloadDir: string,
+  executablePath: string | null,
 ): EngineSettings {
   return {
     id: crypto.randomUUID(),
     engine,
     name: engineLabels[engine],
     enabled: false,
-    executablePath:
-      engine === "aria2"
-        ? `${engineInstallDir}\\aria2c.exe`
-        : engine === "yt-dlp"
-          ? `${engineInstallDir}\\yt-dlp.exe`
-          : null,
+    executablePath,
     defaultDownloadDir,
     defaultArgs:
       engine === "aria2"
@@ -404,15 +400,17 @@ export default function EngineSettingsView() {
 
     try {
       let defaultDownloadDir = "";
+      let executablePath: string | null = null;
       if (isLocalDownloadEngine(engine)) {
         defaultDownloadDir = await getSystemDownloadDir();
+        executablePath = await getManagedEngineExecutablePath(engine);
       }
 
       setSavedEngineId(null);
       setIsAddMenuOpen(false);
       setDraftSettings((current) => {
         const next = {
-          ...defaultEngineSettings(engine, defaultDownloadDir),
+          ...defaultEngineSettings(engine, defaultDownloadDir, executablePath),
           priority: current.length,
         };
         return assignPriorities([...sortSettings(current), next]);
