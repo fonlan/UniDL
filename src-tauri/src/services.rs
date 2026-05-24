@@ -262,7 +262,7 @@ impl<'connection> DownloadTaskService<'connection> {
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
     let path = downloaded_entry_path(task);
-    if task.status == DownloadStatus::Failed {
+    if task.status != DownloadStatus::Completed {
         remove_downloaded_entry(&downloaded_partial_entry_path(&path))?;
     }
     remove_downloaded_entry(&path)
@@ -862,11 +862,11 @@ mod tests {
                     EngineKind::YtDlp.as_db(),
                     "1234",
                     "missing.mp4",
-                    DownloadStatus::Failed.as_db(),
+                    DownloadStatus::Paused.as_db(),
                     temp_download_dir().to_string_lossy().as_ref(),
                 ),
             )
-            .expect("failed yt-dlp task should insert");
+            .expect("unfinished yt-dlp task should insert");
 
         let service = DownloadTaskService::new(&connection, database_path.clone());
         service
@@ -883,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn deleting_failed_ytdlp_task_removes_partial_entry() {
+    fn deleting_unfinished_ytdlp_task_removes_partial_entry() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
         save_ytdlp_settings(&connection);
@@ -909,23 +909,23 @@ mod tests {
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 "#,
                 (
-                    "failed-ytdlp-part-file",
+                    "paused-ytdlp-part-file",
                     SourceType::Http.as_db(),
                     "http://example.test/video.mp4",
                     "yt-dlp",
                     EngineKind::YtDlp.as_db(),
                     "1234",
                     "video.mp4",
-                    DownloadStatus::Failed.as_db(),
+                    DownloadStatus::Paused.as_db(),
                     download_dir.to_string_lossy().as_ref(),
                 ),
             )
-            .expect("failed yt-dlp task should insert");
+            .expect("unfinished yt-dlp task should insert");
 
         let service = DownloadTaskService::new(&connection, database_path.clone());
         service
-            .delete_tasks(&["failed-ytdlp-part-file".to_string()], false)
-            .expect("failed yt-dlp task should delete partial file");
+            .delete_tasks(&["paused-ytdlp-part-file".to_string()], false)
+            .expect("unfinished yt-dlp task should delete partial file");
 
         assert!(!partial_file.exists());
         assert!(service
