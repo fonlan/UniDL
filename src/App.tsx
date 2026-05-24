@@ -180,6 +180,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const hasLoadedTasksRef = useRef(false);
   const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
 
   const selectedTasks = useMemo(
@@ -221,7 +222,10 @@ function App() {
   }, []);
 
   const refreshTasks = useCallback(async () => {
-    setIsLoading(true);
+    const shouldShowLoading = !hasLoadedTasksRef.current;
+    if (shouldShowLoading) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -230,7 +234,10 @@ function App() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
-      setIsLoading(false);
+      hasLoadedTasksRef.current = true;
+      if (shouldShowLoading) {
+        setIsLoading(false);
+      }
     }
   }, [replaceTasks]);
 
