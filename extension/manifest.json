@@ -3,7 +3,11 @@
   "name": "UniDL",
   "version": "0.1.1",
   "description": "Send browser downloads to the local UniDL desktop service.",
-  "permissions": ["contextMenus", "downloads", "storage"],
+  "permissions": [
+    "contextMenus",
+    "downloads",
+    "storage"
+  ],
   "host_permissions": [
     "http://127.0.0.1:18080/*",
     "http://localhost:18080/*"
@@ -11,8 +15,20 @@
   "background": {
     "service_worker": "background.js"
   },
+  "icons": {
+    "16": "logo.png",
+    "32": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png"
+  },
   "action": {
     "default_title": "UniDL",
+    "default_icon": {
+      "16": "logo.png",
+      "32": "logo.png",
+      "48": "logo.png",
+      "128": "logo.png"
+    },
     "default_popup": "popup.html"
   }
 }

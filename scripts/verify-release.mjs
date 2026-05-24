@@ -34,6 +34,7 @@ check("extension package contains the MV3 files", () => {
     "popup.html",
     "popup.css",
     "popup.js",
+    "logo.png",
   ]) {
     assertIncludes(zip, file);
   }
@@ -46,6 +47,8 @@ check("extension manifest has Chrome/Edge download hooks", () => {
   }
   assertEqual(manifest.background.service_worker, "background.js");
   assertEqual(manifest.action.default_popup, "popup.html");
+  assertEqual(manifest.icons["128"], "logo.png");
+  assertEqual(manifest.action.default_icon["128"], "logo.png");
 });
 
 check("task lifecycle API routes are wired", () => {

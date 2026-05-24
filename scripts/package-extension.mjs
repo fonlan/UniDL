@@ -13,6 +13,7 @@ const files = [
   "popup.html",
   "popup.css",
   "popup.js",
+  "logo.png",
 ];
 const crcTable = createCrcTable();
 
