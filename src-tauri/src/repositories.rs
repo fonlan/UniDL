@@ -257,7 +257,9 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         username: row.get("username")?,
         password: row.get("password")?,
         remote_path: row.get("remote_path")?,
-        supported_source_types: decode_source_types(&row.get::<_, String>("supported_source_types")?)?,
+        supported_source_types: decode_source_types(
+            &row.get::<_, String>("supported_source_types")?,
+        )?,
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })
@@ -282,6 +284,8 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status,
                 progress,
                 speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
                 save_path,
                 engine_args,
                 selected_file_indexes,
@@ -327,6 +331,8 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status,
                 progress,
                 speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
                 save_path,
                 engine_args,
                 selected_file_indexes,
@@ -362,6 +368,8 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status,
                 progress,
                 speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
                 save_path,
                 engine_args,
                 selected_file_indexes,
@@ -397,6 +405,8 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status,
                 progress,
                 speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
                 save_path,
                 engine_args,
                 selected_file_indexes,
@@ -430,11 +440,13 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status,
                 progress,
                 speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
                 save_path,
                 engine_args,
                 selected_file_indexes,
                 browser_cookies
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9, ?10, ?11)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, 0, 0, ?8, ?9, ?10, ?11)
             "#,
             params![
                 id,
@@ -459,6 +471,8 @@ impl<'connection> DownloadTaskRepository<'connection> {
         status: DownloadStatus,
         progress: f64,
         speed_bytes_per_sec: i64,
+        downloaded_bytes: i64,
+        total_bytes: i64,
         engine_task_id: Option<&str>,
         error_message: Option<&str>,
     ) -> Result<(), rusqlite::Error> {
@@ -474,10 +488,12 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status = ?1,
                 progress = ?2,
                 speed_bytes_per_sec = ?3,
-                engine_task_id = COALESCE(?4, engine_task_id),
-                error_message = ?5,
+                downloaded_bytes = ?4,
+                total_bytes = ?5,
+                engine_task_id = COALESCE(?6, engine_task_id),
+                error_message = ?7,
                 completed_at = {}
-            WHERE id = ?6
+            WHERE id = ?8
             "#,
             completed_at_sql
         );
@@ -488,6 +504,8 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 status.as_db(),
                 progress,
                 speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
                 engine_task_id,
                 error_message,
                 id,
@@ -524,7 +542,13 @@ impl<'connection> DownloadTaskRepository<'connection> {
 }
 
 fn encode_selected_file_indexes(indexes: Option<&[i64]>) -> Option<String> {
-    indexes.map(|values| values.iter().map(ToString::to_string).collect::<Vec<_>>().join(","))
+    indexes.map(|values| {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    })
 }
 
 fn decode_selected_file_indexes(value: Option<String>) -> Result<Option<Vec<i64>>, Box<dyn Error>> {
@@ -558,6 +582,8 @@ fn read_download_task(row: &rusqlite::Row<'_>) -> Result<DownloadTask, Box<dyn E
         status: DownloadStatus::from_db(&status)?,
         progress: row.get("progress")?,
         speed_bytes_per_sec: row.get("speed_bytes_per_sec")?,
+        downloaded_bytes: row.get("downloaded_bytes")?,
+        total_bytes: row.get("total_bytes")?,
         save_path: row.get("save_path")?,
         engine_args: row.get("engine_args")?,
         selected_file_indexes: decode_selected_file_indexes(row.get("selected_file_indexes")?)?,

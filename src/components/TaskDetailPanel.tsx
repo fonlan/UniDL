@@ -178,6 +178,8 @@ export default function TaskDetailPanel({
           <DetailField label="下载引擎" value={engineLabels[task.engine]} />
           <DetailField label="状态" value={statusLabels[task.status]} />
           <DetailField label="进度" value={`${task.progress.toFixed(1)}%`} />
+          <DetailField label="已下载大小" value={formatBytes(task.downloadedBytes)} />
+          <DetailField label="总大小" value={formatBytes(task.totalBytes)} />
           <DetailField label="速度" value={formatSpeed(task.speedBytesPerSec)} />
           <DetailField label="保存路径" value={task.savePath} />
           <DetailField label="创建时间" value={formatDate(task.createdAt)} />

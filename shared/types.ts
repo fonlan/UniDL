@@ -21,6 +21,8 @@ export interface DownloadTask {
   status: DownloadStatus;
   progress: number;
   speedBytesPerSec: number;
+  downloadedBytes: number;
+  totalBytes: number;
   savePath: string;
   engineArgs: string;
   selectedFileIndexes?: number[] | null;

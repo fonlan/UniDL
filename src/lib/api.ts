@@ -121,6 +121,8 @@ export function createDownloadTask(input: CreateDownloadTaskInput): Promise<Down
       status: "queued",
       progress: 0,
       speedBytesPerSec: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
       savePath: input.savePath,
       engineArgs: input.engineArgs,
       selectedFileIndexes: input.selectedFileIndexes ?? null,

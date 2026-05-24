@@ -62,6 +62,7 @@ type TaskColumnKey =
   | "engine"
   | "status"
   | "progress"
+  | "size"
   | "speed"
   | "savePath"
   | "createdAt"
@@ -81,6 +82,7 @@ const taskTableColumns: TaskColumn[] = [
   { key: "engine", label: "引擎", width: 112, minWidth: 84, resizable: true },
   { key: "status", label: "状态", width: 112, minWidth: 84, resizable: true },
   { key: "progress", label: "进度", width: 176, minWidth: 140, resizable: true },
+  { key: "size", label: "已下载/总大小", width: 152, minWidth: 124, resizable: true },
   { key: "speed", label: "速度", width: 112, minWidth: 92, resizable: true },
   { key: "savePath", label: "路径", width: 260, minWidth: 160, resizable: true },
   { key: "createdAt", label: "创建时间", width: 128, minWidth: 104, resizable: true },
@@ -106,6 +108,23 @@ function formatSpeed(bytesPerSecond: number) {
 
   const units = ["B/s", "KB/s", "MB/s", "GB/s"];
   let value = bytesPerSecond;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
   let unitIndex = 0;
 
   while (value >= 1024 && unitIndex < units.length - 1) {
@@ -769,10 +788,13 @@ function App() {
                             style={{ width: `${Math.min(100, Math.max(0, task.progress))}%` }}
                           />
                         </div>
-                        <span className="w-12 text-right text-xs tabular-nums text-slate-600">
-                          {task.progress.toFixed(0)}%
+                        <span className="w-14 text-right text-xs tabular-nums text-slate-600">
+                          {task.progress.toFixed(1)}%
                         </span>
                       </div>
+                    </td>
+                    <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums text-slate-700">
+                      {formatBytes(task.downloadedBytes)} / {formatBytes(task.totalBytes)}
                     </td>
                     <td className="border-b border-slate-100 px-3 py-3 tabular-nums text-slate-700">
                       {formatSpeed(task.speedBytesPerSec)}

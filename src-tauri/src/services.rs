@@ -121,7 +121,8 @@ impl<'connection> DownloadTaskService<'connection> {
         for task in self.repository.list_by_ids(ids)? {
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
-            match engine_adapters::resume_task(&engine_settings, &task, self.database_path.clone()) {
+            match engine_adapters::resume_task(&engine_settings, &task, self.database_path.clone())
+            {
                 Ok(state) => self.apply_engine_state(&task.id, state)?,
                 Err(error) => {
                     self.repository.mark_failed(&task.id, &error.to_string())?;
@@ -214,6 +215,8 @@ impl<'connection> DownloadTaskService<'connection> {
             state.status,
             state.progress,
             state.speed_bytes_per_sec,
+            state.downloaded_bytes,
+            state.total_bytes,
             state.engine_task_id.as_deref(),
             state.error_message.as_deref(),
         )?;
@@ -1223,7 +1226,10 @@ mod tests {
                     .nth(1)
                     .expect("request should include body")
                     .to_string();
-                server_requests.lock().expect("requests should lock").push(body);
+                server_requests
+                    .lock()
+                    .expect("requests should lock")
+                    .push(body);
                 stream
                     .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                     .expect("response should write");

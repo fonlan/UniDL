@@ -23,12 +23,15 @@ use crate::{
 };
 
 const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
-const YTDLP_FAST_DEFAULT_ARGS: &str = "--newline --no-playlist --js-runtimes node --concurrent-fragments 8";
+const YTDLP_FAST_DEFAULT_ARGS: &str =
+    "--newline --no-playlist --js-runtimes node --concurrent-fragments 8";
 
 pub struct EngineTaskState {
     pub status: DownloadStatus,
     pub progress: f64,
     pub speed_bytes_per_sec: i64,
+    pub downloaded_bytes: i64,
+    pub total_bytes: i64,
     pub engine_task_id: Option<String>,
     pub error_message: Option<String>,
 }
@@ -39,6 +42,8 @@ impl EngineTaskState {
             status: DownloadStatus::Running,
             progress: 0.0,
             speed_bytes_per_sec: 0,
+            downloaded_bytes: 0,
+            total_bytes: 0,
             engine_task_id: Some(engine_task_id.into()),
             error_message: None,
         }
@@ -70,6 +75,8 @@ pub fn pause_task(
                         status: DownloadStatus::Failed,
                         progress: task.progress,
                         speed_bytes_per_sec: 0,
+                        downloaded_bytes: task.downloaded_bytes,
+                        total_bytes: task.total_bytes,
                         engine_task_id: task.engine_task_id.clone(),
                         error_message: Some("aria2 rpc is unavailable".to_string()),
                     });
@@ -80,6 +87,8 @@ pub fn pause_task(
                 status: DownloadStatus::Paused,
                 progress: task.progress,
                 speed_bytes_per_sec: 0,
+                downloaded_bytes: task.downloaded_bytes,
+                total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
                 error_message: None,
             })
@@ -90,6 +99,8 @@ pub fn pause_task(
                 status: DownloadStatus::Paused,
                 progress: task.progress,
                 speed_bytes_per_sec: 0,
+                downloaded_bytes: task.downloaded_bytes,
+                total_bytes: task.total_bytes,
                 engine_task_id: None,
                 error_message: None,
             })
@@ -102,6 +113,8 @@ pub fn pause_task(
                 status: DownloadStatus::Paused,
                 progress: task.progress,
                 speed_bytes_per_sec: 0,
+                downloaded_bytes: task.downloaded_bytes,
+                total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
                 error_message: None,
             })
@@ -122,13 +135,13 @@ pub fn resume_task(
                 status: DownloadStatus::Running,
                 progress: task.progress,
                 speed_bytes_per_sec: 0,
+                downloaded_bytes: task.downloaded_bytes,
+                total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
                 error_message: None,
             })
         }
-        EngineKind::YtDlp => {
-            add_ytdlp_task(settings, task, database_path, true)
-        }
+        EngineKind::YtDlp => add_ytdlp_task(settings, task, database_path, true),
         EngineKind::QBittorrent => {
             let hash = required_engine_task_id(task)?;
             let client = qbittorrent_client(settings)?;
@@ -137,6 +150,8 @@ pub fn resume_task(
                 status: DownloadStatus::Running,
                 progress: task.progress,
                 speed_bytes_per_sec: 0,
+                downloaded_bytes: task.downloaded_bytes,
+                total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
                 error_message: None,
             })
@@ -303,6 +318,8 @@ fn refresh_aria2_task(
         },
         progress,
         speed_bytes_per_sec: speed,
+        downloaded_bytes: completed,
+        total_bytes: total,
         engine_task_id: task.engine_task_id.clone(),
         error_message,
     })
@@ -397,7 +414,6 @@ fn aria2_download_options(
     Value::Object(options)
 }
 
-
 fn format_select_file_indexes(indexes: &[i64]) -> String {
     indexes
         .iter()
@@ -479,7 +495,18 @@ fn add_qbittorrent_task(
     let client = qbittorrent_client(settings)?;
     let mut form = multipart::Form::new()
         .text("savepath", task.save_path.clone())
-        .text("paused", if task.selected_file_indexes.as_ref().is_some_and(|indexes| !indexes.is_empty()) { "true" } else { "false" });
+        .text(
+            "paused",
+            if task
+                .selected_file_indexes
+                .as_ref()
+                .is_some_and(|indexes| !indexes.is_empty())
+            {
+                "true"
+            } else {
+                "false"
+            },
+        );
 
     if task.source_type == SourceType::Torrent && Path::new(&task.source).exists() {
         let bytes = fs::read(&task.source)?;
@@ -538,6 +565,8 @@ fn refresh_qbittorrent_task(
         status: qbittorrent_state(&torrent.state, torrent.progress),
         progress: torrent.progress * 100.0,
         speed_bytes_per_sec: torrent.dlspeed,
+        downloaded_bytes: torrent.downloaded,
+        total_bytes: torrent.total_size,
         engine_task_id: task.engine_task_id.clone(),
         error_message: None,
     })
@@ -547,6 +576,8 @@ fn refresh_qbittorrent_task(
 struct QbTorrentInfo {
     progress: f64,
     dlspeed: i64,
+    downloaded: i64,
+    total_size: i64,
     state: String,
 }
 
@@ -594,7 +625,6 @@ fn qbittorrent_post(
     }
     Ok(())
 }
-
 
 #[derive(Deserialize)]
 struct QbTorrentFileInfo {
@@ -701,7 +731,10 @@ fn add_ytdlp_task(
 
     log_command("starting yt-dlp", &command);
     let mut child = command.spawn().map_err(|error| {
-        logger::error(format!("yt-dlp spawn failed: task_id={}, error={error}", task.id));
+        logger::error(format!(
+            "yt-dlp spawn failed: task_id={}, error={error}",
+            task.id
+        ));
         error
     })?;
     let pid = child.id().to_string();
@@ -791,6 +824,8 @@ fn spawn_ytdlp_progress_reader(
                     &task_id,
                     progress.percent,
                     progress.speed_bytes_per_sec,
+                    progress.downloaded_bytes,
+                    progress.total_bytes,
                 );
             }
             remember_ytdlp_output_line(&output_lines, line);
@@ -862,6 +897,8 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
             status: DownloadStatus::Paused,
             progress: task.progress,
             speed_bytes_per_sec: 0,
+            downloaded_bytes: task.downloaded_bytes,
+            total_bytes: task.total_bytes,
             engine_task_id: None,
             error_message: task.error_message.clone(),
         });
@@ -887,6 +924,8 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
             100.0
         },
         speed_bytes_per_sec: if running { task.speed_bytes_per_sec } else { 0 },
+        downloaded_bytes: task.downloaded_bytes,
+        total_bytes: task.total_bytes,
         engine_task_id: task.engine_task_id.clone(),
         error_message: if running || task.status == DownloadStatus::Completed {
             task.error_message.clone()
@@ -900,6 +939,8 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
 struct YtDlpProgress {
     percent: f64,
     speed_bytes_per_sec: i64,
+    downloaded_bytes: i64,
+    total_bytes: i64,
 }
 
 fn parse_ytdlp_progress(line: &str) -> Option<YtDlpProgress> {
@@ -917,15 +958,36 @@ fn parse_ytdlp_progress(line: &str) -> Option<YtDlpProgress> {
             }
         })
         .unwrap_or(0);
+    let total_bytes = parts
+        .windows(2)
+        .find_map(|window| {
+            if window[0] == "of" {
+                parse_ytdlp_byte_value(window[1])
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+    let downloaded_bytes = if total_bytes > 0 {
+        ((total_bytes as f64) * percent / 100.0).round() as i64
+    } else {
+        0
+    };
 
     Some(YtDlpProgress {
         percent,
         speed_bytes_per_sec,
+        downloaded_bytes,
+        total_bytes,
     })
 }
 
 fn parse_ytdlp_speed(value: &str) -> Option<i64> {
-    let value = value.strip_suffix("/s")?;
+    parse_ytdlp_byte_value(value.strip_suffix("/s")?)
+}
+
+fn parse_ytdlp_byte_value(value: &str) -> Option<i64> {
+    let value = value.trim_start_matches('~');
     let unit_start = value
         .find(|character: char| !character.is_ascii_digit() && character != '.')
         .unwrap_or(value.len());
@@ -951,6 +1013,8 @@ fn update_ytdlp_progress(
     task_id: &str,
     progress: f64,
     speed_bytes_per_sec: i64,
+    downloaded_bytes: i64,
+    total_bytes: i64,
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
@@ -959,6 +1023,8 @@ fn update_ytdlp_progress(
         DownloadStatus::Running,
         progress,
         speed_bytes_per_sec,
+        downloaded_bytes,
+        total_bytes,
         None,
         None,
     )?;
@@ -973,12 +1039,27 @@ fn update_ytdlp_completion(
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
+    let task = repository.get_by_id(task_id)?;
     let progress = if status == DownloadStatus::Completed {
         100.0
     } else {
-        0.0
+        task.progress
     };
-    repository.update_engine_state(task_id, status, progress, 0, None, error_message)?;
+    let downloaded_bytes = if status == DownloadStatus::Completed && task.total_bytes > 0 {
+        task.total_bytes
+    } else {
+        task.downloaded_bytes
+    };
+    repository.update_engine_state(
+        task_id,
+        status,
+        progress,
+        0,
+        downloaded_bytes,
+        task.total_bytes,
+        None,
+        error_message,
+    )?;
     Ok(())
 }
 
@@ -1112,6 +1193,8 @@ mod tests {
             status: DownloadStatus::Running,
             progress: 12.0,
             speed_bytes_per_sec: 123,
+            downloaded_bytes: 120,
+            total_bytes: 1_000,
             save_path: "C:\\Downloads".to_string(),
             engine_args: String::new(),
             selected_file_indexes: None,
@@ -1192,22 +1275,23 @@ mod tests {
 
     #[test]
     fn parse_ytdlp_progress_reads_percent_and_speed() {
-        let progress = parse_ytdlp_progress(
-            "[download]  42.5% of 10.00MiB at 1.25MiB/s ETA 00:04",
-        )
-        .expect("progress should parse");
+        let progress = parse_ytdlp_progress("[download]  42.5% of 10.00MiB at 1.25MiB/s ETA 00:04")
+            .expect("progress should parse");
 
         assert_eq!(progress.percent, 42.5);
         assert_eq!(progress.speed_bytes_per_sec, 1_310_720);
+        assert_eq!(progress.downloaded_bytes, 4_456_448);
+        assert_eq!(progress.total_bytes, 10_485_760);
     }
 
     #[test]
     fn parse_ytdlp_progress_keeps_speed_zero_when_missing() {
-        let progress = parse_ytdlp_progress("[download]  42.5% of 10.00MiB")
-            .expect("progress should parse");
+        let progress =
+            parse_ytdlp_progress("[download]  42.5% of 10.00MiB").expect("progress should parse");
 
         assert_eq!(progress.percent, 42.5);
         assert_eq!(progress.speed_bytes_per_sec, 0);
+        assert_eq!(progress.total_bytes, 10_485_760);
     }
 
     #[test]
@@ -1220,7 +1304,10 @@ mod tests {
     fn ytdlp_output_template_appends_ext_placeholder_only_when_missing() {
         assert_eq!(ytdlp_output_template("Page Title"), "Page Title.%(ext)s");
         assert_eq!(ytdlp_output_template("video.mp4"), "video.mp4");
-        assert_eq!(ytdlp_output_template("Page Title.%(ext)s"), "Page Title.%(ext)s");
+        assert_eq!(
+            ytdlp_output_template("Page Title.%(ext)s"),
+            "Page Title.%(ext)s"
+        );
     }
 
     #[test]

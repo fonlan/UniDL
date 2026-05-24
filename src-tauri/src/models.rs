@@ -133,6 +133,8 @@ pub struct DownloadTask {
     pub status: DownloadStatus,
     pub progress: f64,
     pub speed_bytes_per_sec: i64,
+    pub downloaded_bytes: i64,
+    pub total_bytes: i64,
     pub save_path: String,
     pub engine_args: String,
     pub selected_file_indexes: Option<Vec<i64>>,

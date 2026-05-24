@@ -59,6 +59,8 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             ),
             progress REAL NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
             speed_bytes_per_sec INTEGER NOT NULL DEFAULT 0 CHECK (speed_bytes_per_sec >= 0),
+            downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0),
+            total_bytes INTEGER NOT NULL DEFAULT 0 CHECK (total_bytes >= 0),
             save_path TEXT NOT NULL,
             engine_args TEXT NOT NULL DEFAULT '',
             selected_file_indexes TEXT,
@@ -82,9 +84,28 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_supported_source_types(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
+    migrate_download_tasks_size_fields(connection)?;
     migrate_download_tasks_selected_file_indexes(connection)?;
     migrate_download_tasks_browser_cookies(connection)?;
     seed_app_settings(connection)
+}
+
+fn migrate_download_tasks_size_fields(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if !has_column(connection, "download_tasks", "downloaded_bytes")? {
+        connection.execute(
+            "ALTER TABLE download_tasks ADD COLUMN downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0)",
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "download_tasks", "total_bytes")? {
+        connection.execute(
+            "ALTER TABLE download_tasks ADD COLUMN total_bytes INTEGER NOT NULL DEFAULT 0 CHECK (total_bytes >= 0)",
+            [],
+        )?;
+    }
+
+    Ok(())
 }
 
 fn has_column(
@@ -287,7 +308,9 @@ fn migrate_download_tasks_engine_args(connection: &Connection) -> Result<(), rus
     )
 }
 
-fn migrate_download_tasks_selected_file_indexes(connection: &Connection) -> Result<(), rusqlite::Error> {
+fn migrate_download_tasks_selected_file_indexes(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
     if has_column(connection, "download_tasks", "selected_file_indexes")? {
         return Ok(());
     }
