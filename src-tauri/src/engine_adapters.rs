@@ -161,7 +161,11 @@ pub fn resume_task(
     }
 }
 
-pub fn delete_task(settings: &EngineSettings, task: &DownloadTask) -> Result<(), Box<dyn Error>> {
+pub fn delete_task(
+    settings: &EngineSettings,
+    task: &DownloadTask,
+    delete_files: bool,
+) -> Result<(), Box<dyn Error>> {
     match settings.engine {
         EngineKind::Aria2 => {
             let gid = required_engine_task_id(task)?;
@@ -177,8 +181,13 @@ pub fn delete_task(settings: &EngineSettings, task: &DownloadTask) -> Result<(),
             }
         }
         EngineKind::YtDlp => {
-            let pid = required_engine_task_id(task)?;
-            run_windows_command("taskkill", &["/PID", pid, "/T", "/F"])?;
+            if !matches!(
+                task.status,
+                DownloadStatus::Completed | DownloadStatus::Failed
+            ) {
+                let pid = required_engine_task_id(task)?;
+                run_windows_command("taskkill", &["/PID", pid, "/T", "/F"])?;
+            }
         }
         EngineKind::QBittorrent => {
             let hash = required_engine_task_id(task)?;
@@ -187,7 +196,7 @@ pub fn delete_task(settings: &EngineSettings, task: &DownloadTask) -> Result<(),
                 &client,
                 settings,
                 "torrents/delete",
-                &[("hashes", hash), ("deleteFiles", "false")],
+                &[("hashes", hash), ("deleteFiles", bool_param(delete_files))],
             )?;
         }
     }
@@ -418,6 +427,14 @@ fn aria2_download_option_allowed(key: &str) -> bool {
         key,
         "dir" | "enable-rpc" | "rpc-listen-all" | "rpc-listen-port" | "rpc-secret"
     )
+}
+
+fn bool_param(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
 }
 
 fn aria2_delete_method(
@@ -792,8 +809,33 @@ mod tests {
 
     #[test]
     fn delete_aria2_task_succeeds_when_rpc_is_unavailable() {
-        delete_task(&unreachable_aria2_settings(), &aria2_task())
+        delete_task(&unreachable_aria2_settings(), &aria2_task(), true)
             .expect("unavailable aria2 should not block local delete");
+    }
+
+    #[test]
+    fn delete_completed_ytdlp_task_does_not_kill_finished_process() {
+        let settings = EngineSettings {
+            id: "yt-dlp".to_string(),
+            engine: EngineKind::YtDlp,
+            name: "yt-dlp".to_string(),
+            enabled: true,
+            executable_path: Some("yt-dlp.exe".to_string()),
+            default_download_dir: String::new(),
+            default_args: String::new(),
+            connection_url: None,
+            username: None,
+            password: None,
+            remote_path: None,
+            supported_source_types: vec![SourceType::Http, SourceType::Ftp],
+            priority: 0,
+            updated_at: String::new(),
+        };
+        let mut task = aria2_task();
+        task.engine = EngineKind::YtDlp;
+        task.status = DownloadStatus::Completed;
+
+        delete_task(&settings, &task, false).expect("completed yt-dlp task should delete");
     }
 
     #[test]
@@ -802,7 +844,7 @@ mod tests {
         let mut settings = aria2_settings("--continue=true");
         settings.connection_url = Some(url);
 
-        delete_task(&settings, &aria2_task()).expect("completed aria2 task should delete");
+        delete_task(&settings, &aria2_task(), false).expect("completed aria2 task should delete");
 
         server.join().expect("fake aria2 should finish");
         assert_eq!(
@@ -817,7 +859,7 @@ mod tests {
         let mut settings = aria2_settings("--continue=true");
         settings.connection_url = Some(url);
 
-        delete_task(&settings, &aria2_task()).expect("active aria2 task should delete");
+        delete_task(&settings, &aria2_task(), true).expect("active aria2 task should delete");
 
         server.join().expect("fake aria2 should finish");
         assert_eq!(

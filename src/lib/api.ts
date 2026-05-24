@@ -254,8 +254,11 @@ export function resumeDownloadTasks(ids: string[]): Promise<void> {
   return invoke("resume_download_tasks", { ids });
 }
 
-export function deleteDownloadTasks(ids: string[]): Promise<void> {
-  return invoke("delete_download_tasks", { ids });
+export function deleteDownloadTasks(
+  ids: string[],
+  deleteCompletedFiles: boolean,
+): Promise<void> {
+  return invoke("delete_download_tasks", { ids, deleteCompletedFiles });
 }
 
 export function pauseAllUnfinishedDownloadTasks(): Promise<void> {

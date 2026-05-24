@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { confirm } from "@tauri-apps/plugin-dialog";
 
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
@@ -357,9 +358,19 @@ function App() {
       return;
     }
 
+    const hasCompletedTasks = selectedTasks.some((task) => task.status === "completed");
+    const deleteCompletedFiles = hasCompletedTasks
+      ? await confirm("是否同时删除已完成任务的已下载文件/文件夹？", {
+          title: "删除已下载文件",
+          kind: "warning",
+          okLabel: "删除文件",
+          cancelLabel: "保留文件",
+        })
+      : false;
+
     setError(null);
     try {
-      await deleteDownloadTasks(ids);
+      await deleteDownloadTasks(ids, deleteCompletedFiles);
       setSelectedIds(new Set());
       await refreshTasks();
     } catch (nextError) {

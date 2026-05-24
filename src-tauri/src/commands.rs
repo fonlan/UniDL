@@ -58,10 +58,14 @@ pub fn resume_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Re
 }
 
 #[tauri::command]
-pub fn delete_download_tasks(ids: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
+pub fn delete_download_tasks(
+    ids: Vec<String>,
+    delete_completed_files: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let connection = state.lock_connection()?;
     DownloadTaskService::new(&connection, state.database_path())
-        .delete_tasks(&ids)
+        .delete_tasks(&ids, delete_completed_files)
         .map_err(|error| error.to_string())
 }
 

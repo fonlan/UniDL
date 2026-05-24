@@ -309,7 +309,7 @@ fn handle_authorized_request(
         (&Method::Post, "/api/tasks/delete") => {
             let input: TaskIdsInput = read_json(request)?;
             with_task_service(context, |service| {
-                service.delete_tasks(&input.ids)?;
+                service.delete_tasks(&input.ids, false)?;
                 empty_json_response()
             })
         }

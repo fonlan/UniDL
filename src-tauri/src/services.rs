@@ -1,4 +1,8 @@
-use std::{error::Error, path::PathBuf};
+use std::{
+    error::Error,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use rusqlite::Connection;
 use uuid::Uuid;
@@ -125,12 +129,23 @@ impl<'connection> DownloadTaskService<'connection> {
         Ok(())
     }
 
-    pub fn delete_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
+    pub fn delete_tasks(
+        &self,
+        ids: &[String],
+        delete_completed_files: bool,
+    ) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
+            let delete_downloaded =
+                task.status != DownloadStatus::Completed || delete_completed_files;
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
-            match engine_adapters::delete_task(&engine_settings, &task) {
-                Ok(()) => self.repository.delete_tasks(&[task.id])?,
+            match engine_adapters::delete_task(&engine_settings, &task, delete_downloaded) {
+                Ok(()) => {
+                    if delete_downloaded && task.engine != EngineKind::QBittorrent {
+                        delete_downloaded_entry(&task)?;
+                    }
+                    self.repository.delete_tasks(&[task.id])?;
+                }
                 Err(error) => {
                     self.repository.mark_failed(&task.id, &error.to_string())?;
                     return Err(error);
@@ -218,6 +233,17 @@ impl<'connection> DownloadTaskService<'connection> {
                 .into()
             })
     }
+}
+
+fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
+    let path = Path::new(&task.save_path).join(&task.file_name);
+    let metadata = fs::metadata(&path)?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else {
+        fs::remove_file(&path)?;
+    }
+    Ok(())
 }
 
 fn validate_create_task_input(input: &CreateDownloadTaskInput) -> Result<(), Box<dyn Error>> {
@@ -481,6 +507,130 @@ mod tests {
     }
 
     #[test]
+    fn deleting_unfinished_tasks_removes_downloaded_file_and_folder() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let download_file = download_dir.join("file.bin");
+        let download_folder = download_dir.join("album");
+        fs::write(&download_file, b"partial").expect("download file should write");
+        fs::create_dir_all(&download_folder).expect("download folder should create");
+        fs::write(download_folder.join("track.bin"), b"partial")
+            .expect("download folder file should write");
+
+        insert_aria2_task(
+            &connection,
+            "unfinished-file-task",
+            DownloadStatus::Running,
+            download_dir.to_string_lossy().as_ref(),
+            "file.bin",
+        );
+        insert_aria2_task(
+            &connection,
+            "unfinished-folder-task",
+            DownloadStatus::Paused,
+            download_dir.to_string_lossy().as_ref(),
+            "album",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(
+                &[
+                    "unfinished-file-task".to_string(),
+                    "unfinished-folder-task".to_string(),
+                ],
+                false,
+            )
+            .expect("unfinished tasks should delete downloaded entries");
+
+        assert!(!download_file.exists());
+        assert!(!download_folder.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn deleting_completed_task_keeps_downloaded_file_when_not_requested() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let download_file = download_dir.join("file.bin");
+        fs::write(&download_file, b"complete").expect("download file should write");
+
+        insert_aria2_task(
+            &connection,
+            "completed-keep-task",
+            DownloadStatus::Completed,
+            download_dir.to_string_lossy().as_ref(),
+            "file.bin",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["completed-keep-task".to_string()], false)
+            .expect("completed task should delete without removing file");
+
+        assert!(download_file.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn deleting_completed_task_removes_downloaded_folder_when_requested() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+
+        let download_dir = temp_download_dir();
+        let download_folder = download_dir.join("album");
+        fs::create_dir_all(&download_folder).expect("download folder should create");
+        fs::write(download_folder.join("track.bin"), b"complete")
+            .expect("download file should write");
+
+        insert_aria2_task(
+            &connection,
+            "completed-remove-task",
+            DownloadStatus::Completed,
+            download_dir.to_string_lossy().as_ref(),
+            "album",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["completed-remove-task".to_string()], true)
+            .expect("completed task should delete folder when requested");
+
+        assert!(!download_folder.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
     fn qbittorrent_task_lifecycle_add_pause_resume_delete() {
         let (base_url, hits, server) = start_fake_qbittorrent(8);
         let database_path = temp_database_path();
@@ -532,7 +682,7 @@ mod tests {
         assert_eq!(resumed[0].status, DownloadStatus::Running);
 
         service
-            .delete_tasks(std::slice::from_ref(&task.id))
+            .delete_tasks(std::slice::from_ref(&task.id), true)
             .expect("task should delete");
         assert!(service
             .list_created_desc()
@@ -557,6 +707,72 @@ mod tests {
 
         drop(connection);
         let _ = fs::remove_file(database_path);
+    }
+
+    fn save_unreachable_aria2_settings(connection: &Connection) {
+        EngineSettingsService::new(connection)
+            .save(EngineSettingsInput {
+                id: "aria2".to_string(),
+                engine: EngineKind::Aria2,
+                name: "aria2".to_string(),
+                enabled: true,
+                executable_path: None,
+                default_download_dir: String::new(),
+                default_args: String::new(),
+                connection_url: Some("http://127.0.0.1:1/jsonrpc".to_string()),
+                username: None,
+                password: None,
+                remote_path: None,
+                supported_source_types: vec![
+                    SourceType::Http,
+                    SourceType::Ftp,
+                    SourceType::Magnet,
+                    SourceType::Torrent,
+                ],
+                priority: 0,
+            })
+            .expect("aria2 settings should save");
+    }
+
+    fn insert_aria2_task(
+        connection: &Connection,
+        id: &str,
+        status: DownloadStatus,
+        save_path: &str,
+        file_name: &str,
+    ) {
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    engine_task_id,
+                    file_name,
+                    status,
+                    save_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                (
+                    id,
+                    SourceType::Http.as_db(),
+                    "http://example.test/file.bin",
+                    "aria2",
+                    EngineKind::Aria2.as_db(),
+                    "gid",
+                    file_name,
+                    status.as_db(),
+                    save_path,
+                ),
+            )
+            .expect("download task should insert");
+    }
+
+    fn temp_download_dir() -> PathBuf {
+        std::env::temp_dir().join(format!("unidl-download-test-{}", Uuid::new_v4()))
     }
 
     fn start_fake_qbittorrent(
