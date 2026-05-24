@@ -2,6 +2,7 @@ use std::{
     error::Error,
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use rusqlite::Connection;
@@ -129,6 +130,17 @@ impl<'connection> DownloadTaskService<'connection> {
         Ok(())
     }
 
+    pub fn open_downloaded_file(&self, id: &str) -> Result<(), Box<dyn Error>> {
+        let task = self.repository.get_by_id(id)?;
+        if task.engine == EngineKind::Aria2 || task.engine == EngineKind::YtDlp {
+            let path = downloaded_entry_path(&task);
+            fs::metadata(&path)?;
+            return open_path(&path);
+        }
+
+        Err("download task does not use a local download file managed by UniDL".into())
+    }
+
     pub fn delete_tasks(
         &self,
         ids: &[String],
@@ -245,13 +257,43 @@ impl<'connection> DownloadTaskService<'connection> {
 }
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
-    let path = Path::new(&task.save_path).join(&task.file_name);
+    let path = downloaded_entry_path(task);
     let metadata = fs::metadata(&path)?;
     if metadata.is_dir() {
         fs::remove_dir_all(&path)?;
     } else {
         fs::remove_file(&path)?;
     }
+    Ok(())
+}
+
+fn downloaded_entry_path(task: &DownloadTask) -> PathBuf {
+    Path::new(&task.save_path).join(&task.file_name)
+}
+
+fn open_path(path: &Path) -> Result<(), Box<dyn Error>> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", ""]).arg(path);
+        command
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+
+    command.spawn()?;
     Ok(())
 }
 

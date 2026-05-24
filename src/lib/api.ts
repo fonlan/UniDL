@@ -258,6 +258,14 @@ export function resumeDownloadTasks(ids: string[]): Promise<void> {
   return invoke("resume_download_tasks", { ids });
 }
 
+export function openDownloadedFile(id: string): Promise<void> {
+  if (hasTauriRuntime() === false) {
+    return Promise.reject(new Error("opening downloaded files requires Tauri runtime"));
+  }
+
+  return invoke("open_downloaded_file", { id });
+}
+
 export function deleteDownloadTasks(
   ids: string[],
   deleteCompletedFiles: boolean,

@@ -22,6 +22,7 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import logoUrl from "../logo.png";
 import {
   deleteDownloadTasks,
+  openDownloadedFile,
   pauseAllUnfinishedDownloadTasks,
   pauseDownloadTasks,
   refreshDownloadTasks,
@@ -56,6 +57,10 @@ const engineLabels: Record<EngineKind, string> = {
 
 function isFinished(status: DownloadStatus) {
   return status === "completed" || status === "deleted";
+}
+
+function isLocalDownloadEngine(engine: EngineKind) {
+  return engine === "aria2" || engine === "yt-dlp";
 }
 
 function classNames(...names: Array<string | false | null | undefined>) {
@@ -378,6 +383,19 @@ function App() {
     }
   }
 
+  async function handleTaskDoubleClick(task: DownloadTask) {
+    if (isLocalDownloadEngine(task.engine) === false) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await openDownloadedFile(task.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
   function handleTaskCreated(task: DownloadTask) {
     setView("tasks");
     setTasks((current) => [task, ...current]);
@@ -514,8 +532,10 @@ function App() {
                 return (
                   <tr
                     key={task.id}
+                    onDoubleClick={() => handleTaskDoubleClick(task)}
                     className={classNames(
                       "bg-white hover:bg-slate-50",
+                      isLocalDownloadEngine(task.engine) && "cursor-pointer",
                       isSelected && "bg-emerald-50 hover:bg-emerald-50",
                     )}
                   >
