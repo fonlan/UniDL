@@ -163,10 +163,7 @@ impl<'connection> DownloadTaskService<'connection> {
                 };
             match delete_result {
                 Ok(()) => {
-                    if delete_downloaded
-                        && task.engine != EngineKind::QBittorrent
-                        && task.engine_task_id.is_some()
-                    {
+                    if delete_downloaded && task.engine != EngineKind::QBittorrent {
                         delete_downloaded_entry(&task)?;
                     }
                     self.repository.delete_tasks(&[task.id])?;
@@ -262,31 +259,53 @@ impl<'connection> DownloadTaskService<'connection> {
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
     let path = downloaded_entry_path(task);
+    if task.status == DownloadStatus::Failed {
+        remove_downloaded_entry(&downloaded_partial_entry_path(&path))?;
+    }
+    remove_downloaded_entry(&path)
+}
+
+fn remove_downloaded_entry(path: &Path) -> Result<(), Box<dyn Error>> {
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(error)
             if matches!(
                 error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::InvalidInput | io::ErrorKind::InvalidFilename
-            ) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::IsADirectory => match fs::remove_dir_all(&path)
+                io::ErrorKind::NotFound
+                    | io::ErrorKind::InvalidInput
+                    | io::ErrorKind::InvalidFilename
+            ) =>
         {
-            Ok(()) => Ok(()),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound
-                        | io::ErrorKind::InvalidInput
-                        | io::ErrorKind::InvalidFilename
-                ) => Ok(()),
-            Err(error) => Err(error.into()),
-        },
+            Ok(())
+        }
+        Err(error) if error.kind() == io::ErrorKind::IsADirectory => {
+            match fs::remove_dir_all(&path) {
+                Ok(()) => Ok(()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound
+                            | io::ErrorKind::InvalidInput
+                            | io::ErrorKind::InvalidFilename
+                    ) =>
+                {
+                    Ok(())
+                }
+                Err(error) => Err(error.into()),
+            }
+        }
         Err(error) => Err(error.into()),
     }
 }
 
 fn downloaded_entry_path(task: &DownloadTask) -> PathBuf {
     Path::new(&task.save_path).join(&task.file_name)
+}
+
+fn downloaded_partial_entry_path(path: &Path) -> PathBuf {
+    let mut partial_path = path.as_os_str().to_os_string();
+    partial_path.push(".part");
+    PathBuf::from(partial_path)
 }
 
 fn open_path(path: &Path) -> Result<(), Box<dyn Error>> {
@@ -858,6 +877,62 @@ mod tests {
 
         drop(connection);
         let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn deleting_failed_ytdlp_task_removes_partial_entry() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_ytdlp_settings(&connection);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let partial_file = download_dir.join("video.mp4.part");
+        fs::write(&partial_file, b"partial").expect("partial file should write");
+
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    engine_task_id,
+                    file_name,
+                    status,
+                    save_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                (
+                    "failed-ytdlp-part-file",
+                    SourceType::Http.as_db(),
+                    "http://example.test/video.mp4",
+                    "yt-dlp",
+                    EngineKind::YtDlp.as_db(),
+                    "1234",
+                    "video.mp4",
+                    DownloadStatus::Failed.as_db(),
+                    download_dir.to_string_lossy().as_ref(),
+                ),
+            )
+            .expect("failed yt-dlp task should insert");
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["failed-ytdlp-part-file".to_string()], false)
+            .expect("failed yt-dlp task should delete partial file");
+
+        assert!(!partial_file.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
     }
 
     #[test]
