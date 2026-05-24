@@ -123,6 +123,29 @@ function valueFromDroppedFile(file: File) {
   return fileWithPath.path ?? file.name;
 }
 
+function sourceHostname(parsedSource: ParsedSource) {
+  if (parsedSource.sourceType !== "http" && parsedSource.sourceType !== "ftp") {
+    return null;
+  }
+
+  try {
+    return new URL(parsedSource.source).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function normalizePreferredDomain(domain: string) {
+  return domain.trim().toLowerCase().replace(/^\*?\./, "");
+}
+
+function matchesPreferredDomain(settings: EngineSettings, hostname: string) {
+  return settings.preferredDomains.some((domain) => {
+    const normalized = normalizePreferredDomain(domain);
+    return normalized.length > 0 && (hostname === normalized || hostname.endsWith(`.${normalized}`));
+  });
+}
+
 function defaultSavePath(settings: EngineSettings) {
   if (settings.engine === "qbittorrent") {
     return settings.remotePath || settings.defaultDownloadDir;
@@ -162,9 +185,23 @@ export default function NewTaskDialog({
     if (!parsedSource) {
       return [];
     }
-    return engineSettings.filter((settings) =>
+    const compatible = engineSettings.filter((settings) =>
       settings.supportedSourceTypes.includes(parsedSource.sourceType),
     );
+    const hostname = sourceHostname(parsedSource);
+    if (!hostname) {
+      return compatible;
+    }
+
+    return [...compatible].sort((left, right) => {
+      const leftMatched = matchesPreferredDomain(left, hostname);
+      const rightMatched = matchesPreferredDomain(right, hostname);
+      if (leftMatched !== rightMatched) {
+        return leftMatched ? -1 : 1;
+      }
+
+      return left.priority - right.priority;
+    });
   }, [engineSettings, parsedSource]);
   const visibleEngineSettings = parsedSource ? compatibleSettings : engineSettings;
   const selectedSettings =

@@ -96,6 +96,7 @@ function defaultEngineSettings(
     password: null,
     remotePath: engine === "qbittorrent" ? "" : null,
     supportedSourceTypes: supportedSourceTypes(engine),
+    preferredDomains: [],
     priority: 0,
     updatedAt: "",
   };
@@ -136,8 +137,23 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     password: emptyToNull(settings.password ?? ""),
     remotePath: emptyToNull(settings.remotePath ?? ""),
     supportedSourceTypes: settings.supportedSourceTypes,
+    preferredDomains: normalizePreferredDomains(settings.preferredDomains),
     priority: settings.priority,
   };
+}
+
+function normalizePreferredDomains(domains: string[]) {
+  return domains
+    .map((domain) => domain.trim().toLowerCase())
+    .filter((domain) => domain.length > 0);
+}
+
+function preferredDomainsText(domains: string[]) {
+  return domains.join("\n");
+}
+
+function parsePreferredDomains(value: string) {
+  return normalizePreferredDomains(value.split(/[\s,;]+/));
 }
 
 function isDirty(saved: EngineSettings, draft: EngineSettings) {
@@ -1006,6 +1022,17 @@ export default function EngineSettingsView() {
                                         />
                                       </>
                                     )}
+                                    <div className="md:col-span-2">
+                                      <TextAreaField
+                                        label="偏好域名（每行一个）"
+                                        value={preferredDomainsText(draft.preferredDomains)}
+                                        onChange={(value) =>
+                                          updateDraft(draft.id, {
+                                            preferredDomains: parsePreferredDomains(value),
+                                          })
+                                        }
+                                      />
+                                    </div>
                                     <div className="md:col-span-2">
                                       <TextAreaField
                                         label="默认参数"

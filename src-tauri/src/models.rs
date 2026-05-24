@@ -186,6 +186,7 @@ pub struct EngineSettings {
     pub password: Option<String>,
     pub remote_path: Option<String>,
     pub supported_source_types: Vec<SourceType>,
+    pub preferred_domains: Vec<String>,
     pub priority: i64,
     pub updated_at: String,
 }
@@ -205,6 +206,7 @@ pub struct EngineSettingsInput {
     pub password: Option<String>,
     pub remote_path: Option<String>,
     pub supported_source_types: Vec<SourceType>,
+    pub preferred_domains: Vec<String>,
     pub priority: i64,
 }
 

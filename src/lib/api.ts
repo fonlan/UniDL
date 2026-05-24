@@ -312,6 +312,7 @@ function cloneEngineSettings(settings: EngineSettings): EngineSettings {
   return {
     ...settings,
     supportedSourceTypes: [...settings.supportedSourceTypes],
+    preferredDomains: [...settings.preferredDomains],
   };
 }
 

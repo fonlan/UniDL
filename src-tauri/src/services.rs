@@ -458,6 +458,7 @@ impl<'connection> EngineSettingsService<'connection> {
             password: current.password,
             remote_path: current.remote_path,
             supported_source_types: current.supported_source_types,
+            preferred_domains: current.preferred_domains,
             priority: current.priority,
         })?;
 
@@ -535,6 +536,7 @@ mod tests {
                 password: None,
                 remote_path: None,
                 supported_source_types: vec![SourceType::Http, SourceType::Ftp],
+                preferred_domains: Vec::new(),
                 priority: 0,
             })
             .expect("engine settings should save");
@@ -554,6 +556,7 @@ mod tests {
                 password: saved.password,
                 remote_path: saved.remote_path,
                 supported_source_types: saved.supported_source_types,
+                preferred_domains: Vec::new(),
                 priority: saved.priority,
             })
             .expect("engine settings should rename");
@@ -779,6 +782,7 @@ mod tests {
                 password: Some("adminadmin".to_string()),
                 remote_path: Some(String::new()),
                 supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
+                preferred_domains: Vec::new(),
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -1028,6 +1032,7 @@ mod tests {
                 password: Some("adminadmin".to_string()),
                 remote_path: Some(String::new()),
                 supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
+                preferred_domains: Vec::new(),
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -1109,6 +1114,7 @@ mod tests {
                     SourceType::Magnet,
                     SourceType::Torrent,
                 ],
+                preferred_domains: Vec::new(),
                 priority: 0,
             })
             .expect("aria2 settings should save");
@@ -1129,6 +1135,7 @@ mod tests {
                 password: None,
                 remote_path: None,
                 supported_source_types: vec![SourceType::Http, SourceType::Ftp],
+                preferred_domains: Vec::new(),
                 priority: 0,
             })
             .expect("yt-dlp settings should save");

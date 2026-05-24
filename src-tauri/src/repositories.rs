@@ -91,6 +91,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 password,
                 remote_path,
                 supported_source_types,
+                preferred_domains,
                 priority,
                 updated_at
             FROM engine_settings
@@ -126,10 +127,11 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 password,
                 remote_path,
                 supported_source_types,
+                preferred_domains,
                 priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -141,6 +143,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 password = excluded.password,
                 remote_path = excluded.remote_path,
                 supported_source_types = excluded.supported_source_types,
+                preferred_domains = excluded.preferred_domains,
                 priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
@@ -157,6 +160,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 input.password.as_deref(),
                 input.remote_path.as_deref(),
                 encode_source_types(&input.supported_source_types),
+                encode_domains(&input.preferred_domains),
                 input.priority,
             ),
         )?;
@@ -180,6 +184,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 password,
                 remote_path,
                 supported_source_types,
+                preferred_domains,
                 priority,
                 updated_at
             FROM engine_settings
@@ -229,6 +234,23 @@ fn encode_source_types(source_types: &[SourceType]) -> String {
         .join(",")
 }
 
+fn encode_domains(domains: &[String]) -> String {
+    domains
+        .iter()
+        .map(|domain| domain.trim().to_lowercase())
+        .filter(|domain| !domain.is_empty())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn decode_domains(value: &str) -> Vec<String> {
+    value
+        .split(",")
+        .map(|domain| domain.trim().to_string())
+        .filter(|domain| !domain.is_empty())
+        .collect()
+}
+
 fn decode_source_types(value: &str) -> Result<Vec<SourceType>, Box<dyn Error>> {
     if value.trim().is_empty() {
         return Ok(Vec::new());
@@ -260,6 +282,7 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         supported_source_types: decode_source_types(
             &row.get::<_, String>("supported_source_types")?,
         )?,
+        preferred_domains: decode_domains(&row.get::<_, String>("preferred_domains")?),
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })

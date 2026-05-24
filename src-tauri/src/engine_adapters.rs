@@ -1176,6 +1176,7 @@ mod tests {
             password: None,
             remote_path: None,
             supported_source_types: vec![SourceType::Http],
+            preferred_domains: Vec::new(),
             priority: 0,
             updated_at: String::new(),
         }
@@ -1333,6 +1334,7 @@ mod tests {
             password: None,
             remote_path: None,
             supported_source_types: vec![SourceType::Http, SourceType::Ftp],
+            preferred_domains: Vec::new(),
             priority: 0,
             updated_at: String::new(),
         };
