@@ -6,6 +6,7 @@ mod models;
 mod repositories;
 mod services;
 mod system_open;
+mod task_events;
 mod web_server;
 
 use std::{
@@ -123,12 +124,16 @@ pub fn run() {
             let app_settings = services::AppSettingsService::new(&connection).get()?;
             app.manage(AppState::new(
                 connection,
-                database_path,
+                database_path.clone(),
                 pending_open_sources,
             ));
             app.state::<AppState>()
                 .apply_web_settings(app.handle().clone(), &app_settings)
                 .map_err(std::io::Error::other)?;
+            task_events::spawn_download_task_refresh_worker(
+                app.handle().clone(),
+                database_path.clone(),
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -184,17 +184,21 @@ function App() {
   const toggleDisabled = activeScopeTasks.length === 0;
   const deleteDisabled = selectedIds.size === 0;
 
+  function replaceTasks(nextTasks: DownloadTask[]) {
+    setTasks(nextTasks);
+    setSelectedIds((current) => {
+      const nextIds = new Set(nextTasks.map((task) => task.id));
+      return new Set([...current].filter((id) => nextIds.has(id)));
+    });
+  }
+
   async function refreshTasks() {
     setIsLoading(true);
     setError(null);
 
     try {
       const nextTasks = await refreshDownloadTasks();
-      setTasks(nextTasks);
-      setSelectedIds((current) => {
-        const nextIds = new Set(nextTasks.map((task) => task.id));
-        return new Set([...current].filter((id) => nextIds.has(id)));
-      });
+      replaceTasks(nextTasks);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -204,6 +208,37 @@ function App() {
 
   useEffect(() => {
     void refreshTasks();
+  }, []);
+
+  useEffect(() => {
+    if (!hasTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void listen("download-tasks-updated", () => {
+      void refreshTasks();
+    })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch((nextError) => {
+        if (disposed) {
+          return;
+        }
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
