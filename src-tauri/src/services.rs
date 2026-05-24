@@ -121,7 +121,7 @@ impl<'connection> DownloadTaskService<'connection> {
         for task in self.repository.list_by_ids(ids)? {
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
-            match engine_adapters::resume_task(&engine_settings, &task) {
+            match engine_adapters::resume_task(&engine_settings, &task, self.database_path.clone()) {
                 Ok(state) => self.apply_engine_state(&task.id, state)?,
                 Err(error) => {
                     self.repository.mark_failed(&task.id, &error.to_string())?;

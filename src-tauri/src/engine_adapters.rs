@@ -49,7 +49,7 @@ pub fn add_task(
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     match settings.engine {
         EngineKind::Aria2 => add_aria2_task(settings, task),
-        EngineKind::YtDlp => add_ytdlp_task(settings, task, database_path),
+        EngineKind::YtDlp => add_ytdlp_task(settings, task, database_path, false),
         EngineKind::QBittorrent => add_qbittorrent_task(settings, task),
     }
 }
@@ -82,12 +82,12 @@ pub fn pause_task(
             })
         }
         EngineKind::YtDlp => {
-            suspend_process(ytdlp_pid(task)?)?;
+            terminate_process(ytdlp_pid(task)?)?;
             Ok(EngineTaskState {
                 status: DownloadStatus::Paused,
                 progress: task.progress,
                 speed_bytes_per_sec: 0,
-                engine_task_id: task.engine_task_id.clone(),
+                engine_task_id: None,
                 error_message: None,
             })
         }
@@ -109,6 +109,7 @@ pub fn pause_task(
 pub fn resume_task(
     settings: &EngineSettings,
     task: &DownloadTask,
+    database_path: PathBuf,
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     match settings.engine {
         EngineKind::Aria2 => {
@@ -123,14 +124,7 @@ pub fn resume_task(
             })
         }
         EngineKind::YtDlp => {
-            resume_process(ytdlp_pid(task)?)?;
-            Ok(EngineTaskState {
-                status: DownloadStatus::Running,
-                progress: task.progress,
-                speed_bytes_per_sec: 0,
-                engine_task_id: task.engine_task_id.clone(),
-                error_message: None,
-            })
+            add_ytdlp_task(settings, task, database_path, true)
         }
         EngineKind::QBittorrent => {
             let hash = required_engine_task_id(task)?;
@@ -169,7 +163,7 @@ pub fn delete_task(
         EngineKind::YtDlp => {
             if !matches!(
                 task.status,
-                DownloadStatus::Completed | DownloadStatus::Failed
+                DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Paused
             ) {
                 let pid = required_engine_task_id(task)?;
                 run_windows_command("taskkill", &["/PID", pid, "/T", "/F"])?;
@@ -670,6 +664,7 @@ fn add_ytdlp_task(
     settings: &EngineSettings,
     task: &DownloadTask,
     database_path: PathBuf,
+    force_continue: bool,
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     let executable = settings
         .executable_path
@@ -680,6 +675,9 @@ fn add_ytdlp_task(
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
     append_args(&mut command, &task.engine_args);
+    if force_continue {
+        command.arg("--continue");
+    }
     if let Some(cookie_path) = &cookie_path {
         command.arg("--cookies").arg(cookie_path);
     }
@@ -734,6 +732,16 @@ fn write_ytdlp_cookie_file(
 }
 
 fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Error>> {
+    if task.status == DownloadStatus::Paused {
+        return Ok(EngineTaskState {
+            status: DownloadStatus::Paused,
+            progress: task.progress,
+            speed_bytes_per_sec: 0,
+            engine_task_id: None,
+            error_message: task.error_message.clone(),
+        });
+    }
+
     let pid = required_engine_task_id(task)?;
     let output = Command::new("tasklist")
         .args(["/FI", &format!("PID eq {}", pid)])
@@ -820,68 +828,20 @@ fn ytdlp_pid(task: &DownloadTask) -> Result<NonZeroU32, Box<dyn Error>> {
 }
 
 #[cfg(windows)]
-fn suspend_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
-    set_process_suspended(pid, true)
-}
-
-#[cfg(windows)]
-fn resume_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
-    set_process_suspended(pid, false)
-}
-
-#[cfg(not(windows))]
-fn suspend_process(_pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
-    Err("yt-dlp pause is only supported on Windows".into())
-}
-
-#[cfg(not(windows))]
-fn resume_process(_pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
-    Err("yt-dlp resume is only supported on Windows".into())
-}
-
-#[cfg(windows)]
-fn set_process_suspended(pid: NonZeroU32, suspended: bool) -> Result<(), Box<dyn Error>> {
-    use std::ffi::c_void;
-
-    type Handle = *mut c_void;
-    const PROCESS_SUSPEND_RESUME: u32 = 0x0800;
-
-    extern "system" {
-        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> Handle;
-        fn CloseHandle(object: Handle) -> i32;
-        fn NtSuspendProcess(process_handle: Handle) -> i32;
-        fn NtResumeProcess(process_handle: Handle) -> i32;
-    }
-
-    let handle = unsafe { OpenProcess(PROCESS_SUSPEND_RESUME, 0, pid.get()) };
-    if handle.is_null() {
-        return Err(format!("failed to open yt-dlp process {}", pid).into());
-    }
-
-    let status = if suspended {
-        unsafe { NtSuspendProcess(handle) }
-    } else {
-        unsafe { NtResumeProcess(handle) }
-    };
-    unsafe {
-        CloseHandle(handle);
-    }
-
-    if status >= 0 {
+fn terminate_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
+    let status = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status()?;
+    if status.success() {
         Ok(())
-    } else if suspended {
-        Err(format!(
-            "failed to suspend yt-dlp process {}: ntstatus {status:#x}",
-            pid
-        )
-        .into())
     } else {
-        Err(format!(
-            "failed to resume yt-dlp process {}: ntstatus {status:#x}",
-            pid
-        )
-        .into())
+        Err(format!("failed to stop yt-dlp process {}", pid).into())
     }
+}
+
+#[cfg(not(windows))]
+fn terminate_process(_pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
+    Err("yt-dlp pause is only supported on Windows".into())
 }
 
 fn run_windows_command(program: &str, args: &[&str]) -> Result<(), Box<dyn Error>> {
@@ -997,6 +957,20 @@ mod tests {
             .expect("unavailable aria2 should not block local delete");
     }
 
+    #[test]
+    fn refresh_paused_ytdlp_task_keeps_pause_state() {
+        let mut task = aria2_task();
+        task.engine = EngineKind::YtDlp;
+        task.status = DownloadStatus::Paused;
+        task.engine_task_id = None;
+
+        let state = refresh_ytdlp_task(&task).expect("paused yt-dlp task should refresh");
+
+        assert_eq!(state.status, DownloadStatus::Paused);
+        assert_eq!(state.progress, 12.0);
+        assert_eq!(state.speed_bytes_per_sec, 0);
+        assert_eq!(state.engine_task_id, None);
+    }
     #[test]
     fn delete_completed_ytdlp_task_does_not_kill_finished_process() {
         let settings = EngineSettings {
