@@ -10,6 +10,7 @@ import type {
   EngineSettings,
   EngineSettingsInput,
   SourceType,
+  TorrentFileEntry,
 } from "@shared/types";
 
 export interface SystemOpenRequestPayload {
@@ -54,6 +55,14 @@ export function refreshDownloadTasks(): Promise<DownloadTask[]> {
   return invoke("refresh_download_tasks");
 }
 
+
+export function getTorrentFiles(source: string): Promise<TorrentFileEntry[]> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve([]);
+  }
+
+  return invoke("get_torrent_files", { source });
+}
 export function writeLog(level: LogLevel, message: string): Promise<void> {
   if (!hasTauriRuntime()) {
     return Promise.resolve();
@@ -108,6 +117,7 @@ export function createDownloadTask(input: CreateDownloadTaskInput): Promise<Down
       speedBytesPerSec: 0,
       savePath: input.savePath,
       engineArgs: input.engineArgs,
+      selectedFileIndexes: input.selectedFileIndexes ?? null,
       createdAt: new Date().toISOString(),
       completedAt: null,
       errorMessage: null,

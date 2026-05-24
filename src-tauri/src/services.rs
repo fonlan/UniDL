@@ -65,6 +65,7 @@ impl<'connection> DownloadTaskService<'connection> {
             file_name: input.file_name,
             save_path: input.save_path,
             engine_args: input.engine_args,
+            selected_file_indexes: input.selected_file_indexes,
         };
         self.repository.create(&id, &task_input)?;
         let task = self.repository.get_by_id(&id)?;
@@ -310,6 +311,14 @@ fn validate_create_task_input(input: &CreateDownloadTaskInput) -> Result<(), Box
     }
     if input.save_path.trim().is_empty() {
         return Err("download path is required".into());
+    }
+    if let Some(indexes) = &input.selected_file_indexes {
+        if indexes.is_empty() {
+            return Err("selected file indexes cannot be empty".into());
+        }
+        if indexes.iter().any(|index| *index < 1) {
+            return Err("selected file indexes must start from 1".into());
+        }
     }
     Ok(())
 }

@@ -36,6 +36,11 @@ pub fn take_pending_open_requests(state: State<'_, AppState>) -> Result<Vec<Stri
 }
 
 #[tauri::command]
+pub fn get_torrent_files(source: String) -> Result<Vec<crate::torrent_metadata::TorrentFileEntry>, String> {
+    crate::torrent_metadata::read_torrent_files(&source).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn refresh_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
     logger::info("refreshing download tasks");
     let connection = state.lock_connection()?;

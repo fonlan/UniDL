@@ -61,6 +61,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             speed_bytes_per_sec INTEGER NOT NULL DEFAULT 0 CHECK (speed_bytes_per_sec >= 0),
             save_path TEXT NOT NULL,
             engine_args TEXT NOT NULL DEFAULT '',
+            selected_file_indexes TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             completed_at TEXT,
             error_message TEXT
@@ -80,6 +81,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_supported_source_types(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
+    migrate_download_tasks_selected_file_indexes(connection)?;
     seed_app_settings(connection)
 }
 
@@ -279,6 +281,19 @@ fn migrate_download_tasks_engine_args(connection: &Connection) -> Result<(), rus
         r#"
         ALTER TABLE download_tasks
             ADD COLUMN engine_args TEXT NOT NULL DEFAULT '';
+        "#,
+    )
+}
+
+fn migrate_download_tasks_selected_file_indexes(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "download_tasks", "selected_file_indexes")? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE download_tasks
+            ADD COLUMN selected_file_indexes TEXT;
         "#,
     )
 }

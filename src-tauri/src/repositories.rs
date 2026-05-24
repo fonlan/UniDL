@@ -284,6 +284,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec,
                 save_path,
                 engine_args,
+                selected_file_indexes,
                 created_at,
                 completed_at,
                 error_message
@@ -327,6 +328,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec,
                 save_path,
                 engine_args,
+                selected_file_indexes,
                 created_at,
                 completed_at,
                 error_message
@@ -360,6 +362,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec,
                 save_path,
                 engine_args,
+                selected_file_indexes,
                 created_at,
                 completed_at,
                 error_message
@@ -393,6 +396,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec,
                 save_path,
                 engine_args,
+                selected_file_indexes,
                 created_at,
                 completed_at,
                 error_message
@@ -423,8 +427,9 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 progress,
                 speed_bytes_per_sec,
                 save_path,
-                engine_args
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9)
+                engine_args,
+                selected_file_indexes
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9, ?10)
             "#,
             params![
                 id,
@@ -436,6 +441,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 DownloadStatus::Queued.as_db(),
                 input.save_path.as_str(),
                 input.engine_args.as_str(),
+                encode_selected_file_indexes(input.selected_file_indexes.as_deref()),
             ],
         )?;
         Ok(())
@@ -511,6 +517,25 @@ impl<'connection> DownloadTaskRepository<'connection> {
     }
 }
 
+fn encode_selected_file_indexes(indexes: Option<&[i64]>) -> Option<String> {
+    indexes.map(|values| values.iter().map(ToString::to_string).collect::<Vec<_>>().join(","))
+}
+
+fn decode_selected_file_indexes(value: Option<String>) -> Result<Option<Vec<i64>>, Box<dyn Error>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.trim().is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    Ok(Some(
+        value
+            .split(",")
+            .map(|part| part.trim().parse::<i64>().map_err(Into::into))
+            .collect::<Result<Vec<_>, Box<dyn Error>>>()?,
+    ))
+}
+
 fn read_download_task(row: &rusqlite::Row<'_>) -> Result<DownloadTask, Box<dyn Error>> {
     let source_type: String = row.get("source_type")?;
     let engine: String = row.get("engine")?;
@@ -529,6 +554,7 @@ fn read_download_task(row: &rusqlite::Row<'_>) -> Result<DownloadTask, Box<dyn E
         speed_bytes_per_sec: row.get("speed_bytes_per_sec")?,
         save_path: row.get("save_path")?,
         engine_args: row.get("engine_args")?,
+        selected_file_indexes: decode_selected_file_indexes(row.get("selected_file_indexes")?)?,
         created_at: row.get("created_at")?,
         completed_at: row.get("completed_at")?,
         error_message: row.get("error_message")?,

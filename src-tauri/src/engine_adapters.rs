@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use crate::{
     models::{DownloadStatus, DownloadTask, EngineKind, EngineSettings, SourceType},
     repositories::DownloadTaskRepository,
+    torrent_metadata::read_torrent_info_hash,
 };
 
 const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
@@ -205,8 +206,12 @@ fn add_aria2_task(
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     start_aria2_process(settings, &task.save_path)?;
 
-    let options =
-        aria2_download_options(&task.save_path, &settings.default_args, &task.engine_args);
+    let options = aria2_download_options(
+        &task.save_path,
+        &settings.default_args,
+        &task.engine_args,
+        task.selected_file_indexes.as_deref(),
+    );
     let result = match task.source_type {
         SourceType::Torrent => {
             let torrent = fs::read(&task.source)?;
@@ -369,13 +374,35 @@ fn aria2_rpc_secret(args: &str) -> Option<String> {
     None
 }
 
-fn aria2_download_options(save_path: &str, default_args: &str, task_args: &str) -> Value {
+fn aria2_download_options(
+    save_path: &str,
+    default_args: &str,
+    task_args: &str,
+    selected_file_indexes: Option<&[i64]>,
+) -> Value {
     let mut options = serde_json::Map::new();
     options.insert("dir".to_string(), Value::String(save_path.to_string()));
     append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
     append_aria2_options(&mut options, default_args);
     append_aria2_options(&mut options, task_args);
+    if let Some(selected_file_indexes) = selected_file_indexes {
+        if !selected_file_indexes.is_empty() {
+            options.insert(
+                "select-file".to_string(),
+                Value::String(format_select_file_indexes(selected_file_indexes)),
+            );
+        }
+    }
     Value::Object(options)
+}
+
+
+fn format_select_file_indexes(indexes: &[i64]) -> String {
+    indexes
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn append_aria2_options(options: &mut serde_json::Map<String, Value>, args: &str) {
@@ -451,7 +478,7 @@ fn add_qbittorrent_task(
     let client = qbittorrent_client(settings)?;
     let mut form = multipart::Form::new()
         .text("savepath", task.save_path.clone())
-        .text("paused", "false");
+        .text("paused", if task.selected_file_indexes.as_ref().is_some_and(|indexes| !indexes.is_empty()) { "true" } else { "false" });
 
     if task.source_type == SourceType::Torrent && Path::new(&task.source).exists() {
         let bytes = fs::read(&task.source)?;
@@ -471,9 +498,21 @@ fn add_qbittorrent_task(
         return Err(format!("qBittorrent add failed: {}", response.status()).into());
     }
 
-    Ok(EngineTaskState::running(
-        parse_magnet_hash(&task.source).unwrap_or_else(|| task.source.clone()),
-    ))
+    let hash = if task.source_type == SourceType::Torrent && Path::new(&task.source).exists() {
+        read_torrent_info_hash(&task.source)?
+    } else {
+        parse_magnet_hash(&task.source).unwrap_or_else(|| task.source.clone())
+    };
+
+    if let Some(indexes) = task.selected_file_indexes.as_deref() {
+        if !indexes.is_empty() {
+            qbittorrent_select_files(&client, settings, &hash, indexes)?;
+        }
+    }
+
+    qbittorrent_post(&client, settings, "torrents/resume", &[("hashes", &hash)])?;
+
+    Ok(EngineTaskState::running(hash))
 }
 
 fn refresh_qbittorrent_task(
@@ -553,6 +592,69 @@ fn qbittorrent_post(
         return Err(format!("qBittorrent {} failed: {}", endpoint, response.status()).into());
     }
     Ok(())
+}
+
+
+#[derive(Deserialize)]
+struct QbTorrentFileInfo {
+    index: i64,
+}
+
+fn qbittorrent_select_files(
+    client: &Client,
+    settings: &EngineSettings,
+    hash: &str,
+    selected_file_indexes: &[i64],
+) -> Result<(), Box<dyn Error>> {
+    let files: Vec<QbTorrentFileInfo> = qbittorrent_get_files(client, settings, hash)?;
+    let selected: std::collections::HashSet<i64> = selected_file_indexes
+        .iter()
+        .map(|index| index.saturating_sub(1))
+        .collect();
+    let selected_ids = files
+        .iter()
+        .filter(|file| selected.contains(&file.index))
+        .map(|file| file.index.to_string())
+        .collect::<Vec<_>>()
+        .join("|");
+    let unselected_ids = files
+        .iter()
+        .filter(|file| !selected.contains(&file.index))
+        .map(|file| file.index.to_string())
+        .collect::<Vec<_>>()
+        .join("|");
+    if !unselected_ids.is_empty() {
+        qbittorrent_post(
+            client,
+            settings,
+            "torrents/filePrio",
+            &[("hash", hash), ("id", &unselected_ids), ("priority", "0")],
+        )?;
+    }
+    if !selected_ids.is_empty() {
+        qbittorrent_post(
+            client,
+            settings,
+            "torrents/filePrio",
+            &[("hash", hash), ("id", &selected_ids), ("priority", "1")],
+        )?;
+    }
+    Ok(())
+}
+
+fn qbittorrent_get_files(
+    client: &Client,
+    settings: &EngineSettings,
+    hash: &str,
+) -> Result<Vec<QbTorrentFileInfo>, Box<dyn Error>> {
+    let response = client
+        .get(qbittorrent_url(settings, "torrents/files")?)
+        .query(&[("hash", hash)])
+        .send()?;
+    if !response.status().is_success() {
+        return Err(format!("qBittorrent files failed: {}", response.status()).into());
+    }
+    Ok(response.json()?)
 }
 
 fn qbittorrent_url(settings: &EngineSettings, endpoint: &str) -> Result<String, Box<dyn Error>> {

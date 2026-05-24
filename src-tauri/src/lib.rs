@@ -8,6 +8,7 @@ mod repositories;
 mod services;
 mod system_open;
 mod task_events;
+mod torrent_metadata;
 mod web_server;
 
 use std::{
@@ -149,6 +150,7 @@ pub fn run() {
             commands::take_pending_open_requests,
             commands::refresh_download_tasks,
             commands::create_download_task,
+            commands::get_torrent_files,
             commands::pause_download_tasks,
             commands::resume_download_tasks,
             commands::open_downloaded_file,

@@ -135,6 +135,7 @@ pub struct DownloadTask {
     pub speed_bytes_per_sec: i64,
     pub save_path: String,
     pub engine_args: String,
+    pub selected_file_indexes: Option<Vec<i64>>,
     pub created_at: String,
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
@@ -150,6 +151,7 @@ pub struct CreateDownloadTaskInput {
     pub file_name: String,
     pub save_path: String,
     pub engine_args: String,
+    pub selected_file_indexes: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,6 +163,7 @@ pub struct NewDownloadTask {
     pub file_name: String,
     pub save_path: String,
     pub engine_args: String,
+    pub selected_file_indexes: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

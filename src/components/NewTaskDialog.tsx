@@ -3,12 +3,13 @@ import type { ClipboardEvent, DragEvent } from "react";
 import { FilePlus, FolderOpen, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
-import { createDownloadTask, listEngineSettings, writeLog } from "@/lib/api";
+import { createDownloadTask, getTorrentFiles, listEngineSettings, writeLog } from "@/lib/api";
 import type {
   DownloadTask,
   EngineKind,
   EngineSettings,
   SourceType,
+    TorrentFileEntry,
 } from "@shared/types";
 
 const sourceLabels: Record<SourceType, string> = {
@@ -35,6 +36,13 @@ interface ParsedSource {
   source: string;
   fileName: string;
 }
+
+
+interface TorrentSelectionState {
+  files: TorrentFileEntry[];
+  selectedIndexes: Set<number>;
+}
+
 
 function classNames(...names: Array<string | false | null | undefined>) {
   return names.filter(Boolean).join(" ");
@@ -140,6 +148,7 @@ export default function NewTaskDialog({
   const [selectedEngineSettingsId, setSelectedEngineSettingsId] = useState("");
   const [savePath, setSavePath] = useState("");
   const [engineArgs, setEngineArgs] = useState("");
+  const [torrentSelection, setTorrentSelection] = useState<TorrentSelectionState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -216,11 +225,13 @@ export default function NewTaskDialog({
     if (!selectedSettings) {
       setSavePath("");
       setEngineArgs("");
+      setTorrentSelection(null);
       return;
     }
 
     setSavePath(defaultSavePath(selectedSettings));
     setEngineArgs(selectedSettings.defaultArgs);
+    setTorrentSelection(null);
   }, [selectedSettings]);
 
   function resetAndClose() {
@@ -230,6 +241,7 @@ export default function NewTaskDialog({
     setSavePath("");
     setEngineArgs("");
     setError(null);
+    setTorrentSelection(null);
     onClose();
   }
 
@@ -277,6 +289,9 @@ export default function NewTaskDialog({
         fileName: fileName.trim(),
         savePath: savePath.trim(),
         engineArgs,
+        selectedFileIndexes: torrentSelection?.selectedIndexes.size
+          ? [...torrentSelection.selectedIndexes].sort((left, right) => left - right)
+          : null,
       });
       onCreated(task);
       void writeLog("info", `new task created: id=${task.id}`);
@@ -287,6 +302,30 @@ export default function NewTaskDialog({
       setIsCreating(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || !parsedSource || parsedSource.sourceType !== "torrent") {
+      setTorrentSelection(null);
+      return;
+    }
+
+    const source = parsedSource.source;
+
+    async function loadTorrentFiles() {
+      try {
+        const files = await getTorrentFiles(source);
+        setTorrentSelection({
+          files,
+          selectedIndexes: new Set(files.map((file) => file.index)),
+        });
+      } catch (nextError) {
+        setTorrentSelection(null);
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+      }
+    }
+
+    void loadTorrentFiles();
+  }, [open, parsedSource]);
 
   async function selectSavePath() {
     const selected = await openDialog({
@@ -371,6 +410,65 @@ export default function NewTaskDialog({
                   className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
                 />
               </label>
+
+              {parsedSource?.sourceType === "torrent" && torrentSelection && (
+                <div className="md:col-span-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-700">文件选择</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-white"
+                        onClick={() =>
+                          setTorrentSelection({
+                            ...torrentSelection,
+                            selectedIndexes: new Set(torrentSelection.files.map((file) => file.index)),
+                          })
+                        }
+                      >
+                        全选
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-white"
+                        onClick={() =>
+                          setTorrentSelection({
+                            ...torrentSelection,
+                            selectedIndexes: new Set(),
+                          })
+                        }
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-48 overflow-auto rounded border border-slate-200 bg-white">
+                    {torrentSelection.files.map((file) => (
+                      <label
+                        key={file.index}
+                        className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={torrentSelection.selectedIndexes.has(file.index)}
+                          onChange={(event) =>
+                            setTorrentSelection({
+                              ...torrentSelection,
+                              selectedIndexes: new Set(
+                                event.currentTarget.checked
+                                  ? [...torrentSelection.selectedIndexes, file.index]
+                                  : [...torrentSelection.selectedIndexes].filter((value) => value !== file.index),
+                              ),
+                            })
+                          }
+                        />
+                        <span className="min-w-0 flex-1 truncate">{file.path}</span>
+                        <span className="text-xs text-slate-500">{file.length}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
                 <span className="font-medium">引擎</span>

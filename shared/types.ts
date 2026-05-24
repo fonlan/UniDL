@@ -36,6 +36,13 @@ export interface CreateDownloadTaskInput {
   fileName: string;
   savePath: string;
   engineArgs: string;
+  selectedFileIndexes?: number[] | null;
+}
+
+export interface TorrentFileEntry {
+  index: number;
+  path: string;
+  length: number;
 }
 
 export interface EngineSettings {
