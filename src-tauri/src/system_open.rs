@@ -5,9 +5,18 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 pub const SYSTEM_OPEN_EVENT: &str = "system-open-request";
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTaskRequest {
+    pub source: String,
+    pub file_name: Option<String>,
+    pub browser_cookies: Option<String>,
+}
+
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenRequestPayload {
-    sources: Vec<String>,
+    requests: Vec<OpenTaskRequest>,
 }
 
 pub fn parse_open_sources<I, S>(args: I) -> Vec<String>
@@ -21,11 +30,22 @@ where
         .collect()
 }
 
-pub fn emit_open_sources<R: Runtime>(
+pub fn source_requests(sources: Vec<String>) -> Vec<OpenTaskRequest> {
+    sources
+        .into_iter()
+        .map(|source| OpenTaskRequest {
+            source,
+            file_name: None,
+            browser_cookies: None,
+        })
+        .collect()
+}
+
+pub fn emit_open_requests<R: Runtime>(
     app: &AppHandle<R>,
-    sources: Vec<String>,
+    requests: Vec<OpenTaskRequest>,
 ) -> tauri::Result<()> {
-    app.emit(SYSTEM_OPEN_EVENT, OpenRequestPayload { sources })
+    app.emit(SYSTEM_OPEN_EVENT, OpenRequestPayload { requests })
 }
 
 #[cfg(windows)]

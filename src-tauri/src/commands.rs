@@ -31,8 +31,10 @@ pub fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTas
 }
 
 #[tauri::command]
-pub fn take_pending_open_requests(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    state.take_pending_open_sources()
+pub fn take_pending_open_requests(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::system_open::OpenTaskRequest>, String> {
+    state.take_pending_open_requests()
 }
 
 #[tauri::command]

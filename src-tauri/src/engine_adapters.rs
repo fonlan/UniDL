@@ -682,6 +682,8 @@ fn add_ytdlp_task(
         command.arg("--cookies").arg(cookie_path);
     }
     command
+        .arg("--output")
+        .arg(ytdlp_output_template(&task.file_name))
         .arg("-P")
         .arg(&task.save_path)
         .arg(&task.source)
@@ -713,6 +715,19 @@ fn add_ytdlp_task(
     });
 
     Ok(EngineTaskState::running(pid))
+}
+
+fn ytdlp_output_template(file_name: &str) -> String {
+    let file_name = file_name.trim();
+    let leaf = Path::new(file_name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(file_name);
+    if Path::new(leaf).extension().is_some() || leaf.ends_with("%(ext)s") {
+        file_name.to_string()
+    } else {
+        format!("{file_name}.%(ext)s")
+    }
 }
 
 fn write_ytdlp_cookie_file(
@@ -971,6 +986,14 @@ mod tests {
         assert_eq!(state.speed_bytes_per_sec, 0);
         assert_eq!(state.engine_task_id, None);
     }
+
+    #[test]
+    fn ytdlp_output_template_appends_ext_placeholder_only_when_missing() {
+        assert_eq!(ytdlp_output_template("Page Title"), "Page Title.%(ext)s");
+        assert_eq!(ytdlp_output_template("video.mp4"), "video.mp4");
+        assert_eq!(ytdlp_output_template("Page Title.%(ext)s"), "Page Title.%(ext)s");
+    }
+
     #[test]
     fn delete_completed_ytdlp_task_does_not_kill_finished_process() {
         let settings = EngineSettings {

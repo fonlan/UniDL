@@ -85,7 +85,8 @@ async function refreshActiveTabVideos(cachedSettings) {
 
 async function refreshTabVideos(tabId, tabUrl, cachedSettings) {
   const settings = cachedSettings ?? (await getSettings());
-  const source = normalizeHttpUrl(tabUrl ?? (await getTabUrl(tabId)));
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const source = normalizeHttpUrl(tabUrl ?? tab?.url ?? (await getTabUrl(tabId)));
   if (!source) {
     await setBadge(tabId, 0);
     return [];
@@ -93,7 +94,7 @@ async function refreshTabVideos(tabId, tabUrl, cachedSettings) {
   try {
     const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos", {
       method: "POST",
-      body: { source },
+      body: { source, title: tab?.title ?? "" },
     });
     const videos = Array.isArray(result.videos) ? result.videos : [];
     await setBadge(tabId, videos.length);

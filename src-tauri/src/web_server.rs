@@ -55,7 +55,7 @@ impl Drop for WebServerHandle {
 struct WebServerContext {
     app_handle: Option<tauri::AppHandle>,
     database_path: PathBuf,
-    pending_open_sources: Arc<Mutex<Vec<String>>>,
+    pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
     web_access_enabled: bool,
     password: String,
     sessions: Arc<Mutex<HashSet<String>>>,
@@ -84,6 +84,7 @@ struct TaskIdsInput {
 #[serde(rename_all = "camelCase")]
 struct ExtensionVideosInput {
     source: String,
+    title: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -131,7 +132,7 @@ struct ErrorOutput {
 pub fn start(
     app_handle: tauri::AppHandle,
     database_path: PathBuf,
-    pending_open_sources: Arc<Mutex<Vec<String>>>,
+    pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
     settings: &AppSettings,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
     let bind_address = bind_address_from_url(&settings.web_access_url)?;
@@ -159,7 +160,7 @@ fn start_on(
     bind_address: &str,
     app_handle: Option<tauri::AppHandle>,
     database_path: PathBuf,
-    pending_open_sources: Arc<Mutex<Vec<String>>>,
+    pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
     settings: &AppSettings,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
     let server = Server::http(bind_address)?;
@@ -290,7 +291,13 @@ fn handle_extension_videos(
         &ExtensionVideosOutput {
             videos: vec![ExtensionVideoEntry {
                 id: "current-page".to_string(),
-                title: extension_video_title(source),
+                title: input
+                    .title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| extension_video_title(source)),
                 source: source.to_string(),
             }],
         },
@@ -305,25 +312,21 @@ fn handle_extension_ytdlp_task(
     let source = input.source.trim().to_string();
     let file_name = input.file_name.trim().to_string();
     let source_type = extension_source_type(&source).ok_or("yt-dlp source must be http or https")?;
-    let settings = find_enabled_ytdlp_settings(context, source_type)?
+    find_enabled_ytdlp_settings(context, source_type)?
         .ok_or("no enabled yt-dlp settings supports this page")?;
 
-    let task_input = CreateDownloadTaskInput {
-        source_type,
-        source,
-        engine: EngineKind::YtDlp,
-        engine_settings_id: Some(settings.id),
-        file_name,
-        save_path: settings.default_download_dir,
-        engine_args: String::new(),
-        selected_file_indexes: None,
-        browser_cookies: input.cookies.filter(|value| !value.trim().is_empty()),
-    };
-    let task = with_task_service(context, |service| service.create(task_input))?;
+    open_task_dialog(
+        context,
+        system_open::OpenTaskRequest {
+            source,
+            file_name: Some(file_name.clone()),
+            browser_cookies: input.cookies.filter(|value| !value.trim().is_empty()),
+        },
+    )?;
     json_response(
         StatusCode(200),
         &ExtensionTaskOutput {
-            file_name: task.file_name,
+            file_name,
         },
     )
 }
@@ -378,22 +381,36 @@ fn handle_extension_task(
         return Err("file name is required".into());
     }
 
-    let sources = vec![source];
+    let request = system_open::OpenTaskRequest {
+        source,
+        file_name: Some(file_name.clone()),
+        browser_cookies: None,
+    };
+    open_task_dialog(context, request)?;
+
+    json_response(StatusCode(200), &ExtensionTaskOutput { file_name })
+}
+
+fn open_task_dialog(
+    context: &WebServerContext,
+    request: system_open::OpenTaskRequest,
+) -> Result<(), Box<dyn Error>> {
+    let requests = vec![request];
     context
         .pending_open_sources
         .lock()
         .map_err(|_| "system open request lock was poisoned")?
-        .extend(sources.clone());
+        .extend(requests.clone());
 
     if let Some(app_handle) = &context.app_handle {
-        system_open::emit_open_sources(app_handle, sources)?;
+        system_open::emit_open_requests(app_handle, requests)?;
         if let Some(window) = app_handle.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.set_focus();
         }
     }
 
-    json_response(StatusCode(200), &ExtensionTaskOutput { file_name })
+    Ok(())
 }
 
 fn handle_authorized_request(
@@ -713,7 +730,11 @@ mod tests {
                 .lock()
                 .expect("pending sources should lock")
                 .as_slice(),
-            &["magnet:?xt=urn:btih:ABCDEF123456&dn=unidl".to_string()]
+            &[system_open::OpenTaskRequest {
+                source: "magnet:?xt=urn:btih:ABCDEF123456&dn=unidl".to_string(),
+                file_name: Some("unidl".to_string()),
+                browser_cookies: None,
+            }]
         );
 
         handle.stop();

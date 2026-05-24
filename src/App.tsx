@@ -31,7 +31,7 @@ import {
   takePendingOpenRequests,
   writeLog,
 } from "@/lib/api";
-import type { SystemOpenRequestPayload } from "@/lib/api";
+import type { OpenTaskRequest, SystemOpenRequestPayload } from "@/lib/api";
 import type { DownloadStatus, DownloadTask, EngineKind, SourceType } from "@shared/types";
 
 const statusLabels: Record<DownloadStatus, string> = {
@@ -173,6 +173,8 @@ function App() {
   const [view, setView] = useState<"tasks" | "settings">("tasks");
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   const [newTaskInitialSource, setNewTaskInitialSource] = useState<string | null>(null);
+  const [newTaskInitialFileName, setNewTaskInitialFileName] = useState<string | null>(null);
+  const [newTaskInitialBrowserCookies, setNewTaskInitialBrowserCookies] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -329,24 +331,26 @@ function App() {
     let disposed = false;
     let unlisten: (() => void) | null = null;
 
-    const openSources = (sources: string[]) => {
-      const [source] = sources;
-      if (!source) {
+    const openRequests = (requests: OpenTaskRequest[]) => {
+      const [request] = requests;
+      if (!request) {
         return;
       }
-      void writeLog("info", `opening task dialog from system source: count=${sources.length}`);
+      void writeLog("info", `opening task dialog from system source: count=${requests.length}`);
       setView("tasks");
-      setNewTaskInitialSource(source);
+      setNewTaskInitialSource(request.source);
+      setNewTaskInitialFileName(request.fileName ?? null);
+      setNewTaskInitialBrowserCookies(request.browserCookies ?? null);
       setShowNewTaskDialog(true);
     };
 
-    const openPendingSources = (fallbackSources: string[] = []) => {
+    const openPendingRequests = (fallbackRequests: OpenTaskRequest[] = []) => {
       void takePendingOpenRequests()
-        .then((sources) => {
+        .then((requests) => {
           if (disposed) {
             return;
           }
-          openSources(sources.length > 0 ? sources : fallbackSources);
+          openRequests(requests.length > 0 ? requests : fallbackRequests);
         })
         .catch((nextError) => {
           if (disposed) {
@@ -357,14 +361,14 @@ function App() {
     };
 
     void listen<SystemOpenRequestPayload>("system-open-request", (event) => {
-      openPendingSources(event.payload.sources);
+      openPendingRequests(event.payload.requests);
     })
       .then((nextUnlisten) => {
         if (disposed) {
           nextUnlisten();
         } else {
           unlisten = nextUnlisten;
-          openPendingSources();
+          openPendingRequests();
         }
       })
       .catch((nextError) => {
@@ -384,12 +388,16 @@ function App() {
     void writeLog("info", "opening new task dialog");
     setView("tasks");
     setNewTaskInitialSource(source);
+    setNewTaskInitialFileName(null);
+    setNewTaskInitialBrowserCookies(null);
     setShowNewTaskDialog(true);
   }
 
   function closeNewTaskDialog() {
     setShowNewTaskDialog(false);
     setNewTaskInitialSource(null);
+    setNewTaskInitialFileName(null);
+    setNewTaskInitialBrowserCookies(null);
   }
 
   function toggleAllSelected() {
@@ -741,6 +749,8 @@ function App() {
       <NewTaskDialog
         open={showNewTaskDialog}
         initialSource={newTaskInitialSource}
+        initialFileName={newTaskInitialFileName}
+        initialBrowserCookies={newTaskInitialBrowserCookies}
         onClose={closeNewTaskDialog}
         onCreated={handleTaskCreated}
       />

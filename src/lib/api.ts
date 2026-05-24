@@ -14,7 +14,13 @@ import type {
 } from "@shared/types";
 
 export interface SystemOpenRequestPayload {
-  sources: string[];
+  requests: OpenTaskRequest[];
+}
+
+export interface OpenTaskRequest {
+  source: string;
+  fileName?: string | null;
+  browserCookies?: string | null;
 }
 
 export type LogLevel = "info" | "warn" | "error";
@@ -39,7 +45,7 @@ export function listDownloadTasks(): Promise<DownloadTask[]> {
   return invoke("list_download_tasks");
 }
 
-export function takePendingOpenRequests(): Promise<string[]> {
+export function takePendingOpenRequests(): Promise<OpenTaskRequest[]> {
   if (!hasTauriRuntime()) {
     return Promise.resolve([]);
   }

@@ -134,11 +134,15 @@ function defaultSavePath(settings: EngineSettings) {
 export default function NewTaskDialog({
   open,
   initialSource = null,
+  initialFileName = null,
+  initialBrowserCookies = null,
   onClose,
   onCreated,
 }: {
   open: boolean;
   initialSource?: string | null;
+  initialFileName?: string | null;
+  initialBrowserCookies?: string | null;
   onClose: () => void;
   onCreated: (task: DownloadTask) => void;
 }) {
@@ -206,8 +210,8 @@ export default function NewTaskDialog({
   }, [open]);
 
   useEffect(() => {
-    setFileName(parsedSource?.fileName ?? "");
-  }, [parsedSource]);
+    setFileName(initialFileName ?? parsedSource?.fileName ?? "");
+  }, [initialFileName, parsedSource]);
 
   useEffect(() => {
     if (!parsedSource) {
@@ -292,6 +296,7 @@ export default function NewTaskDialog({
         selectedFileIndexes: torrentSelection?.selectedIndexes.size
           ? [...torrentSelection.selectedIndexes].sort((left, right) => left - right)
           : null,
+        browserCookies: initialBrowserCookies,
       });
       onCreated(task);
       void writeLog("info", `new task created: id=${task.id}`);

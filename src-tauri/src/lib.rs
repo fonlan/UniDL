@@ -24,7 +24,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 pub struct AppState {
     connection: Mutex<Connection>,
     database_path: PathBuf,
-    pending_open_sources: Arc<Mutex<Vec<String>>>,
+    pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
     web_server: Mutex<Option<web_server::WebServerHandle>>,
 }
 
@@ -37,7 +37,9 @@ impl AppState {
         Self {
             connection: Mutex::new(connection),
             database_path,
-            pending_open_sources: Arc::new(Mutex::new(pending_open_sources)),
+            pending_open_sources: Arc::new(Mutex::new(system_open::source_requests(
+                pending_open_sources,
+            ))),
             web_server: Mutex::new(None),
         }
     }
@@ -52,16 +54,19 @@ impl AppState {
         self.database_path.clone()
     }
 
-    fn push_open_sources(&self, sources: Vec<String>) -> Result<(), String> {
+    fn push_open_requests(
+        &self,
+        requests: Vec<system_open::OpenTaskRequest>,
+    ) -> Result<(), String> {
         let mut pending = self
             .pending_open_sources
             .lock()
             .map_err(|_| "system open request lock was poisoned".to_string())?;
-        pending.extend(sources);
+        pending.extend(requests);
         Ok(())
     }
 
-    fn take_pending_open_sources(&self) -> Result<Vec<String>, String> {
+    fn take_pending_open_requests(&self) -> Result<Vec<system_open::OpenTaskRequest>, String> {
         let mut pending = self
             .pending_open_sources
             .lock()
@@ -107,10 +112,11 @@ pub fn run() {
             let sources = system_open::parse_open_sources(argv);
             if !sources.is_empty() {
                 logger::info(format!("received system open request: {} source(s)", sources.len()));
+                let requests = system_open::source_requests(sources);
                 app.state::<AppState>()
-                    .push_open_sources(sources.clone())
+                    .push_open_requests(requests.clone())
                     .expect("failed to store system open request");
-                system_open::emit_open_sources(app, sources)
+                system_open::emit_open_requests(app, requests)
                     .expect("failed to emit system open request");
             }
 
