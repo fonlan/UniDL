@@ -741,7 +741,7 @@ fn write_ytdlp_cookie_file(
         return Ok(None);
     }
 
-    let cookie_path = database_path.with_file_name(format!("{}.cookies.txt", task.id));
+    let cookie_path = std::env::temp_dir().join(format!("{}.cookies.txt", task.id));
     fs::write(&cookie_path, cookies)?;
     Ok(Some(cookie_path))
 }
