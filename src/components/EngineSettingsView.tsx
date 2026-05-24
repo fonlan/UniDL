@@ -17,6 +17,7 @@ import {
 import {
   deleteEngineSettings,
   getAppSettings,
+  getSystemDownloadDir,
   installLatestEngine,
   listEngineSettings,
   saveAppSettings,
@@ -64,7 +65,14 @@ function supportedSourceTypes(engine: EngineKind): SourceType[] {
   }
 }
 
-function defaultEngineSettings(engine: EngineKind): EngineSettings {
+function isLocalDownloadEngine(engine: EngineKind) {
+  return engine === "aria2" || engine === "yt-dlp";
+}
+
+function defaultEngineSettings(
+  engine: EngineKind,
+  defaultDownloadDir: string,
+): EngineSettings {
   return {
     id: crypto.randomUUID(),
     engine,
@@ -76,7 +84,7 @@ function defaultEngineSettings(engine: EngineKind): EngineSettings {
         : engine === "yt-dlp"
           ? `${engineInstallDir}\\yt-dlp.exe`
           : null,
-    defaultDownloadDir: "",
+    defaultDownloadDir,
     defaultArgs:
       engine === "aria2" ? "--continue=true" : engine === "yt-dlp" ? "--newline" : "",
     connectionUrl:
@@ -386,13 +394,27 @@ export default function EngineSettingsView() {
     );
   }
 
-  function addEngineSettings(engine: EngineKind) {
-    setSavedEngineId(null);
-    setIsAddMenuOpen(false);
-    setDraftSettings((current) => {
-      const next = { ...defaultEngineSettings(engine), priority: current.length };
-      return assignPriorities([...sortSettings(current), next]);
-    });
+  async function addEngineSettings(engine: EngineKind) {
+    setError(null);
+
+    try {
+      let defaultDownloadDir = "";
+      if (isLocalDownloadEngine(engine)) {
+        defaultDownloadDir = await getSystemDownloadDir();
+      }
+
+      setSavedEngineId(null);
+      setIsAddMenuOpen(false);
+      setDraftSettings((current) => {
+        const next = {
+          ...defaultEngineSettings(engine, defaultDownloadDir),
+          priority: current.length,
+        };
+        return assignPriorities([...sortSettings(current), next]);
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
   }
 
   function reorderEngineSettings(sourceId: string, targetId: string) {

@@ -125,6 +125,16 @@ export function getAppSettings(): Promise<AppSettings> {
   return invoke("get_app_settings");
 }
 
+export function getSystemDownloadDir(): Promise<string> {
+  if (!hasTauriRuntime()) {
+    return Promise.reject(
+      new Error("system download directory is unavailable outside Tauri runtime"),
+    );
+  }
+
+  return invoke("get_system_download_dir");
+}
+
 export function saveAppSettings(settings: AppSettingsInput): Promise<AppSettings> {
   if (!hasTauriRuntime()) {
     return Promise.resolve({

@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::{
     models::{
@@ -106,6 +106,15 @@ pub fn save_app_settings(
     state.apply_web_settings(app_handle, &next)?;
 
     Ok(next)
+}
+
+#[tauri::command]
+pub fn get_system_download_dir(app_handle: AppHandle) -> Result<String, String> {
+    app_handle
+        .path()
+        .download_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -148,6 +148,7 @@ pub fn run() {
             commands::resume_all_paused_download_tasks,
             commands::get_app_settings,
             commands::save_app_settings,
+            commands::get_system_download_dir,
             commands::list_engine_settings,
             commands::save_engine_settings,
             commands::delete_engine_settings,
