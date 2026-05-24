@@ -428,7 +428,7 @@ function App() {
             <Settings size={17} />
           </IconButton>
         </div>
-        <div data-tauri-drag-region className="min-w-0 flex-1" />
+        <div data-tauri-drag-region className="h-full min-w-0 flex-1" />
         <div className="flex h-full items-center">
           <button
             type="button"
