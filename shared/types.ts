@@ -23,6 +23,7 @@ export interface DownloadTask {
   speedBytesPerSec: number;
   savePath: string;
   engineArgs: string;
+  selectedFileIndexes?: number[] | null;
   createdAt: string;
   completedAt: string | null;
   errorMessage: string | null;

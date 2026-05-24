@@ -19,6 +19,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
+import TaskDetailPanel from "@/components/TaskDetailPanel";
 import logoUrl from "../logo.png";
 import {
   deleteDownloadTasks,
@@ -177,10 +178,15 @@ function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
   const selectedTasks = useMemo(
     () => tasks.filter((task) => selectedIds.has(task.id)),
     [selectedIds, tasks],
+  );
+  const detailTask = useMemo(
+    () => tasks.find((task) => task.id === detailTaskId) ?? null,
+    [detailTaskId, tasks],
   );
   const allVisibleSelected = tasks.length > 0 && selectedIds.size === tasks.length;
   const selectedScopeTasks = selectedTasks.length > 0 ? selectedTasks : tasks;
@@ -217,6 +223,12 @@ function App() {
     void writeLog("info", "task view mounted");
     void refreshTasks();
   }, [refreshTasks]);
+
+  useEffect(() => {
+    if (detailTaskId && !detailTask) {
+      setDetailTaskId(null);
+    }
+  }, [detailTask, detailTaskId]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) {
@@ -387,6 +399,10 @@ function App() {
     }
   }
 
+  function openTaskDetails(task: DownloadTask) {
+    setDetailTaskId(task.id);
+  }
+
   async function handleTaskDoubleClick(task: DownloadTask) {
     if (isLocalDownloadEngine(task.engine) === false) {
       return;
@@ -536,10 +552,11 @@ function App() {
                 return (
                   <tr
                     key={task.id}
+                    onClick={() => openTaskDetails(task)}
                     onDoubleClick={() => handleTaskDoubleClick(task)}
                     className={classNames(
-                      "bg-white hover:bg-slate-50",
-                      isLocalDownloadEngine(task.engine) && "cursor-pointer",
+                      "cursor-pointer bg-white hover:bg-slate-50",
+                      detailTaskId === task.id && "bg-sky-50 hover:bg-sky-50",
                       isSelected && "bg-emerald-50 hover:bg-emerald-50",
                     )}
                   >
@@ -548,7 +565,10 @@ function App() {
                         type="button"
                         title="选择任务"
                         aria-label="选择任务"
-                        onClick={() => toggleTaskSelected(task.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleTaskSelected(task.id);
+                        }}
                         className={classNames(
                           "grid h-5 w-5 place-items-center rounded border bg-white",
                           isSelected
@@ -612,6 +632,10 @@ function App() {
               </div>
             )}
           </section>
+        )}
+
+        {view === "tasks" && detailTask && (
+          <TaskDetailPanel task={detailTask} onClose={() => setDetailTaskId(null)} />
         )}
       </main>
 
