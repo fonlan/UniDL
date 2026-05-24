@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   Check,
+  Copy,
   Minus,
   Pause,
   Play,
@@ -178,6 +179,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
 
   const selectedTasks = useMemo(
@@ -232,10 +234,48 @@ function App() {
     }
   }, [replaceTasks]);
 
+  const syncWindowMaximizedState = useCallback(async () => {
+    setIsWindowMaximized(await getCurrentWindow().isMaximized());
+  }, []);
+
   useEffect(() => {
     void writeLog("info", "task view mounted");
     void refreshTasks();
   }, [refreshTasks]);
+
+  useEffect(() => {
+    if (!hasTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    const currentWindow = getCurrentWindow();
+
+    void syncWindowMaximizedState();
+    void currentWindow
+      .onResized(() => {
+        void syncWindowMaximizedState();
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+        } else {
+          unlisten = nextUnlisten;
+        }
+      })
+      .catch((nextError) => {
+        if (disposed) {
+          return;
+        }
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [syncWindowMaximizedState]);
 
   useEffect(() => {
     if (detailTaskId && !detailTask) {
@@ -426,6 +466,12 @@ function App() {
     }
   }
 
+  async function toggleWindowMaximized() {
+    const currentWindow = getCurrentWindow();
+    await currentWindow.toggleMaximize();
+    setIsWindowMaximized(await currentWindow.isMaximized());
+  }
+
   function handleTaskCreated(task: DownloadTask) {
     setView("tasks");
     setTasks((current) => [task, ...current]);
@@ -500,12 +546,12 @@ function App() {
           </button>
           <button
             type="button"
-            title="最大化"
-            aria-label="最大化"
-            onClick={() => void getCurrentWindow().toggleMaximize()}
+            title={isWindowMaximized ? "还原" : "最大化"}
+            aria-label={isWindowMaximized ? "还原" : "最大化"}
+            onClick={() => void toggleWindowMaximized()}
             className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-slate-100"
           >
-            <Square size={14} />
+            {isWindowMaximized ? <Copy size={15} className="-scale-x-100" /> : <Square size={14} />}
           </button>
           <button
             type="button"
