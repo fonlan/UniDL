@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowLeft,
@@ -15,8 +15,6 @@ import {
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { confirm } from "@tauri-apps/plugin-dialog";
-
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import TaskDetailPanel from "@/components/TaskDetailPanel";
@@ -174,11 +172,13 @@ function App() {
   const [view, setView] = useState<"tasks" | "settings">("tasks");
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   const [newTaskInitialSource, setNewTaskInitialSource] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
 
   const selectedTasks = useMemo(
     () => tasks.filter((task) => selectedIds.has(task.id)),
@@ -196,6 +196,19 @@ function App() {
     activeScopeTasks.length > 0 && pausedScopeTasks.length === activeScopeTasks.length;
   const toggleDisabled = activeScopeTasks.length === 0;
   const deleteDisabled = selectedIds.size === 0;
+
+  async function confirmDeleteCompletedFiles() {
+    setShowDeleteDialog(true);
+    return new Promise<boolean | null>((resolve) => {
+      deleteDialogResolveRef.current = resolve;
+    });
+  }
+
+  function resolveDeleteDialog(value: boolean | null) {
+    deleteDialogResolveRef.current?.(value);
+    deleteDialogResolveRef.current = null;
+    setShowDeleteDialog(false);
+  }
 
   const replaceTasks = useCallback((nextTasks: DownloadTask[]) => {
     setTasks(nextTasks);
@@ -380,14 +393,11 @@ function App() {
     }
 
     const hasCompletedTasks = selectedTasks.some((task) => task.status === "completed");
-    const deleteCompletedFiles = hasCompletedTasks
-      ? await confirm("是否同时删除已完成任务的已下载文件/文件夹？", {
-          title: "删除已下载文件",
-          kind: "warning",
-          okLabel: "删除文件",
-          cancelLabel: "保留文件",
-        })
-      : false;
+    const deleteCompletedFiles = hasCompletedTasks ? await confirmDeleteCompletedFiles() : false;
+
+    if (deleteCompletedFiles === null) {
+      return;
+    }
 
     setError(null);
     try {
@@ -638,6 +648,42 @@ function App() {
           <TaskDetailPanel task={detailTask} onClose={() => setDetailTaskId(null)} />
         )}
       </main>
+
+      {showDeleteDialog && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h2 className="text-base font-semibold text-slate-900">删除任务</h2>
+            </div>
+            <div className="space-y-3 px-4 py-4 text-sm text-slate-700">
+              <p>所选任务包含已完成项，是否同时删除已下载文件/文件夹？</p>
+            </div>
+            <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => resolveDeleteDialog(true)}
+                className="h-9 rounded-md border border-rose-200 bg-white px-4 text-sm font-medium text-rose-700 hover:bg-rose-50"
+              >
+                删除文件
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveDeleteDialog(false)}
+                className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                保留文件
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveDeleteDialog(null)}
+                className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                取消删除
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       <NewTaskDialog
         open={showNewTaskDialog}
