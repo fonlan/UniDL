@@ -2,6 +2,7 @@ use std::{
     error::Error,
     fs,
     io::{BufRead, BufReader},
+    num::NonZeroU32,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -80,15 +81,7 @@ pub fn pause_task(
             })
         }
         EngineKind::YtDlp => {
-            let pid = required_engine_task_id(task)?;
-            run_windows_command(
-                "powershell",
-                &[
-                    "-NoProfile",
-                    "-Command",
-                    &format!("Suspend-Process -Id {}", pid),
-                ],
-            )?;
+            suspend_process(ytdlp_pid(task)?)?;
             Ok(EngineTaskState {
                 status: DownloadStatus::Paused,
                 progress: task.progress,
@@ -129,15 +122,7 @@ pub fn resume_task(
             })
         }
         EngineKind::YtDlp => {
-            let pid = required_engine_task_id(task)?;
-            run_windows_command(
-                "powershell",
-                &[
-                    "-NoProfile",
-                    "-Command",
-                    &format!("Resume-Process -Id {}", pid),
-                ],
-            )?;
+            resume_process(ytdlp_pid(task)?)?;
             Ok(EngineTaskState {
                 status: DownloadStatus::Running,
                 progress: task.progress,
@@ -700,6 +685,78 @@ fn required_engine_task_id(task: &DownloadTask) -> Result<&str, Box<dyn Error>> 
     task.engine_task_id
         .as_deref()
         .ok_or_else(|| format!("task {} has no engine task id", task.id).into())
+}
+
+fn ytdlp_pid(task: &DownloadTask) -> Result<NonZeroU32, Box<dyn Error>> {
+    let pid = required_engine_task_id(task)?
+        .parse::<NonZeroU32>()
+        .map_err(|_| format!("task {} has invalid yt-dlp pid", task.id))?;
+    Ok(pid)
+}
+
+#[cfg(windows)]
+fn suspend_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
+    set_process_suspended(pid, true)
+}
+
+#[cfg(windows)]
+fn resume_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
+    set_process_suspended(pid, false)
+}
+
+#[cfg(not(windows))]
+fn suspend_process(_pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
+    Err("yt-dlp pause is only supported on Windows".into())
+}
+
+#[cfg(not(windows))]
+fn resume_process(_pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
+    Err("yt-dlp resume is only supported on Windows".into())
+}
+
+#[cfg(windows)]
+fn set_process_suspended(pid: NonZeroU32, suspended: bool) -> Result<(), Box<dyn Error>> {
+    use std::ffi::c_void;
+
+    type Handle = *mut c_void;
+    const PROCESS_SUSPEND_RESUME: u32 = 0x0800;
+
+    extern "system" {
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> Handle;
+        fn CloseHandle(object: Handle) -> i32;
+        fn NtSuspendProcess(process_handle: Handle) -> i32;
+        fn NtResumeProcess(process_handle: Handle) -> i32;
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_SUSPEND_RESUME, 0, pid.get()) };
+    if handle.is_null() {
+        return Err(format!("failed to open yt-dlp process {}", pid).into());
+    }
+
+    let status = if suspended {
+        unsafe { NtSuspendProcess(handle) }
+    } else {
+        unsafe { NtResumeProcess(handle) }
+    };
+    unsafe {
+        CloseHandle(handle);
+    }
+
+    if status >= 0 {
+        Ok(())
+    } else if suspended {
+        Err(format!(
+            "failed to suspend yt-dlp process {}: ntstatus {status:#x}",
+            pid
+        )
+        .into())
+    } else {
+        Err(format!(
+            "failed to resume yt-dlp process {}: ntstatus {status:#x}",
+            pid
+        )
+        .into())
+    }
 }
 
 fn run_windows_command(program: &str, args: &[&str]) -> Result<(), Box<dyn Error>> {
