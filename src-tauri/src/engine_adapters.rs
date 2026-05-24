@@ -1,10 +1,12 @@
 use std::{
+    collections::VecDeque,
     error::Error,
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     num::NonZeroU32,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Arc, Mutex},
     thread,
 };
 
@@ -14,13 +16,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
+    logger,
     models::{DownloadStatus, DownloadTask, EngineKind, EngineSettings, SourceType},
     repositories::DownloadTaskRepository,
     torrent_metadata::read_torrent_info_hash,
 };
 
 const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
-const YTDLP_FAST_DEFAULT_ARGS: &str = "--newline --concurrent-fragments 8";
+const YTDLP_FAST_DEFAULT_ARGS: &str = "--newline --no-playlist --js-runtimes node --concurrent-fragments 8";
 
 pub struct EngineTaskState {
     pub status: DownloadStatus,
@@ -242,7 +245,11 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<(),
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     append_args(&mut command, &settings.default_args);
-    command.spawn()?;
+    log_command("starting aria2", &command);
+    command.spawn().map_err(|error| {
+        logger::error(format!("aria2 spawn failed: {error}"));
+        error
+    })?;
     Ok(())
 }
 
@@ -671,12 +678,14 @@ fn add_ytdlp_task(
         .as_deref()
         .ok_or("yt-dlp executable path is required")?;
     let mut command = Command::new(executable);
-    let cookie_path = write_ytdlp_cookie_file(task, &database_path)?;
+    let cookie_path = write_ytdlp_cookie_file(task)?;
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
     append_args(&mut command, &task.engine_args);
     if force_continue {
         command.arg("--continue");
+    } else {
+        command.arg("--force-overwrites");
     }
     if let Some(cookie_path) = &cookie_path {
         command.arg("--cookies").arg(cookie_path);
@@ -687,53 +696,149 @@ fn add_ytdlp_task(
         .arg("-P")
         .arg(&task.save_path)
         .arg(&task.source)
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = command.spawn()?;
+    log_command("starting yt-dlp", &command);
+    let mut child = command.spawn().map_err(|error| {
+        logger::error(format!("yt-dlp spawn failed: task_id={}, error={error}", task.id));
+        error
+    })?;
     let pid = child.id().to_string();
+    let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let task_id = task.id.clone();
+    let progress_task_id = task_id.clone();
+    let progress_database_path = database_path.clone();
     thread::spawn(move || {
-        if let Some(stderr) = stderr {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                if let Some(progress) = parse_ytdlp_progress(&line) {
-                    let _ = update_ytdlp_progress(&database_path, &task_id, progress);
-                }
-            }
-        }
+        let output_lines = Arc::new(Mutex::new(VecDeque::new()));
+        let stdout_reader = stdout.map(|output| {
+            spawn_ytdlp_progress_reader(
+                output,
+                progress_database_path.clone(),
+                progress_task_id.clone(),
+                Arc::clone(&output_lines),
+            )
+        });
+        let stderr_reader = stderr.map(|output| {
+            spawn_ytdlp_progress_reader(
+                output,
+                progress_database_path,
+                progress_task_id,
+                Arc::clone(&output_lines),
+            )
+        });
 
-        let status = match child.wait() {
-            Ok(exit) if exit.success() => DownloadStatus::Completed,
-            Ok(_) | Err(_) => DownloadStatus::Failed,
+        let (status, exit_message) = match child.wait() {
+            Ok(exit) if exit.success() => (
+                DownloadStatus::Completed,
+                format!("yt-dlp exited successfully: task_id={task_id}, status={exit}"),
+            ),
+            Ok(exit) => (
+                DownloadStatus::Failed,
+                format!("yt-dlp exited with failure: task_id={task_id}, status={exit}"),
+            ),
+            Err(error) => (
+                DownloadStatus::Failed,
+                format!("yt-dlp wait failed: task_id={task_id}, error={error}"),
+            ),
         };
+        if let Some(reader) = stdout_reader {
+            let _ = reader.join();
+        }
+        if let Some(reader) = stderr_reader {
+            let _ = reader.join();
+        }
         if let Some(cookie_path) = cookie_path {
             let _ = fs::remove_file(cookie_path);
         }
-        let _ = update_ytdlp_completion(&database_path, &task_id, status);
+        let error_message = if status == DownloadStatus::Failed {
+            ytdlp_error_message(&output_lines)
+        } else {
+            None
+        };
+        if let Some(error_message) = &error_message {
+            logger::error(format!("{exit_message}\nyt-dlp output:\n{error_message}"));
+        } else {
+            logger::info(exit_message);
+        }
+        let _ = update_ytdlp_completion(&database_path, &task_id, status, error_message.as_deref());
     });
 
     Ok(EngineTaskState::running(pid))
 }
 
+fn spawn_ytdlp_progress_reader(
+    output: impl Read + Send + 'static,
+    database_path: PathBuf,
+    task_id: String,
+    output_lines: Arc<Mutex<VecDeque<String>>>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut reader = BufReader::new(output);
+        let mut bytes = Vec::new();
+        while let Ok(read) = reader.read_until(b'\n', &mut bytes) {
+            if read == 0 {
+                break;
+            }
+            while matches!(bytes.last(), Some(b'\n' | b'\r')) {
+                bytes.pop();
+            }
+            let line = String::from_utf8_lossy(&bytes).into_owned();
+            if let Some(progress) = parse_ytdlp_progress(&line) {
+                let _ = update_ytdlp_progress(&database_path, &task_id, progress);
+            }
+            remember_ytdlp_output_line(&output_lines, line);
+            bytes.clear();
+        }
+    })
+}
+
+fn remember_ytdlp_output_line(output_lines: &Arc<Mutex<VecDeque<String>>>, line: String) {
+    let line = line.trim();
+    if line.is_empty() {
+        return;
+    }
+
+    if let Ok(mut output_lines) = output_lines.lock() {
+        if output_lines.len() == 20 {
+            output_lines.pop_front();
+        }
+        output_lines.push_back(line.to_string());
+    }
+}
+
+fn ytdlp_error_message(output_lines: &Arc<Mutex<VecDeque<String>>>) -> Option<String> {
+    output_lines
+        .lock()
+        .ok()
+        .map(|output_lines| output_lines.iter().cloned().collect::<Vec<_>>().join("\n"))
+        .filter(|message| !message.trim().is_empty())
+}
+
 fn ytdlp_output_template(file_name: &str) -> String {
-    let file_name = file_name.trim();
-    let leaf = Path::new(file_name)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(file_name);
-    if Path::new(leaf).extension().is_some() || leaf.ends_with("%(ext)s") {
-        file_name.to_string()
+    let file_name = sanitize_ytdlp_output_name(file_name.trim());
+    if Path::new(&file_name).extension().is_some() || file_name.ends_with("%(ext)s") {
+        file_name
     } else {
         format!("{file_name}.%(ext)s")
     }
 }
 
-fn write_ytdlp_cookie_file(
-    task: &DownloadTask,
-    database_path: &Path,
-) -> Result<Option<PathBuf>, Box<dyn Error>> {
+fn sanitize_ytdlp_output_name(file_name: &str) -> String {
+    file_name
+        .chars()
+        .map(|value| match value {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            value if value.is_control() => '_',
+            value => value,
+        })
+        .collect::<String>()
+        .trim_end_matches([' ', '.'])
+        .to_string()
+}
+
+fn write_ytdlp_cookie_file(task: &DownloadTask) -> Result<Option<PathBuf>, Box<dyn Error>> {
     let Some(cookies) = task.browser_cookies.as_deref() else {
         return Ok(None);
     };
@@ -766,15 +871,23 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
     Ok(EngineTaskState {
         status: if running {
             DownloadStatus::Running
-        } else if task.status == DownloadStatus::Failed {
-            DownloadStatus::Failed
-        } else {
+        } else if task.status == DownloadStatus::Completed {
             DownloadStatus::Completed
+        } else {
+            DownloadStatus::Failed
         },
-        progress: if running { task.progress } else { 100.0 },
+        progress: if running || task.status != DownloadStatus::Completed {
+            task.progress
+        } else {
+            100.0
+        },
         speed_bytes_per_sec: if running { task.speed_bytes_per_sec } else { 0 },
         engine_task_id: task.engine_task_id.clone(),
-        error_message: task.error_message.clone(),
+        error_message: if running || task.status == DownloadStatus::Completed {
+            task.error_message.clone()
+        } else {
+            Some("yt-dlp process is not running".to_string())
+        },
     })
 }
 
@@ -799,16 +912,49 @@ fn update_ytdlp_completion(
     database_path: &Path,
     task_id: &str,
     status: DownloadStatus,
+    error_message: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
-    repository.update_engine_state(task_id, status, 100.0, 0, None, None)?;
+    let progress = if status == DownloadStatus::Completed {
+        100.0
+    } else {
+        0.0
+    };
+    repository.update_engine_state(task_id, status, progress, 0, None, error_message)?;
     Ok(())
 }
 
 fn append_args(command: &mut Command, args: &str) {
     for arg in args.split_whitespace() {
         command.arg(arg);
+    }
+}
+
+fn log_command(label: &str, command: &Command) {
+    logger::info(format!("{label}: {}", command_line(command)));
+}
+
+fn command_line(command: &Command) -> String {
+    std::iter::once(shell_quote(&command.get_program().to_string_lossy()))
+        .chain(
+            command
+                .get_args()
+                .map(|arg| shell_quote(&arg.to_string_lossy())),
+        )
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty()
+        || value
+            .chars()
+            .any(|ch| ch.is_whitespace() || matches!(ch, '"' | '&' | '|' | '<' | '>' | '^'))
+    {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    } else {
+        value.to_string()
     }
 }
 
@@ -992,6 +1138,14 @@ mod tests {
         assert_eq!(ytdlp_output_template("Page Title"), "Page Title.%(ext)s");
         assert_eq!(ytdlp_output_template("video.mp4"), "video.mp4");
         assert_eq!(ytdlp_output_template("Page Title.%(ext)s"), "Page Title.%(ext)s");
+    }
+
+    #[test]
+    fn ytdlp_output_template_replaces_windows_invalid_filename_chars() {
+        assert_eq!(
+            ytdlp_output_template("4K 海洋生物奇观 | 探索:海洋 - YouTube"),
+            "4K 海洋生物奇观 _ 探索_海洋 - YouTube.%(ext)s"
+        );
     }
 
     #[test]

@@ -500,7 +500,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
         self.connection.execute(
             r#"
             UPDATE download_tasks
-            SET status = ?1, error_message = ?2
+            SET status = ?1, error_message = COALESCE(error_message, ?2)
             WHERE id = ?3
             "#,
             (DownloadStatus::Failed.as_db(), error, id),

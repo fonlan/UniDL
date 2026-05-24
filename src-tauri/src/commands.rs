@@ -44,7 +44,6 @@ pub fn get_torrent_files(source: String) -> Result<Vec<crate::torrent_metadata::
 
 #[tauri::command]
 pub fn refresh_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
-    logger::info("refreshing download tasks");
     let connection = state.lock_connection()?;
     DownloadTaskService::new(&connection, state.database_path())
         .refresh_all()

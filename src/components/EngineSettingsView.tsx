@@ -85,9 +85,7 @@ function defaultEngineSettings(
     defaultArgs:
       engine === "aria2"
         ? "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none"
-        : engine === "yt-dlp"
-          ? "--newline --concurrent-fragments 8"
-          : "",
+        : "",
     connectionUrl:
       engine === "aria2"
         ? "http://127.0.0.1:6800/jsonrpc"

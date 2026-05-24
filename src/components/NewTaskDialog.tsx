@@ -234,7 +234,7 @@ export default function NewTaskDialog({
     }
 
     setSavePath(defaultSavePath(selectedSettings));
-    setEngineArgs(selectedSettings.defaultArgs);
+    setEngineArgs("");
     setTorrentSelection(null);
   }, [selectedSettings]);
 
