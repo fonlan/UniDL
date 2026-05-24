@@ -56,7 +56,7 @@ const engineLabels: Record<EngineKind, string> = {
 };
 
 function isFinished(status: DownloadStatus) {
-  return status === "completed" || status === "deleted";
+  return status === "completed" || status === "failed" || status === "deleted";
 }
 
 function isLocalDownloadEngine(engine: EngineKind) {
