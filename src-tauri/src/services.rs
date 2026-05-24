@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -258,7 +258,11 @@ impl<'connection> DownloadTaskService<'connection> {
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
     let path = downloaded_entry_path(task);
-    let metadata = fs::metadata(&path)?;
+    let metadata = match fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
     if metadata.is_dir() {
         fs::remove_dir_all(&path)?;
     } else {
@@ -682,6 +686,55 @@ mod tests {
     }
 
     #[test]
+    fn deleting_failed_ytdlp_task_without_downloaded_entry_removes_local_record() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_ytdlp_settings(&connection);
+
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    engine_task_id,
+                    file_name,
+                    status,
+                    save_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                (
+                    "failed-ytdlp-missing-file",
+                    SourceType::Http.as_db(),
+                    "http://example.test/missing.mp4",
+                    "yt-dlp",
+                    EngineKind::YtDlp.as_db(),
+                    "1234",
+                    "missing.mp4",
+                    DownloadStatus::Failed.as_db(),
+                    temp_download_dir().to_string_lossy().as_ref(),
+                ),
+            )
+            .expect("failed yt-dlp task should insert");
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["failed-ytdlp-missing-file".to_string()], false)
+            .expect("failed yt-dlp task with no downloaded entry should delete locally");
+
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
     fn failed_task_creation_does_not_leave_local_task() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
@@ -849,6 +902,26 @@ mod tests {
                 priority: 0,
             })
             .expect("aria2 settings should save");
+    }
+
+    fn save_ytdlp_settings(connection: &Connection) {
+        EngineSettingsService::new(connection)
+            .save(EngineSettingsInput {
+                id: "yt-dlp".to_string(),
+                engine: EngineKind::YtDlp,
+                name: "yt-dlp".to_string(),
+                enabled: true,
+                executable_path: Some("yt-dlp.exe".to_string()),
+                default_download_dir: String::new(),
+                default_args: String::new(),
+                connection_url: None,
+                username: None,
+                password: None,
+                remote_path: None,
+                supported_source_types: vec![SourceType::Http, SourceType::Ftp],
+                priority: 0,
+            })
+            .expect("yt-dlp settings should save");
     }
 
     fn insert_aria2_task(
