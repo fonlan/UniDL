@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowLeft,
@@ -29,6 +29,7 @@ import {
   resumeAllPausedDownloadTasks,
   resumeDownloadTasks,
   takePendingOpenRequests,
+  writeLog,
 } from "@/lib/api";
 import type { SystemOpenRequestPayload } from "@/lib/api";
 import type { DownloadStatus, DownloadTask, EngineKind, SourceType } from "@shared/types";
@@ -190,15 +191,15 @@ function App() {
   const toggleDisabled = activeScopeTasks.length === 0;
   const deleteDisabled = selectedIds.size === 0;
 
-  function replaceTasks(nextTasks: DownloadTask[]) {
+  const replaceTasks = useCallback((nextTasks: DownloadTask[]) => {
     setTasks(nextTasks);
     setSelectedIds((current) => {
       const nextIds = new Set(nextTasks.map((task) => task.id));
       return new Set([...current].filter((id) => nextIds.has(id)));
     });
-  }
+  }, []);
 
-  async function refreshTasks() {
+  const refreshTasks = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -210,11 +211,12 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [replaceTasks]);
 
   useEffect(() => {
+    void writeLog("info", "task view mounted");
     void refreshTasks();
-  }, []);
+  }, [refreshTasks]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) {
@@ -245,7 +247,7 @@ function App() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [refreshTasks]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) {
@@ -260,6 +262,7 @@ function App() {
       if (!source) {
         return;
       }
+      void writeLog("info", `opening task dialog from system source: count=${sources.length}`);
       setView("tasks");
       setNewTaskInitialSource(source);
       setShowNewTaskDialog(true);
@@ -306,6 +309,7 @@ function App() {
   }, []);
 
   function openNewTaskDialog(source: string | null = null) {
+    void writeLog("info", "opening new task dialog");
     setView("tasks");
     setNewTaskInitialSource(source);
     setShowNewTaskDialog(true);

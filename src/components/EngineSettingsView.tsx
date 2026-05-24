@@ -23,6 +23,7 @@ import {
   listEngineSettings,
   saveAppSettings,
   saveEngineSettings,
+  writeLog,
 } from "@/lib/api";
 import type {
   AppSettings,
@@ -370,6 +371,7 @@ export default function EngineSettingsView() {
     setSavedApp(false);
 
     try {
+      void writeLog("info", "saving app access settings");
       const next = await saveAppSettings(toAppInput(draftAppSettings));
       setSavedAppSettings(next);
       setDraftAppSettings(next);
@@ -487,6 +489,7 @@ export default function EngineSettingsView() {
 
     setDeletingEngineId(settingsId);
     try {
+      void writeLog("info", `deleting engine settings: id=${settingsId}`);
       await deleteEngineSettings(settingsId);
       setSavedSettings((current) => current.filter((item) => item.id !== settingsId));
       setDraftSettings((current) => current.filter((item) => item.id !== settingsId));
@@ -508,6 +511,7 @@ export default function EngineSettingsView() {
     setSavedEngineId(null);
 
     try {
+      void writeLog("info", `saving engine settings: id=${settingsId}`);
       const next = await saveEngineSettings(toInput(draft));
       setSavedSettings((current) =>
         sortSettings([...current.filter((item) => item.id !== next.id), next]),
@@ -529,6 +533,7 @@ export default function EngineSettingsView() {
     setSavedEngineId(null);
 
     try {
+      void writeLog("info", "saving all engine settings");
       const saved: EngineSettings[] = [];
       for (const draft of sortSettings(draftSettings)) {
         const current = savedById.get(draft.id);
@@ -568,6 +573,7 @@ export default function EngineSettingsView() {
     setError(null);
 
     try {
+      void writeLog("info", `installing latest engine: id=${settingsId}`);
       const next = await installLatestEngine(settingsId);
       setSavedSettings((current) =>
         sortSettings([...current.filter((item) => item.id !== next.settings.id), next.settings]),

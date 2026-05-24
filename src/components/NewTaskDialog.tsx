@@ -3,7 +3,7 @@ import type { ClipboardEvent, DragEvent } from "react";
 import { FilePlus, FolderOpen, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
-import { createDownloadTask, listEngineSettings } from "@/lib/api";
+import { createDownloadTask, listEngineSettings, writeLog } from "@/lib/api";
 import type {
   DownloadTask,
   EngineKind,
@@ -265,6 +265,10 @@ export default function NewTaskDialog({
     setError(null);
 
     try {
+      void writeLog(
+        "info",
+        `submitting new task: engine=${selectedSettings.engine}, sourceType=${parsedSource.sourceType}`,
+      );
       const task = await createDownloadTask({
         sourceType: parsedSource.sourceType,
         source: parsedSource.source,
@@ -275,6 +279,7 @@ export default function NewTaskDialog({
         engineArgs,
       });
       onCreated(task);
+      void writeLog("info", `new task created: id=${task.id}`);
       resetAndClose();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));

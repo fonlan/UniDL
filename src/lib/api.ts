@@ -16,6 +16,7 @@ export interface SystemOpenRequestPayload {
   sources: string[];
 }
 
+export type LogLevel = "info" | "warn" | "error";
 
 let previewEngineSettings: EngineSettings[] = [];
 
@@ -51,6 +52,14 @@ export function refreshDownloadTasks(): Promise<DownloadTask[]> {
   }
 
   return invoke("refresh_download_tasks");
+}
+
+export function writeLog(level: LogLevel, message: string): Promise<void> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve();
+  }
+
+  return invoke("write_log", { level, message });
 }
 
 export function createDownloadTask(input: CreateDownloadTaskInput): Promise<DownloadTask> {

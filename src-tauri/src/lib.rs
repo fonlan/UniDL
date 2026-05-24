@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod engine_adapters;
 mod engine_install;
+mod logger;
 mod models;
 mod repositories;
 mod services;
@@ -95,12 +96,16 @@ impl AppState {
 }
 
 pub fn run() {
+    logger::init().expect("failed to initialize UniDL logger");
+    logger::info("UniDL starting");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let sources = system_open::parse_open_sources(argv);
             if !sources.is_empty() {
+                logger::info(format!("received system open request: {} source(s)", sources.len()));
                 app.state::<AppState>()
                     .push_open_sources(sources.clone())
                     .expect("failed to store system open request");
@@ -114,6 +119,7 @@ pub fn run() {
             }
         }))
         .setup(|app| {
+            logger::info("Tauri setup started");
             #[cfg(any(windows, target_os = "linux"))]
             app.deep_link().register_all()?;
             system_open::register_torrent_file_association()?;
@@ -121,6 +127,7 @@ pub fn run() {
             let pending_open_sources = system_open::parse_open_sources(std::env::args());
             let database_path = db::database_path(app.handle())?;
             let connection = db::connect_path(database_path.clone())?;
+            logger::info(format!("database connected: {}", database_path.display()));
             let app_settings = services::AppSettingsService::new(&connection).get()?;
             app.manage(AppState::new(
                 connection,
@@ -134,6 +141,7 @@ pub fn run() {
                 app.handle().clone(),
                 database_path.clone(),
             );
+            logger::info("Tauri setup completed");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -155,7 +163,8 @@ pub fn run() {
             commands::save_engine_settings,
             commands::delete_engine_settings,
             commands::install_latest_engine,
-            commands::validate_engine_source_type
+            commands::validate_engine_source_type,
+            commands::write_log
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UniDL");
