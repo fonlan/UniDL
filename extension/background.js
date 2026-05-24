@@ -7,8 +7,20 @@ const DEFAULT_SETTINGS = {
   lastEvent: "",
 };
 
-chrome.runtime.onInstalled.addListener(createContextMenus);
-chrome.runtime.onStartup.addListener(createContextMenus);
+chrome.runtime.onInstalled.addListener(() => {
+  createContextMenus();
+  runTask(refreshActiveTabVideos());
+});
+chrome.runtime.onStartup.addListener(() => {
+  createContextMenus();
+  runTask(refreshActiveTabVideos());
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => runTask(refreshTabVideos(tabId)));
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url || changeInfo.status === "complete") {
+    runTask(refreshTabVideos(tabId, tab.url));
+  }
+});
 
 function createContextMenus() {
   chrome.contextMenus.removeAll(() => {
@@ -25,11 +37,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
     runTask(sendSource(info.linkUrl));
   }
 });
-
-chrome.downloads.onCreated.addListener((download) => {
-  runTask(handleDownload(download));
-});
-
+chrome.downloads.onCreated.addListener((download) => runTask(handleDownload(download)));
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message)
     .then((payload) => sendResponse({ ok: true, payload }))
@@ -40,50 +48,96 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function handleMessage(message) {
   switch (message?.type) {
     case "get-state":
-      return getSettings();
+      return getPopupState();
     case "save-settings": {
       const settings = await mergeSettings(message.settings ?? {});
       await saveSettings(settings);
-      return settings;
+      return getPopupState(settings);
     }
     case "connect": {
       const settings = await mergeSettings(message.settings ?? {});
       await requestJson(settings.apiBaseUrl, "/api/health");
       await saveSettings(settings);
       await remember("Connected to UniDL");
-      return settings;
+      return getPopupState(settings);
     }
+    case "download-video":
+      return downloadVideo(message.video);
     default:
       throw new Error("Unknown message");
   }
 }
 
+async function getPopupState(cachedSettings) {
+  const settings = cachedSettings ?? (await getSettings());
+  const tab = await getActiveTab();
+  const videos = tab?.id ? await refreshTabVideos(tab.id, tab.url, settings) : [];
+  return { ...settings, videos };
+}
+
+async function refreshActiveTabVideos(cachedSettings) {
+  const tab = await getActiveTab();
+  if (!tab?.id) {
+    return [];
+  }
+  return refreshTabVideos(tab.id, tab.url, cachedSettings);
+}
+
+async function refreshTabVideos(tabId, tabUrl, cachedSettings) {
+  const settings = cachedSettings ?? (await getSettings());
+  const source = normalizeHttpUrl(tabUrl ?? (await getTabUrl(tabId)));
+  if (!source) {
+    await setBadge(tabId, 0);
+    return [];
+  }
+  try {
+    const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos", {
+      method: "POST",
+      body: { source },
+    });
+    const videos = Array.isArray(result.videos) ? result.videos : [];
+    await setBadge(tabId, videos.length);
+    return videos;
+  } catch {
+    await setBadge(tabId, 0);
+    return [];
+  }
+}
+
+async function downloadVideo(video) {
+  const source = normalizeHttpUrl(video?.source);
+  if (!source) {
+    throw new Error("Video URL is required");
+  }
+  const fileName = cleanFileName(video?.title) ?? parseUrlName(source) ?? "video";
+  const cookies = await exportCookies(source);
+  const task = await requestJson((await getSettings()).apiBaseUrl, "/api/extension/ytdlp/tasks", {
+    method: "POST",
+    body: { source, fileName, cookies },
+  });
+  await remember(task.fileName + " sent to UniDL");
+  return task;
+}
+
 async function handleDownload(download) {
   const settings = await getSettings();
-  if (!settings.interceptEnabled) {
+  if (!settings.interceptEnabled || !download.url || download.byExtensionId === chrome.runtime.id) {
     return;
   }
-  if (!download.url || download.byExtensionId === chrome.runtime.id) {
-    return;
-  }
-
   const task = await sendSource(download.url, settings, download.filename);
   if (settings.cancelOriginal) {
     await cancelDownload(download.id);
   }
-  await remember(`Sent ${task.fileName} to UniDL`);
+  await remember(task.fileName + " sent to UniDL");
 }
 
 function runTask(task) {
-  task.catch((error) => {
-    void remember(`UniDL error: ${error.message}`);
-  });
+  task.catch((error) => void remember("UniDL error: " + error.message));
 }
 
 async function sendSource(source, cachedSettings, suggestedFileName) {
   const settings = cachedSettings ?? (await getSettings());
   const parsed = parseSource(source, suggestedFileName);
-
   const task = await requestJson(settings.apiBaseUrl, "/api/extension/tasks", {
     method: "POST",
     body: {
@@ -92,7 +146,7 @@ async function sendSource(source, cachedSettings, suggestedFileName) {
       fileName: parsed.fileName,
     },
   });
-  await remember(`Sent ${task.fileName} to UniDL`);
+  await remember(task.fileName + " sent to UniDL");
   return task;
 }
 
@@ -101,39 +155,18 @@ function parseSource(value, suggestedFileName) {
   if (!source) {
     throw new Error("Download source is required");
   }
-
   if (/^magnet:/i.test(source)) {
-    return {
-      sourceType: "magnet",
-      source,
-      fileName: parseMagnetName(source) ?? "magnet",
-    };
+    return { sourceType: "magnet", source, fileName: parseMagnetName(source) ?? "magnet" };
   }
-
   if (/^https?:\/\//i.test(source)) {
-    return {
-      sourceType: "http",
-      source,
-      fileName: cleanFileName(suggestedFileName) ?? parseUrlName(source) ?? "http-download",
-    };
+    return { sourceType: "http", source, fileName: cleanFileName(suggestedFileName) ?? parseUrlName(source) ?? "http-download" };
   }
-
   if (/^ftp:\/\//i.test(source)) {
-    return {
-      sourceType: "ftp",
-      source,
-      fileName: cleanFileName(suggestedFileName) ?? parseUrlName(source) ?? "ftp-download",
-    };
+    return { sourceType: "ftp", source, fileName: cleanFileName(suggestedFileName) ?? parseUrlName(source) ?? "ftp-download" };
   }
-
-  if (/\.torrent(?:$|[?#])/i.test(source)) {
-    return {
-      sourceType: "torrent",
-      source,
-      fileName: cleanFileName(suggestedFileName) ?? parsePathName(source) ?? "download.torrent",
-    };
+  if (source.toLowerCase().split(/[?#]/)[0].endsWith(".torrent")) {
+    return { sourceType: "torrent", source, fileName: cleanFileName(suggestedFileName) ?? parsePathName(source) ?? "download.torrent" };
   }
-
   throw new Error("Unsupported download source");
 }
 
@@ -152,7 +185,7 @@ function parseMagnetName(value) {
 function parseUrlName(value) {
   try {
     const url = new URL(value);
-    return cleanFileName(url.pathname.split("/").filter(Boolean).at(-1));
+    return cleanFileName(url.hostname || url.pathname.split("/").filter(Boolean).at(-1));
   } catch {
     return parsePathName(value);
   }
@@ -174,24 +207,50 @@ function cleanFileName(value) {
   }
 }
 
-async function requestJson(apiBaseUrl, path, options = {}) {
-  const headers = { "content-type": "application/json" };
+async function exportCookies(source) {
+  const cookies = await new Promise((resolve, reject) => {
+    chrome.cookies.getAll({ url: source }, (items) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(items);
+    });
+  });
+  if (!cookies.length) {
+    return "";
+  }
+  const lines = ["# Netscape HTTP Cookie File"];
+  for (const cookie of cookies) {
+    const domain = cookie.httpOnly ? "#HttpOnly_" + cookie.domain : cookie.domain;
+    const includeSubdomains = cookie.domain.startsWith(".") ? "TRUE" : "FALSE";
+    const path = cookie.path || "/";
+    const secure = cookie.secure ? "TRUE" : "FALSE";
+    const expires = cookie.session ? "0" : String(Math.trunc(cookie.expirationDate ?? 0));
+    lines.push([domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join("\t"));
+  }
+  return lines.join("\n") + "\n";
+}
 
-  const response = await fetch(`${trimBaseUrl(apiBaseUrl)}${path}`, {
+async function requestJson(apiBaseUrl, path, options = {}) {
+  const response = await fetch(trimBaseUrl(apiBaseUrl) + path, {
     method: options.method ?? "GET",
-    headers,
+    headers: { "content-type": "application/json" },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok) {
-    throw new Error(payload.error ?? `UniDL API failed: ${response.status}`);
+    throw new Error(payload.error ?? "UniDL API failed: " + response.status);
   }
   return payload;
 }
 
 function trimBaseUrl(value) {
-  const text = String(value ?? "").trim().replace(/\/+$/, "");
+  let text = String(value ?? "").trim();
+  while (text.endsWith("/")) {
+    text = text.slice(0, -1);
+  }
   if (!text) {
     throw new Error("UniDL API URL is required");
   }
@@ -199,21 +258,50 @@ function trimBaseUrl(value) {
   if (url.hostname === "localhost") {
     url.hostname = "127.0.0.1";
   }
-  return url.toString().replace(/\/+$/, "");
+  text = url.toString();
+  while (text.endsWith("/")) {
+    text = text.slice(0, -1);
+  }
+  return text;
 }
 
-function getSettings() {
+function normalizeHttpUrl(value) {
+  const source = String(value ?? "").trim();
+  return /^https?:\/\//i.test(source) ? source : null;
+}
+
+function getActiveTab() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(DEFAULT_SETTINGS, (items) => {
-      resolve(normalizeSettings(items));
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0] ?? null));
+  });
+}
+
+function getTabUrl(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(tab.url ?? null);
     });
   });
 }
 
-function saveSettings(settings) {
+function setBadge(tabId, count) {
   return new Promise((resolve) => {
-    chrome.storage.local.set(normalizeSettings(settings), resolve);
+    chrome.action.setBadgeBackgroundColor({ tabId, color: "#047857" }, () => {
+      chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : "" }, resolve);
+    });
   });
+}
+
+function getSettings() {
+  return new Promise((resolve) => chrome.storage.local.get(DEFAULT_SETTINGS, (items) => resolve(normalizeSettings(items))));
+}
+
+function saveSettings(settings) {
+  return new Promise((resolve) => chrome.storage.local.set(normalizeSettings(settings), resolve));
 }
 
 async function mergeSettings(settings) {
@@ -231,13 +319,9 @@ function normalizeSettings(settings) {
 }
 
 async function cancelDownload(downloadId) {
-  await new Promise((resolve) => {
-    chrome.downloads.cancel(downloadId, resolve);
-  });
+  await new Promise((resolve) => chrome.downloads.cancel(downloadId, resolve));
 }
 
 async function remember(message) {
-  await new Promise((resolve) => {
-    chrome.storage.local.set({ lastEvent: message }, resolve);
-  });
+  await new Promise((resolve) => chrome.storage.local.set({ lastEvent: message }, resolve));
 }

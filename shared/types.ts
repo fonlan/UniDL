@@ -24,6 +24,7 @@ export interface DownloadTask {
   savePath: string;
   engineArgs: string;
   selectedFileIndexes?: number[] | null;
+  browserCookies?: string | null;
   createdAt: string;
   completedAt: string | null;
   errorMessage: string | null;
@@ -38,6 +39,7 @@ export interface CreateDownloadTaskInput {
   savePath: string;
   engineArgs: string;
   selectedFileIndexes?: number[] | null;
+  browserCookies?: string | null;
 }
 
 export interface TorrentFileEntry {

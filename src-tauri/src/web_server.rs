@@ -19,7 +19,8 @@ use uuid::Uuid;
 
 use crate::{
     db,
-    models::{AppSettings, CreateDownloadTaskInput, SourceType},
+    models::{AppSettings, CreateDownloadTaskInput, EngineKind, SourceType},
+    repositories::EngineSettingsRepository,
     services::DownloadTaskService,
     system_open,
     task_events,
@@ -77,6 +78,34 @@ struct LoginOutput {
 #[serde(rename_all = "camelCase")]
 struct TaskIdsInput {
     ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionVideosInput {
+    source: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionVideoEntry {
+    id: String,
+    title: String,
+    source: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionVideosOutput {
+    videos: Vec<ExtensionVideoEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionYtDlpTaskInput {
+    source: String,
+    file_name: String,
+    cookies: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -178,6 +207,10 @@ fn handle_request(mut request: Request, context: &WebServerContext) {
         Ok(empty_response(StatusCode(204)))
     } else if method == Method::Get && path == "/api/health" {
         json_response(StatusCode(200), &serde_json::json!({ "ok": true }))
+    } else if method == Method::Post && path == "/api/extension/videos" {
+        handle_extension_videos(&mut request, context)
+    } else if method == Method::Post && path == "/api/extension/ytdlp/tasks" {
+        handle_extension_ytdlp_task(&mut request, context)
     } else if method == Method::Post && path == "/api/extension/tasks" {
         handle_extension_task(&mut request, context)
     } else if !context.web_access_enabled {
@@ -236,6 +269,97 @@ fn handle_login(
         .insert(token.clone());
 
     json_response(StatusCode(200), &LoginOutput { token })
+}
+
+fn handle_extension_videos(
+    request: &mut Request,
+    context: &WebServerContext,
+) -> Result<ResponseBox, Box<dyn Error>> {
+    let input: ExtensionVideosInput = read_json(request)?;
+    let source = input.source.trim();
+    let Some(source_type) = extension_source_type(source) else {
+        return json_response(StatusCode(200), &ExtensionVideosOutput { videos: Vec::new() });
+    };
+
+    if find_enabled_ytdlp_settings(context, source_type)?.is_none() {
+        return json_response(StatusCode(200), &ExtensionVideosOutput { videos: Vec::new() });
+    }
+
+    json_response(
+        StatusCode(200),
+        &ExtensionVideosOutput {
+            videos: vec![ExtensionVideoEntry {
+                id: "current-page".to_string(),
+                title: extension_video_title(source),
+                source: source.to_string(),
+            }],
+        },
+    )
+}
+
+fn handle_extension_ytdlp_task(
+    request: &mut Request,
+    context: &WebServerContext,
+) -> Result<ResponseBox, Box<dyn Error>> {
+    let input: ExtensionYtDlpTaskInput = read_json(request)?;
+    let source = input.source.trim().to_string();
+    let file_name = input.file_name.trim().to_string();
+    let source_type = extension_source_type(&source).ok_or("yt-dlp source must be http or https")?;
+    let settings = find_enabled_ytdlp_settings(context, source_type)?
+        .ok_or("no enabled yt-dlp settings supports this page")?;
+
+    let task_input = CreateDownloadTaskInput {
+        source_type,
+        source,
+        engine: EngineKind::YtDlp,
+        engine_settings_id: Some(settings.id),
+        file_name,
+        save_path: settings.default_download_dir,
+        engine_args: String::new(),
+        selected_file_indexes: None,
+        browser_cookies: input.cookies.filter(|value| !value.trim().is_empty()),
+    };
+    let task = with_task_service(context, |service| service.create(task_input))?;
+    json_response(
+        StatusCode(200),
+        &ExtensionTaskOutput {
+            file_name: task.file_name,
+        },
+    )
+}
+
+fn find_enabled_ytdlp_settings(
+    context: &WebServerContext,
+    source_type: SourceType,
+) -> Result<Option<crate::models::EngineSettings>, Box<dyn Error>> {
+    let connection = db::connect_path(context.database_path.clone())?;
+    Ok(EngineSettingsRepository::new(&connection)
+        .list_all()?
+        .into_iter()
+        .find(|settings| {
+            settings.engine == EngineKind::YtDlp
+                && settings.enabled
+                && settings.supported_source_types.contains(&source_type)
+        }))
+}
+
+fn extension_source_type(source: &str) -> Option<SourceType> {
+    if source.starts_with("http://") || source.starts_with("https://") {
+        Some(SourceType::Http)
+    } else {
+        None
+    }
+}
+
+fn extension_video_title(source: &str) -> String {
+    source
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split(|value| value == char::from(47) || value == char::from(63) || value == char::from(35))
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("current page")
+        .to_string()
 }
 
 fn handle_extension_task(

@@ -676,9 +676,13 @@ fn add_ytdlp_task(
         .as_deref()
         .ok_or("yt-dlp executable path is required")?;
     let mut command = Command::new(executable);
+    let cookie_path = write_ytdlp_cookie_file(task, &database_path)?;
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
     append_args(&mut command, &task.engine_args);
+    if let Some(cookie_path) = &cookie_path {
+        command.arg("--cookies").arg(cookie_path);
+    }
     command
         .arg("-P")
         .arg(&task.save_path)
@@ -704,10 +708,29 @@ fn add_ytdlp_task(
             Ok(exit) if exit.success() => DownloadStatus::Completed,
             Ok(_) | Err(_) => DownloadStatus::Failed,
         };
+        if let Some(cookie_path) = cookie_path {
+            let _ = fs::remove_file(cookie_path);
+        }
         let _ = update_ytdlp_completion(&database_path, &task_id, status);
     });
 
     Ok(EngineTaskState::running(pid))
+}
+
+fn write_ytdlp_cookie_file(
+    task: &DownloadTask,
+    database_path: &Path,
+) -> Result<Option<PathBuf>, Box<dyn Error>> {
+    let Some(cookies) = task.browser_cookies.as_deref() else {
+        return Ok(None);
+    };
+    if cookies.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let cookie_path = database_path.with_file_name(format!("{}.cookies.txt", task.id));
+    fs::write(&cookie_path, cookies)?;
+    Ok(Some(cookie_path))
 }
 
 fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Error>> {
@@ -913,6 +936,8 @@ mod tests {
             speed_bytes_per_sec: 123,
             save_path: "C:\\Downloads".to_string(),
             engine_args: String::new(),
+            selected_file_indexes: None,
+            browser_cookies: None,
             created_at: String::new(),
             completed_at: None,
             error_message: None,

@@ -66,6 +66,7 @@ impl<'connection> DownloadTaskService<'connection> {
             save_path: input.save_path,
             engine_args: input.engine_args,
             selected_file_indexes: input.selected_file_indexes,
+            browser_cookies: input.browser_cookies,
         };
         self.repository.create(&id, &task_input)?;
         let task = self.repository.get_by_id(&id)?;
@@ -758,6 +759,8 @@ mod tests {
             file_name: "file.bin".to_string(),
             save_path: "C:\\Downloads".to_string(),
             engine_args: String::new(),
+            selected_file_indexes: None,
+            browser_cookies: None,
         });
 
         assert!(result.is_err());
@@ -788,6 +791,8 @@ mod tests {
                     file_name: "file.bin".to_string(),
                     save_path: "C:\\Downloads".to_string(),
                     engine_args: String::new(),
+                    selected_file_indexes: None,
+                    browser_cookies: None,
                 },
             )
             .expect("failed task should insert");
@@ -843,6 +848,8 @@ mod tests {
                 file_name: "unidl".to_string(),
                 save_path: "C:\\Downloads".to_string(),
                 engine_args: String::new(),
+                selected_file_indexes: None,
+                browser_cookies: None,
             })
             .expect("task should be added through qBittorrent");
         assert_eq!(task.status, DownloadStatus::Running);

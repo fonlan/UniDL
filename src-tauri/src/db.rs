@@ -62,6 +62,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             save_path TEXT NOT NULL,
             engine_args TEXT NOT NULL DEFAULT '',
             selected_file_indexes TEXT,
+            browser_cookies TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             completed_at TEXT,
             error_message TEXT
@@ -82,6 +83,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     migrate_download_tasks_selected_file_indexes(connection)?;
+    migrate_download_tasks_browser_cookies(connection)?;
     seed_app_settings(connection)
 }
 
@@ -294,6 +296,19 @@ fn migrate_download_tasks_selected_file_indexes(connection: &Connection) -> Resu
         r#"
         ALTER TABLE download_tasks
             ADD COLUMN selected_file_indexes TEXT;
+        "#,
+    )
+}
+
+fn migrate_download_tasks_browser_cookies(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "download_tasks", "browser_cookies")? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+        ALTER TABLE download_tasks
+            ADD COLUMN browser_cookies TEXT;
         "#,
     )
 }

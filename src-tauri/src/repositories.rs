@@ -285,6 +285,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 save_path,
                 engine_args,
                 selected_file_indexes,
+                browser_cookies,
                 created_at,
                 completed_at,
                 error_message
@@ -329,6 +330,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 save_path,
                 engine_args,
                 selected_file_indexes,
+                browser_cookies,
                 created_at,
                 completed_at,
                 error_message
@@ -363,6 +365,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 save_path,
                 engine_args,
                 selected_file_indexes,
+                browser_cookies,
                 created_at,
                 completed_at,
                 error_message
@@ -397,6 +400,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 save_path,
                 engine_args,
                 selected_file_indexes,
+                browser_cookies,
                 created_at,
                 completed_at,
                 error_message
@@ -428,8 +432,9 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec,
                 save_path,
                 engine_args,
-                selected_file_indexes
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9, ?10)
+                selected_file_indexes,
+                browser_cookies
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?9, ?10, ?11)
             "#,
             params![
                 id,
@@ -442,6 +447,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 input.save_path.as_str(),
                 input.engine_args.as_str(),
                 encode_selected_file_indexes(input.selected_file_indexes.as_deref()),
+                input.browser_cookies.as_deref(),
             ],
         )?;
         Ok(())
@@ -555,6 +561,7 @@ fn read_download_task(row: &rusqlite::Row<'_>) -> Result<DownloadTask, Box<dyn E
         save_path: row.get("save_path")?,
         engine_args: row.get("engine_args")?,
         selected_file_indexes: decode_selected_file_indexes(row.get("selected_file_indexes")?)?,
+        browser_cookies: row.get("browser_cookies")?,
         created_at: row.get("created_at")?,
         completed_at: row.get("completed_at")?,
         error_message: row.get("error_message")?,
