@@ -149,8 +149,10 @@ impl<'connection> DownloadTaskService<'connection> {
         delete_completed_files: bool,
     ) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
-            let delete_downloaded =
-                task.status != DownloadStatus::Completed || delete_completed_files;
+            let delete_downloaded = task.status != DownloadStatus::Completed
+                || (delete_completed_files
+                    && (task.engine != EngineKind::QBittorrent
+                        || downloaded_entry_path(&task).exists()));
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             let delete_result =
@@ -260,17 +262,27 @@ impl<'connection> DownloadTaskService<'connection> {
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
     let path = downloaded_entry_path(task);
-    let metadata = match fs::metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    if metadata.is_dir() {
-        fs::remove_dir_all(&path)?;
-    } else {
-        fs::remove_file(&path)?;
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::InvalidInput | io::ErrorKind::InvalidFilename
+            ) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::IsADirectory => match fs::remove_dir_all(&path)
+        {
+            Ok(()) => Ok(()),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound
+                        | io::ErrorKind::InvalidInput
+                        | io::ErrorKind::InvalidFilename
+                ) => Ok(()),
+            Err(error) => Err(error.into()),
+        },
+        Err(error) => Err(error.into()),
     }
-    Ok(())
 }
 
 fn downloaded_entry_path(task: &DownloadTask) -> PathBuf {
@@ -696,6 +708,110 @@ mod tests {
     }
 
     #[test]
+    fn deleting_completed_task_ignores_invalid_download_path() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+
+        let download_dir = temp_download_dir();
+
+        insert_aria2_task(
+            &connection,
+            "completed-invalid-path-task",
+            DownloadStatus::Completed,
+            download_dir.to_string_lossy().as_ref(),
+            "missing<file>.bin",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["completed-invalid-path-task".to_string()], true)
+            .expect("completed task should delete even with invalid missing path");
+
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn deleting_completed_qbittorrent_task_ignores_missing_local_file() {
+        let (base_url, requests, server) = start_fake_qbittorrent_with_bodies(2);
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+
+        EngineSettingsService::new(&connection)
+            .save(EngineSettingsInput {
+                id: "qbittorrent".to_string(),
+                engine: EngineKind::QBittorrent,
+                name: "qBittorrent".to_string(),
+                enabled: true,
+                executable_path: None,
+                default_download_dir: String::new(),
+                default_args: String::new(),
+                connection_url: Some(base_url),
+                username: Some("admin".to_string()),
+                password: Some("adminadmin".to_string()),
+                remote_path: Some(String::new()),
+                supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
+                priority: 0,
+            })
+            .expect("qBittorrent settings should save");
+
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    engine_task_id,
+                    file_name,
+                    status,
+                    save_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                (
+                    "completed-qbittorrent-missing-file",
+                    SourceType::Magnet.as_db(),
+                    "magnet:?xt=urn:btih:1234567890abcdef1234",
+                    "qbittorrent",
+                    EngineKind::QBittorrent.as_db(),
+                    "abcdef123456",
+                    "missing.mkv",
+                    DownloadStatus::Completed.as_db(),
+                    temp_download_dir().to_string_lossy().as_ref(),
+                ),
+            )
+            .expect("completed qBittorrent task should insert");
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["completed-qbittorrent-missing-file".to_string()], true)
+            .expect("completed qBittorrent task should delete without local file");
+
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        server.join().expect("fake qBittorrent should finish");
+        let requests = requests.lock().expect("requests should lock").clone();
+        assert!(requests
+            .last()
+            .expect("delete request should exist")
+            .contains("deleteFiles=false"));
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
     fn deleting_failed_ytdlp_task_without_downloaded_entry_removes_local_record() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
@@ -1010,6 +1126,36 @@ mod tests {
         });
 
         (format!("http://{address}"), hits, server)
+    }
+
+    fn start_fake_qbittorrent_with_bodies(
+        expected_requests: usize,
+    ) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake server should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake server should have address");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let server_requests = Arc::clone(&requests);
+        let server = thread::spawn(move || {
+            for stream in listener.incoming().take(expected_requests) {
+                let mut stream = stream.expect("fake server stream should open");
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).expect("request should read");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .expect("request should include body")
+                    .to_string();
+                server_requests.lock().expect("requests should lock").push(body);
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .expect("response should write");
+            }
+        });
+
+        (format!("http://{address}"), requests, server)
     }
 
     fn temp_database_path() -> PathBuf {
