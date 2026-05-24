@@ -786,7 +786,12 @@ fn spawn_ytdlp_progress_reader(
             }
             let line = String::from_utf8_lossy(&bytes).into_owned();
             if let Some(progress) = parse_ytdlp_progress(&line) {
-                let _ = update_ytdlp_progress(&database_path, &task_id, progress);
+                let _ = update_ytdlp_progress(
+                    &database_path,
+                    &task_id,
+                    progress.percent,
+                    progress.speed_bytes_per_sec,
+                );
             }
             remember_ytdlp_output_line(&output_lines, line);
             bytes.clear();
@@ -891,20 +896,72 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
     })
 }
 
-fn parse_ytdlp_progress(line: &str) -> Option<f64> {
-    line.split_whitespace()
-        .find(|part| part.ends_with('%'))
-        .and_then(|part| part.trim_end_matches('%').parse::<f64>().ok())
+#[derive(Debug, PartialEq)]
+struct YtDlpProgress {
+    percent: f64,
+    speed_bytes_per_sec: i64,
+}
+
+fn parse_ytdlp_progress(line: &str) -> Option<YtDlpProgress> {
+    let parts = line.split_whitespace().collect::<Vec<_>>();
+    let percent = parts
+        .iter()
+        .find_map(|part| part.strip_suffix('%')?.parse::<f64>().ok())?;
+    let speed_bytes_per_sec = parts
+        .windows(2)
+        .find_map(|window| {
+            if window[0] == "at" {
+                parse_ytdlp_speed(window[1])
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+
+    Some(YtDlpProgress {
+        percent,
+        speed_bytes_per_sec,
+    })
+}
+
+fn parse_ytdlp_speed(value: &str) -> Option<i64> {
+    let value = value.strip_suffix("/s")?;
+    let unit_start = value
+        .find(|character: char| !character.is_ascii_digit() && character != '.')
+        .unwrap_or(value.len());
+    let number = value[..unit_start].parse::<f64>().ok()?;
+    let unit = &value[unit_start..];
+    let multiplier = match unit {
+        "" => 1.0,
+        "KiB" => 1024.0,
+        "MiB" => 1024.0 * 1024.0,
+        "GiB" => 1024.0 * 1024.0 * 1024.0,
+        "B" => 1.0,
+        "KB" => 1000.0,
+        "MB" => 1000.0 * 1000.0,
+        "GB" => 1000.0 * 1000.0 * 1000.0,
+        _ => return None,
+    };
+
+    Some((number * multiplier).round() as i64)
 }
 
 fn update_ytdlp_progress(
     database_path: &Path,
     task_id: &str,
     progress: f64,
+    speed_bytes_per_sec: i64,
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
-    repository.update_engine_state(task_id, DownloadStatus::Running, progress, 0, None, None)?;
+    repository.update_engine_state(
+        task_id,
+        DownloadStatus::Running,
+        progress,
+        speed_bytes_per_sec,
+        None,
+        None,
+    )?;
     Ok(())
 }
 
@@ -1131,6 +1188,32 @@ mod tests {
         assert_eq!(state.progress, 12.0);
         assert_eq!(state.speed_bytes_per_sec, 0);
         assert_eq!(state.engine_task_id, None);
+    }
+
+    #[test]
+    fn parse_ytdlp_progress_reads_percent_and_speed() {
+        let progress = parse_ytdlp_progress(
+            "[download]  42.5% of 10.00MiB at 1.25MiB/s ETA 00:04",
+        )
+        .expect("progress should parse");
+
+        assert_eq!(progress.percent, 42.5);
+        assert_eq!(progress.speed_bytes_per_sec, 1_310_720);
+    }
+
+    #[test]
+    fn parse_ytdlp_progress_keeps_speed_zero_when_missing() {
+        let progress = parse_ytdlp_progress("[download]  42.5% of 10.00MiB")
+            .expect("progress should parse");
+
+        assert_eq!(progress.percent, 42.5);
+        assert_eq!(progress.speed_bytes_per_sec, 0);
+    }
+
+    #[test]
+    fn parse_ytdlp_speed_supports_decimal_units() {
+        assert_eq!(parse_ytdlp_speed("128.5KB/s"), Some(128_500));
+        assert_eq!(parse_ytdlp_speed("2MB/s"), Some(2_000_000));
     }
 
     #[test]
