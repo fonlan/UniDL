@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   ArrowLeft,
   Check,
@@ -55,6 +55,37 @@ const engineLabels: Record<EngineKind, string> = {
   "yt-dlp": "yt-dlp",
   qbittorrent: "qBittorrent",
 };
+
+type TaskColumnKey =
+  | "selected"
+  | "fileName"
+  | "engine"
+  | "status"
+  | "progress"
+  | "speed"
+  | "savePath"
+  | "createdAt"
+  | "completedAt";
+
+type TaskColumn = {
+  key: TaskColumnKey;
+  label: string;
+  width: number;
+  minWidth: number;
+  resizable: boolean;
+};
+
+const taskTableColumns: TaskColumn[] = [
+  { key: "selected", label: "选择", width: 48, minWidth: 48, resizable: false },
+  { key: "fileName", label: "文件名", width: 220, minWidth: 140, resizable: true },
+  { key: "engine", label: "引擎", width: 112, minWidth: 84, resizable: true },
+  { key: "status", label: "状态", width: 112, minWidth: 84, resizable: true },
+  { key: "progress", label: "进度", width: 176, minWidth: 140, resizable: true },
+  { key: "speed", label: "速度", width: 112, minWidth: 92, resizable: true },
+  { key: "savePath", label: "路径", width: 260, minWidth: 160, resizable: true },
+  { key: "createdAt", label: "创建时间", width: 128, minWidth: 104, resizable: true },
+  { key: "completedAt", label: "完成时间", width: 128, minWidth: 104, resizable: true },
+];
 
 function isFinished(status: DownloadStatus) {
   return status === "completed" || status === "failed" || status === "deleted";
@@ -182,6 +213,12 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [taskColumnWidths, setTaskColumnWidths] = useState<Record<TaskColumnKey, number>>(() =>
+    Object.fromEntries(taskTableColumns.map((column) => [column.key, column.width])) as Record<
+      TaskColumnKey,
+      number
+    >,
+  );
   const hasLoadedTasksRef = useRef(false);
   const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
 
@@ -201,6 +238,45 @@ function App() {
     activeScopeTasks.length > 0 && pausedScopeTasks.length === activeScopeTasks.length;
   const toggleDisabled = activeScopeTasks.length === 0;
   const deleteDisabled = selectedIds.size === 0;
+  const totalTaskTableWidth = taskTableColumns.reduce(
+    (sum, column) => sum + taskColumnWidths[column.key],
+    0,
+  );
+
+  function handleColumnResizeStart(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    column: TaskColumn,
+  ) {
+    if (!column.resizable || event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = taskColumnWidths[column.key];
+    const originalCursor = document.body.style.cursor;
+    const originalUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      const nextWidth = Math.max(column.minWidth, startWidth + pointerEvent.clientX - startX);
+      setTaskColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
+    }
+
+    function handlePointerUp() {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.body.style.cursor = originalCursor;
+      document.body.style.userSelect = originalUserSelect;
+    }
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp, { once: true });
+  }
 
   async function confirmDeleteCompletedFiles() {
     setShowDeleteDialog(true);
@@ -592,30 +668,51 @@ function App() {
           <EngineSettingsView />
         ) : (
           <section className="min-h-0 flex-1 overflow-auto">
-            <table className="min-w-[1120px] table-fixed border-separate border-spacing-0 text-left text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-normal text-slate-600">
-              <tr>
-                <th className="w-12 border-b border-slate-200 px-4 py-3">
-                  <button
-                    type="button"
-                    title="选择全部"
-                    aria-label="选择全部"
-                    onClick={toggleAllSelected}
-                    className="grid h-5 w-5 place-items-center rounded border border-slate-300 bg-white text-emerald-700"
-                  >
-                    {allVisibleSelected && <Check size={14} strokeWidth={3} />}
-                  </button>
-                </th>
-                <th className="w-[220px] border-b border-slate-200 px-3 py-3">文件名</th>
-                <th className="w-28 border-b border-slate-200 px-3 py-3">引擎</th>
-                <th className="w-28 border-b border-slate-200 px-3 py-3">状态</th>
-                <th className="w-44 border-b border-slate-200 px-3 py-3">进度</th>
-                <th className="w-28 border-b border-slate-200 px-3 py-3">速度</th>
-                <th className="w-[260px] border-b border-slate-200 px-3 py-3">路径</th>
-                <th className="w-32 border-b border-slate-200 px-3 py-3">创建时间</th>
-                <th className="w-32 border-b border-slate-200 px-3 py-3">完成时间</th>
-              </tr>
-            </thead>
+            <table
+              className="table-fixed border-separate border-spacing-0 text-left text-sm"
+              style={{ width: `${totalTaskTableWidth}px` }}
+            >
+              <colgroup>
+                {taskTableColumns.map((column) => (
+                  <col key={column.key} style={{ width: `${taskColumnWidths[column.key]}px` }} />
+                ))}
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-normal text-slate-600">
+                <tr>
+                  {taskTableColumns.map((column) => (
+                    <th
+                      key={column.key}
+                      className={classNames(
+                        "relative border-b border-slate-200 py-3",
+                        column.key === "selected" ? "px-4" : "px-3",
+                      )}
+                    >
+                      {column.key === "selected" ? (
+                        <button
+                          type="button"
+                          title="选择全部"
+                          aria-label="选择全部"
+                          onClick={toggleAllSelected}
+                          className="grid h-5 w-5 place-items-center rounded border border-slate-300 bg-white text-emerald-700"
+                        >
+                          {allVisibleSelected && <Check size={14} strokeWidth={3} />}
+                        </button>
+                      ) : (
+                        column.label
+                      )}
+                      {column.resizable && (
+                        <button
+                          type="button"
+                          title={`调整${column.label}列宽`}
+                          aria-label={`调整${column.label}列宽`}
+                          onPointerDown={(event) => handleColumnResizeStart(event, column)}
+                          className="absolute inset-y-0 right-0 w-2 cursor-col-resize touch-none rounded-sm hover:bg-emerald-500/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+                        />
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
             <tbody>
               {tasks.map((task) => {
                 const isSelected = selectedIds.has(task.id);
