@@ -160,10 +160,10 @@ function parseSource(value, suggestedFileName) {
     return { sourceType: "magnet", source, fileName: parseMagnetName(source) ?? "magnet" };
   }
   if (/^https?:\/\//i.test(source)) {
-    return { sourceType: "http", source, fileName: cleanFileName(suggestedFileName) ?? parseUrlName(source) ?? "http-download" };
+    return { sourceType: "http", source, fileName: parseNetworkFileName(source, suggestedFileName) ?? "http-download" };
   }
   if (/^ftp:\/\//i.test(source)) {
-    return { sourceType: "ftp", source, fileName: cleanFileName(suggestedFileName) ?? parseUrlName(source) ?? "ftp-download" };
+    return { sourceType: "ftp", source, fileName: parseNetworkFileName(source, suggestedFileName) ?? "ftp-download" };
   }
   if (source.toLowerCase().split(/[?#]/)[0].endsWith(".torrent")) {
     return { sourceType: "torrent", source, fileName: cleanFileName(suggestedFileName) ?? parsePathName(source) ?? "download.torrent" };
@@ -186,10 +186,21 @@ function parseMagnetName(value) {
 function parseUrlName(value) {
   try {
     const url = new URL(value);
-    return cleanFileName(url.hostname || url.pathname.split("/").filter(Boolean).at(-1));
+    return cleanFileName(url.pathname.split("/").filter(Boolean).at(-1));
   } catch {
     return parsePathName(value);
   }
+}
+
+function parseNetworkFileName(source, suggestedFileName) {
+  const parsedUrl = new URL(source);
+  const suggested = cleanFileName(suggestedFileName);
+  const hostname = parsedUrl.hostname.toLowerCase();
+  if (suggested && suggested.toLowerCase() !== hostname) {
+    return suggested;
+  }
+
+  return cleanFileName(parsedUrl.pathname.split("/").filter(Boolean).at(-1));
 }
 
 function parsePathName(value) {
