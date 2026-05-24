@@ -402,7 +402,7 @@ mod tests {
                 enabled: false,
                 executable_path: Some("C:\\Tools\\aria2c.exe".to_string()),
                 default_download_dir: String::new(),
-                default_args: "--continue=true".to_string(),
+                default_args: "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none".to_string(),
                 connection_url: Some("http://127.0.0.1:6800/jsonrpc".to_string()),
                 username: None,
                 password: None,

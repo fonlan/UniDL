@@ -17,6 +17,9 @@ use crate::{
     repositories::DownloadTaskRepository,
 };
 
+const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
+const YTDLP_FAST_DEFAULT_ARGS: &str = "--newline --concurrent-fragments 8";
+
 pub struct EngineTaskState {
     pub status: DownloadStatus,
     pub progress: f64,
@@ -208,9 +211,8 @@ fn add_aria2_task(
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     start_aria2_process(settings, &task.save_path)?;
 
-    let options = json!({
-        "dir": task.save_path,
-    });
+    let options =
+        aria2_download_options(&task.save_path, &settings.default_args, &task.engine_args);
     let result = match task.source_type {
         SourceType::Torrent => {
             let torrent = fs::read(&task.source)?;
@@ -242,7 +244,7 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<(),
         .arg("--enable-rpc=true")
         .arg("--rpc-listen-all=false")
         .arg("--rpc-listen-port=6800")
-        .arg("--continue=true")
+        .args(ARIA2_FAST_DEFAULT_ARGS.split_whitespace())
         .arg(format!("--dir={}", save_path))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -371,6 +373,51 @@ fn aria2_rpc_secret(args: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn aria2_download_options(save_path: &str, default_args: &str, task_args: &str) -> Value {
+    let mut options = serde_json::Map::new();
+    options.insert("dir".to_string(), Value::String(save_path.to_string()));
+    append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
+    append_aria2_options(&mut options, default_args);
+    append_aria2_options(&mut options, task_args);
+    Value::Object(options)
+}
+
+fn append_aria2_options(options: &mut serde_json::Map<String, Value>, args: &str) {
+    let parts = args.split_whitespace().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < parts.len() {
+        let Some(option) = parts[index].strip_prefix("--") else {
+            index += 1;
+            continue;
+        };
+        if let Some((key, value)) = option.split_once('=') {
+            if aria2_download_option_allowed(key) {
+                options.insert(key.to_string(), Value::String(value.to_string()));
+            }
+            index += 1;
+            continue;
+        }
+        if let Some(value) = parts
+            .get(index + 1)
+            .filter(|value| !value.starts_with("--"))
+        {
+            if aria2_download_option_allowed(option) {
+                options.insert(option.to_string(), Value::String((*value).to_string()));
+            }
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+}
+
+fn aria2_download_option_allowed(key: &str) -> bool {
+    !matches!(
+        key,
+        "dir" | "enable-rpc" | "rpc-listen-all" | "rpc-listen-port" | "rpc-secret"
+    )
 }
 
 fn aria2_delete_method(
@@ -525,10 +572,10 @@ fn add_ytdlp_task(
         .as_deref()
         .ok_or("yt-dlp executable path is required")?;
     let mut command = Command::new(executable);
+    append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
     append_args(&mut command, &task.engine_args);
     command
-        .arg("--newline")
         .arg("-P")
         .arg(&task.save_path)
         .arg(&task.source)
