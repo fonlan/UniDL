@@ -161,7 +161,9 @@ export default function TaskDetailPanel({
   );
 
   useEffect(() => {
-    setSelectedFileIndexes(new Set(task.selectedFileIndexes ?? []));
+    if (task.selectedFileIndexes && task.selectedFileIndexes.length > 0) {
+      setSelectedFileIndexes(new Set(task.selectedFileIndexes));
+    }
   }, [task.id, task.selectedFileIndexes]);
 
   useEffect(() => {
@@ -198,7 +200,7 @@ export default function TaskDetailPanel({
     return () => {
       disposed = true;
     };
-  }, [task.id, task.sourceType, task.selectedFileIndexes]);
+  }, [task.id, task.sourceType]);
 
   async function saveFileSelection(nextSelectedFileIndexes: Set<number>) {
     if (nextSelectedFileIndexes.size === 0) {
