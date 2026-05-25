@@ -340,7 +340,9 @@ impl<'connection> DownloadTaskService<'connection> {
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
     let path = downloaded_entry_path(task);
     if task.status != DownloadStatus::Completed {
-        remove_downloaded_entry(&downloaded_partial_entry_path(&path))?;
+        for partial_path in downloaded_partial_entry_paths(task, &path) {
+            remove_downloaded_entry(&partial_path)?;
+        }
     }
     remove_downloaded_entry(&path)
 }
@@ -358,7 +360,10 @@ fn remove_downloaded_entry(path: &Path) -> Result<(), Box<dyn Error>> {
         {
             Ok(())
         }
-        Err(error) if error.kind() == io::ErrorKind::IsADirectory => {
+        Err(error)
+            if error.kind() == io::ErrorKind::IsADirectory
+                || (error.kind() == io::ErrorKind::PermissionDenied && path.is_dir()) =>
+        {
             match fs::remove_dir_all(&path) {
                 Ok(()) => Ok(()),
                 Err(error)
@@ -425,6 +430,17 @@ fn downloaded_partial_entry_path(path: &Path) -> PathBuf {
     let mut partial_path = path.as_os_str().to_os_string();
     partial_path.push(".part");
     PathBuf::from(partial_path)
+}
+
+fn downloaded_partial_entry_paths(task: &DownloadTask, path: &Path) -> Vec<PathBuf> {
+    let mut partial_paths = Vec::with_capacity(2);
+    partial_paths.push(downloaded_partial_entry_path(path));
+    if task.engine == EngineKind::Aria2 {
+        let mut control_path = path.as_os_str().to_os_string();
+        control_path.push(".aria2");
+        partial_paths.push(PathBuf::from(control_path));
+    }
+    partial_paths
 }
 
 fn open_path(path: &Path) -> Result<(), Box<dyn Error>> {
@@ -1325,6 +1341,84 @@ mod tests {
             .expect("unfinished yt-dlp task should delete partial file");
 
         assert!(!partial_file.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn deleting_unfinished_aria2_task_removes_partial_and_control_files() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let (url, server) = start_fake_aria2_status("active", 2);
+        save_aria2_settings_with_url(&connection, url);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let download_file = download_dir.join("movie.mkv");
+        let control_file = download_dir.join("movie.mkv.aria2");
+        fs::write(&download_file, b"partial").expect("download file should write");
+        fs::write(&control_file, b"control").expect("control file should write");
+
+        insert_aria2_task(
+            &connection,
+            "running-aria2-remove-files-task",
+            DownloadStatus::Running,
+            download_dir.to_string_lossy().as_ref(),
+            "movie.mkv",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["running-aria2-remove-files-task".to_string()], true)
+            .expect("unfinished aria2 task should delete partial and control files");
+
+        server.join().expect("fake aria2 should finish");
+        assert!(!download_file.exists());
+        assert!(!control_file.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn deleting_unfinished_aria2_task_removes_download_folder_when_requested() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let (url, server) = start_fake_aria2_status("active", 2);
+        save_aria2_settings_with_url(&connection, url);
+
+        let download_dir = temp_download_dir();
+        let download_folder = download_dir.join("album");
+        fs::create_dir_all(&download_folder).expect("download folder should create");
+        fs::write(download_folder.join("track.bin"), b"partial")
+            .expect("download folder file should write");
+
+        insert_aria2_task(
+            &connection,
+            "running-aria2-remove-folder-task",
+            DownloadStatus::Running,
+            download_dir.to_string_lossy().as_ref(),
+            "album",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["running-aria2-remove-folder-task".to_string()], true)
+            .expect("unfinished aria2 task should delete download folder when requested");
+
+        server.join().expect("fake aria2 should finish");
+        assert!(!download_folder.exists());
         assert!(service
             .list_created_desc()
             .expect("task list should load")
