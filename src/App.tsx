@@ -22,6 +22,7 @@ import NewTaskDialog from "@/components/NewTaskDialog";
 import TaskDetailPanel from "@/components/TaskDetailPanel";
 import logoUrl from "../logo.png";
 import {
+  createDownloadTask,
   deleteDownloadTasks,
   openDownloadedFile,
   pauseAllUnfinishedDownloadTasks,
@@ -75,6 +76,12 @@ type TaskColumn = {
   width: number;
   minWidth: number;
   resizable: boolean;
+};
+
+type TaskContextMenuState = {
+  taskId: string;
+  x: number;
+  y: number;
 };
 
 const taskTableColumns: TaskColumn[] = [
@@ -243,6 +250,7 @@ function App() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -278,6 +286,10 @@ function App() {
   const detailTask = useMemo(
     () => tasks.find((task) => task.id === detailTaskId) ?? null,
     [detailTaskId, tasks],
+  );
+  const contextMenuTask = useMemo(
+    () => tasks.find((task) => task.id === taskContextMenu?.taskId) ?? null,
+    [taskContextMenu, tasks],
   );
   const allVisibleSelected = tasks.length > 0 && selectedIds.size === tasks.length;
   const selectedScopeTasks = selectedTasks.length > 0 ? selectedTasks : tasks;
@@ -420,6 +432,40 @@ function App() {
   }, [detailTask, detailTaskId]);
 
   useEffect(() => {
+    if (taskContextMenu && !contextMenuTask) {
+      setTaskContextMenu(null);
+    }
+  }, [contextMenuTask, taskContextMenu]);
+
+  useEffect(() => {
+    if (!taskContextMenu) {
+      return;
+    }
+
+    function handleCloseContextMenu() {
+      setTaskContextMenu(null);
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setTaskContextMenu(null);
+      }
+    }
+
+    window.addEventListener("pointerdown", handleCloseContextMenu);
+    window.addEventListener("resize", handleCloseContextMenu);
+    window.addEventListener("blur", handleCloseContextMenu);
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("pointerdown", handleCloseContextMenu);
+      window.removeEventListener("resize", handleCloseContextMenu);
+      window.removeEventListener("blur", handleCloseContextMenu);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [taskContextMenu]);
+
+  useEffect(() => {
     if (!hasTauriRuntime()) {
       return;
     }
@@ -543,6 +589,137 @@ function App() {
     });
   }
 
+  function closeTaskContextMenu() {
+    setTaskContextMenu(null);
+  }
+
+  function openTaskContextMenu(task: DownloadTask, x: number, y: number) {
+    setSelectedIds((current) => {
+      if (current.has(task.id)) {
+        return current;
+      }
+      return new Set([task.id]);
+    });
+    setDetailTaskId(task.id);
+    setTaskContextMenu({ taskId: task.id, x, y });
+  }
+
+  async function copyTaskText(value: string, label: string) {
+    setError(null);
+    try {
+      await navigator.clipboard.writeText(value);
+      closeTaskContextMenu();
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? `复制${label}失败：${nextError.message}`
+          : `复制${label}失败：${String(nextError)}`
+      );
+    }
+  }
+
+  async function pauseTasksByIds(ids: string[]) {
+    if (ids.length === 0) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await pauseDownloadTasks(ids);
+      closeTaskContextMenu();
+      await refreshTasks();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      await refreshTasks();
+    }
+  }
+
+  async function resumeTasksByIds(tasksToResume: DownloadTask[]) {
+    const ids = tasksToResume
+      .filter((task) => task.status === "paused" || task.status === "failed")
+      .map((task) => task.id);
+    if (ids.length === 0) {
+      return;
+    }
+
+    const restartTasks = tasksToResume.filter(
+      (task) => task.status === "failed" && !isResumableTask(task),
+    );
+
+    setError(null);
+    try {
+      if (restartTasks.length > 0) {
+        await message(`${restartTasks.length} 个失败任务不支持续传，将从头开始下载。`, {
+          title: "需要重新下载",
+          kind: "warning",
+        });
+      }
+      await resumeDownloadTasks(ids);
+      closeTaskContextMenu();
+      await refreshTasks();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      await refreshTasks();
+    }
+  }
+
+  async function deleteTasksByIds(tasksToDelete: DownloadTask[]) {
+    const ids = tasksToDelete.map((task) => task.id);
+    if (ids.length === 0) {
+      return;
+    }
+
+    const hasLocalDownloadTasks = tasksToDelete.some((task) => isLocalDownloadEngine(task.engine));
+    const deleteCompletedFiles = hasLocalDownloadTasks ? await confirmDeleteCompletedFiles() : false;
+
+    if (deleteCompletedFiles === null) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await deleteDownloadTasks(ids, deleteCompletedFiles);
+      setSelectedIds((current) => new Set([...current].filter((id) => !ids.includes(id))));
+      closeTaskContextMenu();
+      await refreshTasks();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  async function redownloadTask(task: DownloadTask) {
+    const deleteDownloadedFiles = isLocalDownloadEngine(task.engine)
+      ? await confirmDeleteCompletedFiles()
+      : false;
+
+    if (deleteDownloadedFiles === null) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await deleteDownloadTasks([task.id], deleteDownloadedFiles);
+      const recreatedTask = await createDownloadTask({
+        sourceType: task.sourceType,
+        source: task.source,
+        engine: task.engine,
+        engineSettingsId: task.engineSettingsId,
+        fileName: task.fileName,
+        savePath: task.savePath,
+        engineArgs: task.engineArgs,
+        selectedFileIndexes: task.selectedFileIndexes ?? null,
+        browserCookies: task.browserCookies ?? null,
+      });
+      setSelectedIds(new Set([recreatedTask.id]));
+      setDetailTaskId(recreatedTask.id);
+      closeTaskContextMenu();
+      await refreshTasks();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      await refreshTasks();
+    }
+  }
+
   async function togglePaused() {
     if (toggleDisabled) {
       return;
@@ -583,26 +760,11 @@ function App() {
   }
 
   async function deleteSelectedTasks() {
-    const ids = [...selectedIds];
-    if (ids.length === 0) {
+    if (selectedTasks.length === 0) {
       return;
     }
 
-    const hasLocalDownloadTasks = selectedTasks.some((task) => isLocalDownloadEngine(task.engine));
-    const deleteCompletedFiles = hasLocalDownloadTasks ? await confirmDeleteCompletedFiles() : false;
-
-    if (deleteCompletedFiles === null) {
-      return;
-    }
-
-    setError(null);
-    try {
-      await deleteDownloadTasks(ids, deleteCompletedFiles);
-      setSelectedIds(new Set());
-      await refreshTasks();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    }
+    await deleteTasksByIds(selectedTasks);
   }
 
   function openTaskDetails(task: DownloadTask) {
@@ -632,6 +794,24 @@ function App() {
     setView("tasks");
     setTasks((current) => [task, ...current]);
   }
+
+  const contextMenuActionTasks = useMemo(() => {
+    if (!contextMenuTask) {
+      return [];
+    }
+
+    if (selectedIds.has(contextMenuTask.id) && selectedTasks.length > 0) {
+      return selectedTasks;
+    }
+
+    return [contextMenuTask];
+  }, [contextMenuTask, selectedIds, selectedTasks]);
+  const canPauseContextMenuTasks = contextMenuActionTasks.some(
+    (task) => !isFinished(task.status) && task.status !== "paused",
+  );
+  const canResumeContextMenuTasks = contextMenuActionTasks.some(
+    (task) => task.status === "paused" || task.status === "failed",
+  );
 
   return (
     <div className="flex h-screen min-h-[620px] flex-col bg-surface text-ink">
@@ -788,6 +968,11 @@ function App() {
                     key={task.id}
                     onClick={() => openTaskDetails(task)}
                     onDoubleClick={() => handleTaskDoubleClick(task)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openTaskContextMenu(task, event.clientX, event.clientY);
+                    }}
                     className={classNames(
                       "cursor-pointer bg-white hover:bg-slate-50",
                       detailTaskId === task.id && "bg-sky-50 hover:bg-sky-50",
@@ -875,6 +1060,84 @@ function App() {
           <TaskDetailPanel task={detailTask} onClose={() => setDetailTaskId(null)} />
         )}
       </main>
+
+      {taskContextMenu && contextMenuTask && (
+        <div className="fixed inset-0 z-30" onContextMenu={(event) => event.preventDefault()}>
+          <div
+            className="fixed z-50 min-w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
+            style={{ left: taskContextMenu.x, top: taskContextMenu.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              disabled={!canPauseContextMenuTasks}
+              onClick={() =>
+                void pauseTasksByIds(
+                  contextMenuActionTasks
+                    .filter((task) => !isFinished(task.status) && task.status !== "paused")
+                    .map((task) => task.id),
+                )
+              }
+              className={classNames(
+                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                canPauseContextMenuTasks
+                  ? "text-slate-700 hover:bg-slate-50"
+                  : "cursor-not-allowed text-slate-400",
+              )}
+            >
+              <Pause size={15} />
+              暂停下载
+            </button>
+            <button
+              type="button"
+              disabled={!canResumeContextMenuTasks}
+              onClick={() => void resumeTasksByIds(contextMenuActionTasks)}
+              className={classNames(
+                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                canResumeContextMenuTasks
+                  ? "text-slate-700 hover:bg-slate-50"
+                  : "cursor-not-allowed text-slate-400",
+              )}
+            >
+              <Play size={15} />
+              恢复下载
+            </button>
+            <button
+              type="button"
+              onClick={() => void redownloadTask(contextMenuTask)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <RefreshCw size={15} />
+              重新下载
+            </button>
+            <button
+              type="button"
+              onClick={() => void deleteTasksByIds(contextMenuActionTasks)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-700 hover:bg-rose-50"
+            >
+              <Trash2 size={15} />
+              删除任务
+            </button>
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              type="button"
+              onClick={() => void copyTaskText(contextMenuTask.source, "下载链接")}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <Copy size={15} />
+              复制下载链接
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyTaskText(contextMenuTask.savePath, "保存路径")}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <Copy size={15} />
+              复制保存路径
+            </button>
+          </div>
+        </div>
+      )}
 
       {showDeleteDialog && (
         <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 px-4">
