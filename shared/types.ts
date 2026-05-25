@@ -79,6 +79,7 @@ export interface AppSettings {
   webAccessEnabled: boolean;
   webAccessPassword: string;
   webAccessUrl: string;
+  privateDownloadDomains: string[];
 }
 
 export type AppSettingsInput = AppSettings;

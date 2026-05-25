@@ -31,6 +31,7 @@ let previewAppSettings: AppSettings = {
   webAccessEnabled: false,
   webAccessPassword: "",
   webAccessUrl: "http://127.0.0.1:18080",
+  privateDownloadDomains: [],
 };
 
 function hasTauriRuntime() {

@@ -223,6 +223,7 @@ pub struct AppSettings {
     pub web_access_enabled: bool,
     pub web_access_password: String,
     pub web_access_url: String,
+    pub private_download_domains: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -231,6 +232,7 @@ pub struct AppSettingsInput {
     pub web_access_enabled: bool,
     pub web_access_password: String,
     pub web_access_url: String,
+    pub private_download_domains: Vec<String>,
 }
 
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {

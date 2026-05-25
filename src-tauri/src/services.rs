@@ -220,6 +220,14 @@ impl<'connection> DownloadTaskService<'connection> {
             state.engine_task_id.as_deref(),
             state.error_message.as_deref(),
         )?;
+        if state.status == DownloadStatus::Completed {
+            let task = self.repository.get_by_id(task_id)?;
+            let app_settings = AppSettingsRepository::new(self.connection).get()?;
+            if matches_private_download_domain(&task.source, &app_settings.private_download_domains)
+            {
+                self.repository.delete_tasks(&[task.id])?;
+            }
+        }
         Ok(())
     }
 
@@ -427,8 +435,44 @@ impl<'connection> AppSettingsService<'connection> {
         }
         crate::web_server::bind_address_from_url(&input.web_access_url)
             .map_err(|error| -> Box<dyn Error> { error.to_string().into() })?;
+        for domain in &input.private_download_domains {
+            if normalize_domain(domain).is_empty() {
+                return Err("private download domain cannot be empty".into());
+            }
+        }
         Ok(())
     }
+}
+
+fn source_hostname(source: &str) -> Option<String> {
+    let (_, rest) = source.split_once("://")?;
+    let host = rest.split(['/', '?', '#']).next()?.split('@').next_back()?;
+    let host = host.split(':').next()?.trim().trim_matches(['[', ']']);
+    if host.is_empty() {
+        return None;
+    }
+
+    Some(host.to_lowercase())
+}
+
+fn normalize_domain(domain: &str) -> String {
+    domain
+        .trim()
+        .to_lowercase()
+        .trim_start_matches("*.")
+        .trim_start_matches('.')
+        .to_string()
+}
+
+fn matches_private_download_domain(source: &str, domains: &[String]) -> bool {
+    let Some(hostname) = source_hostname(source) else {
+        return false;
+    };
+
+    domains.iter().any(|domain| {
+        let domain = normalize_domain(domain);
+        !domain.is_empty() && (hostname == domain || hostname.ends_with(&format!(".{domain}")))
+    })
 }
 
 impl<'connection> EngineSettingsService<'connection> {
@@ -698,6 +742,51 @@ mod tests {
         drop(connection);
         let _ = fs::remove_file(database_path);
         let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn completed_private_domain_task_is_removed_from_list() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        AppSettingsService::new(&connection)
+            .save(AppSettingsInput {
+                web_access_enabled: false,
+                web_access_password: String::new(),
+                web_access_url: "http://127.0.0.1:18080".to_string(),
+                private_download_domains: vec!["example.test".to_string()],
+            })
+            .expect("app settings should save");
+        insert_aria2_task(
+            &connection,
+            "private-domain-task",
+            DownloadStatus::Running,
+            "C:\\Downloads",
+            "file.bin",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .apply_engine_state(
+                "private-domain-task",
+                engine_adapters::EngineTaskState {
+                    status: DownloadStatus::Completed,
+                    progress: 100.0,
+                    speed_bytes_per_sec: 0,
+                    downloaded_bytes: 1,
+                    total_bytes: 1,
+                    engine_task_id: None,
+                    error_message: None,
+                },
+            )
+            .expect("completed private-domain task should update");
+
+        assert!(service
+            .list_created_desc()
+            .expect("tasks should list")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
     }
 
     #[test]

@@ -268,7 +268,9 @@ fn migrate_engine_settings_supported_source_types(
     )
 }
 
-fn migrate_engine_settings_preferred_domains(connection: &Connection) -> Result<(), rusqlite::Error> {
+fn migrate_engine_settings_preferred_domains(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
     if has_column(connection, "engine_settings", "preferred_domains")? {
         return Ok(());
     }
@@ -363,7 +365,8 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
         INSERT OR IGNORE INTO app_settings (key, value) VALUES
             ('web_access_enabled', '0'),
             ('web_access_password', ''),
-            ('web_access_url', 'http://127.0.0.1:18080');
+            ('web_access_url', 'http://127.0.0.1:18080'),
+            ('private_download_domains', '');
         "#,
     )
 }

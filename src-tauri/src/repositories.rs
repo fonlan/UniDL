@@ -29,6 +29,7 @@ impl<'connection> AppSettingsRepository<'connection> {
             web_access_enabled: self.get_value("web_access_enabled")? == "1",
             web_access_password: self.get_value("web_access_password")?,
             web_access_url: self.get_value("web_access_url")?,
+            private_download_domains: decode_domains(&self.get_value("private_download_domains")?),
         })
     }
 
@@ -39,6 +40,10 @@ impl<'connection> AppSettingsRepository<'connection> {
         )?;
         self.save_value("web_access_password", &input.web_access_password)?;
         self.save_value("web_access_url", &input.web_access_url)?;
+        self.save_value(
+            "private_download_domains",
+            &encode_domains(&input.private_download_domains),
+        )?;
         self.get()
     }
 

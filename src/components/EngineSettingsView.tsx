@@ -11,6 +11,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Shield,
   Trash2,
 } from "lucide-react";
 
@@ -36,7 +37,7 @@ import type {
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
-type SettingsGroup = "web-access" | "download-engines";
+type SettingsGroup = "web-access" | "privacy" | "download-engines";
 
 const engineLabels: Record<EngineKind, string> = {
   aria2: "aria2",
@@ -165,6 +166,7 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     webAccessEnabled: settings.webAccessEnabled,
     webAccessPassword: settings.webAccessPassword,
     webAccessUrl: settings.webAccessUrl,
+    privateDownloadDomains: normalizePreferredDomains(settings.privateDownloadDomains),
   };
 }
 
@@ -661,6 +663,22 @@ export default function EngineSettingsView() {
                   <span className="min-w-0 flex-1 truncate">下载引擎</span>
                   <span className="text-xs text-slate-500">{engineSettingsCount}</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveGroup("privacy")}
+                  className={classNames(
+                    "flex min-w-44 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition lg:min-w-0",
+                    activeGroup === "privacy"
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "text-slate-700 hover:bg-slate-50",
+                  )}
+                >
+                  <Shield size={16} />
+                  <span className="min-w-0 flex-1 truncate">隐私</span>
+                  <span className="text-xs text-slate-500">
+                    {draftAppSettings?.privateDownloadDomains.length ?? 0}
+                  </span>
+                </button>
               </nav>
             </aside>
 
@@ -747,6 +765,54 @@ export default function EngineSettingsView() {
                       value={draftAppSettings.webAccessPassword}
                       onChange={(value) => updateAppDraft({ webAccessPassword: value })}
                     />
+                  </div>
+                </article>
+              )}
+
+              {activeGroup === "privacy" && draftAppSettings && (
+                <article className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-slate-950">
+                        隐私
+                      </h2>
+                      <div className="mt-1 text-xs text-slate-500">
+                        匹配域名的下载成功后不会保留在下载任务列表
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {savedApp && <InstalledBadge label="已保存" />}
+                      <SmallIconButton
+                        title="撤销"
+                        disabled={!appDirty || isSavingApp}
+                        onClick={resetAppAccess}
+                      >
+                        <RotateCcw size={15} />
+                      </SmallIconButton>
+                      <SmallIconButton
+                        title="保存"
+                        disabled={!appDirty || isSavingApp}
+                        onClick={() => void saveAppAccess()}
+                      >
+                        <Save size={15} />
+                      </SmallIconButton>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 px-4 py-4">
+                    <TextAreaField
+                      label="不保留下载记录域名（每行一个）"
+                      value={preferredDomainsText(draftAppSettings.privateDownloadDomains)}
+                      onChange={(value) =>
+                        updateAppDraft({
+                          privateDownloadDomains: parsePreferredDomains(value),
+                        })
+                      }
+                    />
+                    <p className="text-xs text-slate-500">
+                      支持 example.com、*.example.com；子域名会自动匹配。
+                    </p>
                   </div>
                 </article>
               )}
