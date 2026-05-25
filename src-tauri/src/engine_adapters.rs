@@ -129,17 +129,26 @@ pub fn resume_task(
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     match settings.engine {
         EngineKind::Aria2 => {
-            let gid = required_engine_task_id(task)?;
-            aria2_rpc(settings, "aria2.unpause", json!([gid]))?;
-            Ok(EngineTaskState {
-                status: DownloadStatus::Running,
-                progress: task.progress,
-                speed_bytes_per_sec: 0,
-                downloaded_bytes: task.downloaded_bytes,
-                total_bytes: task.total_bytes,
-                engine_task_id: task.engine_task_id.clone(),
-                error_message: None,
-            })
+            if task.status == DownloadStatus::Paused {
+                let gid = required_engine_task_id(task)?;
+                match aria2_rpc(settings, "aria2.unpause", json!([gid])) {
+                    Ok(_) => Ok(EngineTaskState {
+                        status: DownloadStatus::Running,
+                        progress: task.progress,
+                        speed_bytes_per_sec: 0,
+                        downloaded_bytes: task.downloaded_bytes,
+                        total_bytes: task.total_bytes,
+                        engine_task_id: task.engine_task_id.clone(),
+                        error_message: None,
+                    }),
+                    Err(error) if aria2_resumable_after_restart(error.as_ref()) => {
+                        add_aria2_task(settings, task)
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                add_aria2_task(settings, task)
+            }
         }
         EngineKind::YtDlp => add_ytdlp_task(settings, task, database_path, true),
         EngineKind::QBittorrent => {
@@ -273,7 +282,7 @@ fn refresh_aria2_task(
     task: &DownloadTask,
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     let gid = required_engine_task_id(task)?;
-    let result = aria2_rpc(
+    let result = match aria2_rpc(
         settings,
         "aria2.tellStatus",
         json!([
@@ -287,7 +296,21 @@ fn refresh_aria2_task(
                 "errorMessage"
             ]
         ]),
-    )?;
+    ) {
+        Ok(result) => result,
+        Err(error) if aria2_resumable_after_restart(error.as_ref()) => {
+            return Ok(EngineTaskState {
+                status: DownloadStatus::Paused,
+                progress: task.progress,
+                speed_bytes_per_sec: 0,
+                downloaded_bytes: task.downloaded_bytes,
+                total_bytes: task.total_bytes,
+                engine_task_id: task.engine_task_id.clone(),
+                error_message: None,
+            });
+        }
+        Err(error) => return Err(error),
+    };
 
     let status = result
         .get("status")
@@ -486,6 +509,14 @@ fn aria2_unavailable(error: &(dyn Error + 'static)) -> bool {
     error
         .downcast_ref::<reqwest::Error>()
         .is_some_and(|error| error.is_connect() || error.is_timeout())
+}
+
+fn aria2_resumable_after_restart(error: &(dyn Error + 'static)) -> bool {
+    aria2_unavailable(error) || aria2_task_missing(error)
+}
+
+fn aria2_task_missing(error: &(dyn Error + 'static)) -> bool {
+    error.to_string().contains("is not found")
 }
 
 fn add_qbittorrent_task(
@@ -1254,6 +1285,40 @@ mod tests {
     }
 
     #[test]
+    fn refresh_aria2_task_pauses_when_rpc_is_unavailable() {
+        let state = refresh_aria2_task(&unreachable_aria2_settings(), &aria2_task())
+            .expect("unavailable aria2 should keep resumable state");
+
+        assert_eq!(state.status, DownloadStatus::Paused);
+        assert_eq!(state.progress, 12.0);
+        assert_eq!(state.speed_bytes_per_sec, 0);
+        assert_eq!(state.downloaded_bytes, 120);
+        assert_eq!(state.total_bytes, 1_000);
+        assert_eq!(state.engine_task_id.as_deref(), Some("gid"));
+        assert_eq!(state.error_message, None);
+    }
+
+    #[test]
+    fn resume_paused_aria2_task_readds_when_gid_is_missing() {
+        let (url, methods, server) = start_fake_aria2_missing_then_add();
+        let mut settings = aria2_settings("--continue=true");
+        settings.connection_url = Some(url);
+        let mut task = aria2_task();
+        task.status = DownloadStatus::Paused;
+
+        let state = resume_task(&settings, &task, PathBuf::new())
+            .expect("missing aria2 gid should be re-added");
+
+        server.join().expect("fake aria2 should finish");
+        assert_eq!(state.status, DownloadStatus::Running);
+        assert_eq!(state.engine_task_id.as_deref(), Some("newgid"));
+        assert_eq!(
+            methods.lock().expect("methods should lock").as_slice(),
+            ["aria2.unpause", "aria2.addUri"]
+        );
+    }
+
+    #[test]
     fn delete_aria2_task_succeeds_when_rpc_is_unavailable() {
         delete_task(&unreachable_aria2_settings(), &aria2_task(), true)
             .expect("unavailable aria2 should not block local delete");
@@ -1409,6 +1474,54 @@ mod tests {
                     json!({"jsonrpc": "2.0", "id": "unidl", "result": {"status": status}})
                 } else {
                     json!({"jsonrpc": "2.0", "id": "unidl", "result": "OK"})
+                };
+                let body = response.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("response should write");
+            }
+        });
+
+        (format!("http://{address}/jsonrpc"), methods, server)
+    }
+
+    fn start_fake_aria2_missing_then_add(
+    ) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake aria2 should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake aria2 should have address");
+        let methods = Arc::new(Mutex::new(Vec::new()));
+        let server_methods = Arc::clone(&methods);
+        let server = thread::spawn(move || {
+            for stream in listener.incoming().take(2) {
+                let mut stream = stream.expect("fake aria2 stream should open");
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).expect("request should read");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .expect("request should include body");
+                let request: Value = serde_json::from_str(body).expect("request should be json");
+                let method = request
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .expect("request should include method")
+                    .to_string();
+                server_methods
+                    .lock()
+                    .expect("methods should lock")
+                    .push(method.clone());
+                let response = if method == "aria2.unpause" {
+                    json!({"jsonrpc": "2.0", "id": "unidl", "error": {"code": 1, "message": "GID#gid is not found"}})
+                } else {
+                    json!({"jsonrpc": "2.0", "id": "unidl", "result": "newgid"})
                 };
                 let body = response.to_string();
                 let response = format!(

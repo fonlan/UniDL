@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import { message } from "@tauri-apps/plugin-dialog";
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import TaskDetailPanel from "@/components/TaskDetailPanel";
@@ -91,6 +92,10 @@ const taskTableColumns: TaskColumn[] = [
 
 function isFinished(status: DownloadStatus) {
   return status === "completed" || status === "failed" || status === "deleted";
+}
+
+function isResumableTask(task: DownloadTask) {
+  return task.engine === "aria2" || task.engine === "yt-dlp";
 }
 
 function isLocalDownloadEngine(engine: EngineKind) {
@@ -252,10 +257,12 @@ function App() {
   const allVisibleSelected = tasks.length > 0 && selectedIds.size === tasks.length;
   const selectedScopeTasks = selectedTasks.length > 0 ? selectedTasks : tasks;
   const activeScopeTasks = selectedScopeTasks.filter((task) => !isFinished(task.status));
+  const failedScopeTasks = selectedScopeTasks.filter((task) => task.status === "failed");
   const pausedScopeTasks = activeScopeTasks.filter((task) => task.status === "paused");
   const shouldResume =
-    activeScopeTasks.length > 0 && pausedScopeTasks.length === activeScopeTasks.length;
-  const toggleDisabled = activeScopeTasks.length === 0;
+    failedScopeTasks.length > 0 ||
+    (activeScopeTasks.length > 0 && pausedScopeTasks.length === activeScopeTasks.length);
+  const toggleDisabled = activeScopeTasks.length === 0 && failedScopeTasks.length === 0;
   const deleteDisabled = selectedIds.size === 0;
   const totalTaskTableWidth = taskTableColumns.reduce(
     (sum, column) => sum + taskColumnWidths[column.key],
@@ -519,9 +526,22 @@ function App() {
     setError(null);
     try {
       const ids = [...selectedIds];
+      const resumeTasks = ids.length > 0 ? selectedTasks : pausedScopeTasks;
+      const resumeIds = resumeTasks
+        .filter((task) => task.status === "paused" || task.status === "failed")
+        .map((task) => task.id);
+      const restartTasks = resumeTasks.filter(
+        (task) => task.status === "failed" && !isResumableTask(task),
+      );
+      if (shouldResume && restartTasks.length > 0) {
+        await message(
+          `${restartTasks.length} 个失败任务不支持续传，将从头开始下载。`,
+          { title: "需要重新下载", kind: "warning" },
+        );
+      }
       if (ids.length > 0) {
         if (shouldResume) {
-          await resumeDownloadTasks(ids);
+          await resumeDownloadTasks(resumeIds);
         } else {
           await pauseDownloadTasks(ids);
         }
