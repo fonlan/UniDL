@@ -561,6 +561,7 @@ function App() {
       await refreshTasks();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
+      await refreshTasks();
     }
   }
 
@@ -570,8 +571,8 @@ function App() {
       return;
     }
 
-    const hasCompletedTasks = selectedTasks.some((task) => task.status === "completed");
-    const deleteCompletedFiles = hasCompletedTasks ? await confirmDeleteCompletedFiles() : false;
+    const hasLocalDownloadTasks = selectedTasks.some((task) => isLocalDownloadEngine(task.engine));
+    const deleteCompletedFiles = hasLocalDownloadTasks ? await confirmDeleteCompletedFiles() : false;
 
     if (deleteCompletedFiles === null) {
       return;
@@ -796,7 +797,7 @@ function App() {
                       </button>
                     </td>
                     <td className="border-b border-slate-100 px-3 py-3">
-                      <div className="truncate font-medium text-slate-900">
+                      <div className="truncate font-medium text-slate-900" title={task.fileName}>
                         {task.fileName}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
@@ -865,7 +866,7 @@ function App() {
               <h2 className="text-base font-semibold text-slate-900">删除任务</h2>
             </div>
             <div className="space-y-3 px-4 py-4 text-sm text-slate-700">
-              <p>所选任务包含已完成项，是否同时删除已下载文件/文件夹？</p>
+              <p>所选任务包含本地下载文件，是否同时删除已下载文件/文件夹？</p>
             </div>
             <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3">
               <button

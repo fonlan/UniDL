@@ -195,10 +195,8 @@ impl<'connection> DownloadTaskService<'connection> {
         delete_completed_files: bool,
     ) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
-            let delete_downloaded = task.status != DownloadStatus::Completed
-                || (delete_completed_files
-                    && (task.engine != EngineKind::QBittorrent
-                        || downloaded_entry_path(&task).exists()));
+            let delete_downloaded = delete_completed_files
+                && (task.engine != EngineKind::QBittorrent || downloaded_entry_path(&task).exists());
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             let delete_result =
@@ -210,7 +208,10 @@ impl<'connection> DownloadTaskService<'connection> {
             match delete_result {
                 Ok(()) => {
                     if delete_downloaded && task.engine != EngineKind::QBittorrent {
-                        delete_downloaded_entry(&task)?;
+                        if let Err(error) = delete_downloaded_entry(&task) {
+                            self.repository.delete_tasks(&[task.id])?;
+                            return Err(error);
+                        }
                     }
                     self.repository.delete_tasks(&[task.id])?;
                 }
@@ -219,7 +220,10 @@ impl<'connection> DownloadTaskService<'connection> {
                         && task.engine != EngineKind::QBittorrent
                     {
                         if delete_downloaded {
-                            delete_downloaded_entry(&task)?;
+                            if let Err(remove_error) = delete_downloaded_entry(&task) {
+                                self.repository.delete_tasks(&[task.id])?;
+                                return Err(remove_error);
+                            }
                         }
                         self.repository.delete_tasks(&[task.id])?;
                         continue;
@@ -1083,6 +1087,45 @@ mod tests {
     }
 
     #[test]
+    fn deleting_completed_aria2_task_removes_record_when_local_file_delete_fails() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let (url, server) = start_fake_aria2_status("complete", 2);
+        save_aria2_settings_with_url(&connection, url);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let blocked_parent = download_dir.join("blocked-parent");
+        fs::write(&blocked_parent, b"not a directory").expect("blocked parent should write");
+
+        insert_aria2_task(
+            &connection,
+            "completed-aria2-local-delete-failed-task",
+            DownloadStatus::Completed,
+            blocked_parent.to_string_lossy().as_ref(),
+            "file.bin",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(
+                &["completed-aria2-local-delete-failed-task".to_string()],
+                true,
+            )
+            .expect_err("local file delete failure should still be reported");
+
+        server.join().expect("fake aria2 should finish");
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
     fn deleting_completed_task_ignores_invalid_download_path() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
@@ -1278,10 +1321,47 @@ mod tests {
 
         let service = DownloadTaskService::new(&connection, database_path.clone());
         service
-            .delete_tasks(&["paused-ytdlp-part-file".to_string()], false)
+            .delete_tasks(&["paused-ytdlp-part-file".to_string()], true)
             .expect("unfinished yt-dlp task should delete partial file");
 
         assert!(!partial_file.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
+    fn deleting_unfinished_aria2_task_keeps_local_file_when_requested() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let (url, server) = start_fake_aria2_status("active", 2);
+        save_aria2_settings_with_url(&connection, url);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let partial_file = download_dir.join("movie.mkv");
+        fs::write(&partial_file, b"partial").expect("partial file should write");
+
+        insert_aria2_task(
+            &connection,
+            "running-aria2-keep-file-task",
+            DownloadStatus::Running,
+            download_dir.to_string_lossy().as_ref(),
+            "movie.mkv",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["running-aria2-keep-file-task".to_string()], false)
+            .expect("unfinished aria2 task should keep local file when requested");
+
+        server.join().expect("fake aria2 should finish");
+        assert!(partial_file.exists());
         assert!(service
             .list_created_desc()
             .expect("task list should load")
@@ -1532,6 +1612,50 @@ mod tests {
                     b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                 )
                 .expect("response should write");
+        });
+
+        (format!("http://{address}/jsonrpc"), server)
+    }
+
+    fn start_fake_aria2_status(
+        status: &'static str,
+        expected_requests: usize,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake aria2 should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake aria2 should have address");
+        let server = thread::spawn(move || {
+            for stream in listener.incoming().take(expected_requests) {
+                let mut stream = stream.expect("fake aria2 stream should open");
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).expect("request should read");
+                let request = String::from_utf8_lossy(&buffer[..read]);
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .expect("request should include body");
+                let request: serde_json::Value =
+                    serde_json::from_str(body).expect("request should be json");
+                let method = request
+                    .get("method")
+                    .and_then(serde_json::Value::as_str)
+                    .expect("request should include method");
+                let response = if method == "aria2.tellStatus" {
+                    serde_json::json!({"jsonrpc": "2.0", "id": "unidl", "result": {"status": status}})
+                } else {
+                    serde_json::json!({"jsonrpc": "2.0", "id": "unidl", "result": "OK"})
+                };
+                let body = response.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("response should write");
+            }
         });
 
         (format!("http://{address}/jsonrpc"), server)
