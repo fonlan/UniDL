@@ -4,6 +4,7 @@ use std::{
     io::{Cursor, Read},
     net::SocketAddr,
     path::PathBuf,
+    process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -13,19 +14,18 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::Manager;
 use tiny_http::{Header, Method, Request, Response, ResponseBox, Server, StatusCode};
 use uuid::Uuid;
 
 use crate::{
     db,
-    models::{AppSettings, CreateDownloadTaskInput, EngineKind, SourceType},
+    models::{AppSettings, CreateDownloadTaskInput, EngineKind, EngineSettings, SourceType},
     repositories::EngineSettingsRepository,
     services::DownloadTaskService,
-    system_open,
-    task_events,
+    system_open, task_events,
 };
-
 
 pub struct WebServerHandle {
     stop: Arc<AtomicBool>,
@@ -99,6 +99,12 @@ struct ExtensionVideoEntry {
 #[serde(rename_all = "camelCase")]
 struct ExtensionVideosOutput {
     videos: Vec<ExtensionVideoEntry>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionVideosSupportOutput {
+    can_detect_videos: bool,
 }
 
 #[derive(Deserialize)]
@@ -210,6 +216,8 @@ fn handle_request(mut request: Request, context: &WebServerContext) {
         json_response(StatusCode(200), &serde_json::json!({ "ok": true }))
     } else if method == Method::Post && path == "/api/extension/videos" {
         handle_extension_videos(&mut request, context)
+    } else if method == Method::Post && path == "/api/extension/videos/support" {
+        handle_extension_videos_support(&mut request, context)
     } else if method == Method::Post && path == "/api/extension/ytdlp/tasks" {
         handle_extension_ytdlp_task(&mut request, context)
     } else if method == Method::Post && path == "/api/extension/tasks" {
@@ -272,6 +280,27 @@ fn handle_login(
     json_response(StatusCode(200), &LoginOutput { token })
 }
 
+fn handle_extension_videos_support(
+    request: &mut Request,
+    context: &WebServerContext,
+) -> Result<ResponseBox, Box<dyn Error>> {
+    let input: ExtensionVideosInput = read_json(request)?;
+    let source = input.source.trim();
+    let can_detect_videos = if let Some(source_type) = extension_source_type(source) {
+        find_enabled_ytdlp_settings(context, source_type)?
+            .as_ref()
+            .and_then(ytdlp_executable_path)
+            .is_some()
+    } else {
+        false
+    };
+
+    json_response(
+        StatusCode(200),
+        &ExtensionVideosSupportOutput { can_detect_videos },
+    )
+}
+
 fn handle_extension_videos(
     request: &mut Request,
     context: &WebServerContext,
@@ -279,29 +308,29 @@ fn handle_extension_videos(
     let input: ExtensionVideosInput = read_json(request)?;
     let source = input.source.trim();
     let Some(source_type) = extension_source_type(source) else {
-        return json_response(StatusCode(200), &ExtensionVideosOutput { videos: Vec::new() });
+        return json_response(
+            StatusCode(200),
+            &ExtensionVideosOutput { videos: Vec::new() },
+        );
     };
 
-    if find_enabled_ytdlp_settings(context, source_type)?.is_none() {
-        return json_response(StatusCode(200), &ExtensionVideosOutput { videos: Vec::new() });
-    }
+    let Some(settings) = find_enabled_ytdlp_settings(context, source_type)? else {
+        return json_response(
+            StatusCode(200),
+            &ExtensionVideosOutput { videos: Vec::new() },
+        );
+    };
 
-    json_response(
-        StatusCode(200),
-        &ExtensionVideosOutput {
-            videos: vec![ExtensionVideoEntry {
-                id: "current-page".to_string(),
-                title: input
-                    .title
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| extension_video_title(source)),
-                source: source.to_string(),
-            }],
-        },
-    )
+    let Some(executable_path) = ytdlp_executable_path(&settings) else {
+        return json_response(
+            StatusCode(200),
+            &ExtensionVideosOutput { videos: Vec::new() },
+        );
+    };
+
+    let videos = extract_extension_videos(executable_path, source, input.title.as_deref())?;
+
+    json_response(StatusCode(200), &ExtensionVideosOutput { videos })
 }
 
 fn handle_extension_ytdlp_task(
@@ -311,7 +340,8 @@ fn handle_extension_ytdlp_task(
     let input: ExtensionYtDlpTaskInput = read_json(request)?;
     let source = input.source.trim().to_string();
     let file_name = input.file_name.trim().to_string();
-    let source_type = extension_source_type(&source).ok_or("yt-dlp source must be http or https")?;
+    let source_type =
+        extension_source_type(&source).ok_or("yt-dlp source must be http or https")?;
     find_enabled_ytdlp_settings(context, source_type)?
         .ok_or("no enabled yt-dlp settings supports this page")?;
 
@@ -323,18 +353,21 @@ fn handle_extension_ytdlp_task(
             browser_cookies: input.cookies.filter(|value| !value.trim().is_empty()),
         },
     )?;
-    json_response(
-        StatusCode(200),
-        &ExtensionTaskOutput {
-            file_name,
-        },
-    )
+    json_response(StatusCode(200), &ExtensionTaskOutput { file_name })
+}
+
+fn ytdlp_executable_path(settings: &EngineSettings) -> Option<&str> {
+    settings
+        .executable_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn find_enabled_ytdlp_settings(
     context: &WebServerContext,
     source_type: SourceType,
-) -> Result<Option<crate::models::EngineSettings>, Box<dyn Error>> {
+) -> Result<Option<EngineSettings>, Box<dyn Error>> {
     let connection = db::connect_path(context.database_path.clone())?;
     Ok(EngineSettingsRepository::new(&connection)
         .list_all()?
@@ -344,6 +377,83 @@ fn find_enabled_ytdlp_settings(
                 && settings.enabled
                 && settings.supported_source_types.contains(&source_type)
         }))
+}
+
+fn extract_extension_videos(
+    executable_path: &str,
+    source: &str,
+    page_title: Option<&str>,
+) -> Result<Vec<ExtensionVideoEntry>, Box<dyn Error>> {
+    let output = Command::new(executable_path)
+        .args([
+            "--dump-single-json",
+            "--flat-playlist",
+            "--skip-download",
+            "--no-warnings",
+            source,
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let value: Value = serde_json::from_slice(&output.stdout)?;
+    let videos = if let Some(entries) = value.get("entries").and_then(Value::as_array) {
+        entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                if entry.is_null() {
+                    None
+                } else {
+                    Some(build_extension_video_entry(
+                        entry, source, index, page_title,
+                    ))
+                }
+            })
+            .collect()
+    } else {
+        vec![build_extension_video_entry(&value, source, 0, page_title)]
+    };
+
+    Ok(videos)
+}
+
+fn build_extension_video_entry(
+    value: &Value,
+    source: &str,
+    index: usize,
+    page_title: Option<&str>,
+) -> ExtensionVideoEntry {
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            page_title
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| extension_video_title(source));
+    let source = value
+        .get("webpage_url")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("url").and_then(Value::as_str))
+        .unwrap_or(source)
+        .to_string();
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("current-page-{}", index + 1));
+
+    ExtensionVideoEntry { id, title, source }
 }
 
 fn extension_source_type(source: &str) -> Option<SourceType> {
@@ -358,7 +468,9 @@ fn extension_video_title(source: &str) -> String {
     source
         .trim_start_matches("https://")
         .trim_start_matches("http://")
-        .split(|value| value == char::from(47) || value == char::from(63) || value == char::from(35))
+        .split(|value| {
+            value == char::from(47) || value == char::from(63) || value == char::from(35)
+        })
         .next()
         .filter(|value| !value.is_empty())
         .unwrap_or("current page")
@@ -491,7 +603,11 @@ impl TaskEventStream {
             Err(error) => serde_json::json!({ "error": error.to_string() }),
         };
         let data = serde_json::to_string(&payload).map_err(std::io::Error::other)?;
-        Ok(format!("event: {}\ndata: {data}\n\n", task_events::DOWNLOAD_TASKS_UPDATED_EVENT).into_bytes())
+        Ok(format!(
+            "event: {}\ndata: {data}\n\n",
+            task_events::DOWNLOAD_TASKS_UPDATED_EVENT
+        )
+        .into_bytes())
     }
 
     fn load_tasks(&self) -> Result<Vec<crate::models::DownloadTask>, Box<dyn Error>> {
@@ -612,6 +728,9 @@ mod tests {
         path::PathBuf,
         sync::{Arc, Mutex},
     };
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     use reqwest::{blocking::Client, StatusCode};
     use serde_json::Value;
@@ -741,6 +860,48 @@ mod tests {
         let _ = fs::remove_file(database_path);
     }
 
+    #[test]
+    fn extension_videos_only_count_when_ytdlp_extracts_entries() {
+        let script_path = create_fake_ytdlp_script(
+            r#"{"title":"Playlist","entries":[{"id":"1","title":"Video 1","url":"https://example.com/watch?v=1"},{"id":"2","title":"Video 2","url":"https://example.com/watch?v=2"}]}"#,
+        );
+
+        let videos = extract_extension_videos(
+            script_path.to_str().expect("script path should be utf-8"),
+            "https://example.com/watch",
+            Some("Example page"),
+        )
+        .expect("video extraction should succeed");
+
+        assert_eq!(videos.len(), 2);
+        assert_eq!(videos[0].title, "Video 1");
+        assert_eq!(videos[0].source, "https://example.com/watch?v=1");
+        assert_eq!(videos[1].title, "Video 2");
+        assert_eq!(videos[1].source, "https://example.com/watch?v=2");
+
+        let _ = fs::remove_file(script_path);
+    }
+
+    fn create_fake_ytdlp_script(json_output: &str) -> PathBuf {
+        let script_path = if cfg!(windows) {
+            std::env::temp_dir().join(format!("unidl-test-ytdlp-{}.cmd", Uuid::new_v4()))
+        } else {
+            std::env::temp_dir().join(format!("unidl-test-ytdlp-{}.sh", Uuid::new_v4()))
+        };
+
+        let script = if cfg!(windows) {
+            format!("@echo off\r\necho {}\r\n", json_output)
+        } else {
+            format!("#!/bin/sh\nprintf '%s\\n' '{}'\n", json_output)
+        };
+
+        fs::write(&script_path, script).expect("script should write");
+        #[cfg(unix)]
+        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755))
+            .expect("script should be executable");
+
+        script_path
+    }
     fn free_bind_address() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("test port should bind");
         let address = listener

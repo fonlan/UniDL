@@ -2,20 +2,27 @@ const fields = {
   apiBaseUrl: document.querySelector("#api-base-url"),
   interceptEnabled: document.querySelector("#intercept-enabled"),
   cancelOriginal: document.querySelector("#cancel-original"),
+  detectVideos: document.querySelector("#detect-videos"),
   lastEvent: document.querySelector("#last-event"),
   status: document.querySelector("#status"),
   videos: document.querySelector("#videos"),
 };
 
 let videos = [];
+let canDetectVideos = false;
+let videoDetectionDone = false;
 
 document.querySelector("#connect").addEventListener("click", () => {
   void connect();
 });
 
+fields.detectVideos.addEventListener("click", () => {
+  void run("\u68c0\u6d4b\u5b8c\u6210", () => sendMessage("detect-videos", { settings: collectSettings() }));
+});
+
 for (const field of [fields.interceptEnabled, fields.cancelOriginal]) {
   field.addEventListener("change", () => {
-    void run("设置已保存", () => sendMessage("save-settings", { settings: collectSettings() }));
+    void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () => sendMessage("save-settings", { settings: collectSettings() }));
   });
 }
 
@@ -26,7 +33,7 @@ fields.videos.addEventListener("click", (event) => {
   }
   const video = videos.find((item) => item.id === button.dataset.videoId);
   if (video) {
-    void run("已发送到 UniDL", () => sendMessage("download-video", { video }));
+    void run("\u5df2\u53d1\u9001\u5230 UniDL", () => sendMessage("download-video", { video }));
   }
 });
 
@@ -41,7 +48,7 @@ async function load() {
 }
 
 async function connect() {
-  await run("已连接 UniDL", () => sendMessage("connect", { settings: collectSettings() }));
+  await run("\u5df2\u8fde\u63a5 UniDL", () => sendMessage("connect", { settings: collectSettings() }));
 }
 
 async function run(successMessage, action) {
@@ -71,16 +78,32 @@ function applyState(state) {
   fields.apiBaseUrl.value = state.apiBaseUrl ?? "";
   fields.interceptEnabled.checked = Boolean(state.interceptEnabled);
   fields.cancelOriginal.checked = state.cancelOriginal !== false;
-  fields.lastEvent.textContent = state.lastEvent || "未连接";
+  fields.lastEvent.textContent = state.lastEvent || "\u672a\u8fde\u63a5";
   videos = Array.isArray(state.videos) ? state.videos : [];
+  canDetectVideos = Boolean(state.canDetectVideos);
+  videoDetectionDone = Boolean(state.videoDetectionDone);
   renderVideos();
 }
 
 function renderVideos() {
   fields.videos.textContent = "";
+  fields.detectVideos.hidden = !canDetectVideos;
+  fields.detectVideos.disabled = !canDetectVideos;
+  if (!canDetectVideos) {
+    const empty = document.createElement("p");
+    empty.textContent = "\u5f53\u524d\u9875\u9762\u4e0d\u53ef\u68c0\u6d4b\uff0c\u6216\u672a\u914d\u7f6e\u53ef\u7528 yt-dlp \u5f15\u64ce";
+    fields.videos.append(empty);
+    return;
+  }
+  if (!videoDetectionDone) {
+    const empty = document.createElement("p");
+    empty.textContent = "\u70b9\u51fb\u201c\u68c0\u6d4b\u5f53\u524d\u9875\u9762\u201d\u67e5\u627e\u53ef\u4e0b\u8f7d\u89c6\u9891";
+    fields.videos.append(empty);
+    return;
+  }
   if (videos.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "当前页面未识别到 yt-dlp 视频";
+    empty.textContent = "\u672a\u8bc6\u522b\u5230\u53ef\u4e0b\u8f7d\u89c6\u9891";
     fields.videos.append(empty);
     return;
   }

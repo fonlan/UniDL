@@ -112,6 +112,10 @@ button:hover {
   accent-color: #047857;
 }
 
+.video-actions {
+  display: grid;
+}
+
 .videos {
   display: grid;
   gap: 8px;

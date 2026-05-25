@@ -9,16 +9,15 @@ const DEFAULT_SETTINGS = {
 
 chrome.runtime.onInstalled.addListener(() => {
   createContextMenus();
-  runTask(refreshActiveTabVideos());
+  runTask(clearActiveTabBadge());
 });
 chrome.runtime.onStartup.addListener(() => {
   createContextMenus();
-  runTask(refreshActiveTabVideos());
+  runTask(clearActiveTabBadge());
 });
-chrome.tabs.onActivated.addListener(({ tabId }) => runTask(refreshTabVideos(tabId)));
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url || changeInfo.status === "complete") {
-    runTask(refreshTabVideos(tabId, tab.url));
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) {
+    runTask(setBadge(tabId, 0));
   }
 });
 
@@ -61,6 +60,11 @@ async function handleMessage(message) {
       await remember("Connected to UniDL");
       return getPopupState(settings);
     }
+    case "detect-videos": {
+      const settings = await mergeSettings(message.settings ?? {});
+      await saveSettings(settings);
+      return detectActiveTabVideos(settings);
+    }
     case "download-video":
       return downloadVideo(message.video);
     default:
@@ -70,39 +74,53 @@ async function handleMessage(message) {
 
 async function getPopupState(cachedSettings) {
   const settings = cachedSettings ?? (await getSettings());
-  const tab = await getActiveTab();
-  const videos = tab?.id ? await refreshTabVideos(tab.id, tab.url, settings) : [];
-  return { ...settings, videos };
+  const canDetectVideos = await canDetectActiveTabVideos(settings);
+  return { ...settings, videos: [], canDetectVideos, videoDetectionDone: false };
 }
 
-async function refreshActiveTabVideos(cachedSettings) {
+async function clearActiveTabBadge() {
   const tab = await getActiveTab();
-  if (!tab?.id) {
-    return [];
+  if (tab?.id) {
+    await setBadge(tab.id, 0);
   }
-  return refreshTabVideos(tab.id, tab.url, cachedSettings);
 }
 
-async function refreshTabVideos(tabId, tabUrl, cachedSettings) {
-  const settings = cachedSettings ?? (await getSettings());
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  const source = normalizeHttpUrl(tabUrl ?? tab?.url ?? (await getTabUrl(tabId)));
+async function canDetectActiveTabVideos(settings) {
+  const { source } = await getActiveVideoTab();
   if (!source) {
-    await setBadge(tabId, 0);
-    return [];
+    return false;
   }
   try {
-    const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos", {
+    const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos/support", {
       method: "POST",
-      body: { source, title: tab?.title ?? "" },
+      body: { source },
     });
-    const videos = Array.isArray(result.videos) ? result.videos : [];
-    await setBadge(tabId, videos.length);
-    return videos;
+    return Boolean(result.canDetectVideos);
   } catch {
-    await setBadge(tabId, 0);
-    return [];
+    return false;
   }
+}
+
+async function detectActiveTabVideos(settings) {
+  const { tab, source } = await getActiveVideoTab();
+  if (!tab?.id || !source) {
+    return { ...settings, videos: [], canDetectVideos: false, videoDetectionDone: true };
+  }
+  const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos", {
+    method: "POST",
+    body: { source, title: tab.title ?? "" },
+  });
+  const videos = Array.isArray(result.videos) ? result.videos : [];
+  return { ...settings, videos, canDetectVideos: true, videoDetectionDone: true };
+}
+
+async function getActiveVideoTab() {
+  const tab = await getActiveTab();
+  if (!tab?.id) {
+    return { tab: null, source: null };
+  }
+  const source = normalizeHttpUrl(tab.url ?? (await getTabUrl(tab.id)));
+  return { tab, source };
 }
 
 async function downloadVideo(video) {
