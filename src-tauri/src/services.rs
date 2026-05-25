@@ -170,6 +170,15 @@ impl<'connection> DownloadTaskService<'connection> {
                     self.repository.delete_tasks(&[task.id])?;
                 }
                 Err(error) => {
+                    if task.status == DownloadStatus::Completed
+                        && task.engine != EngineKind::QBittorrent
+                    {
+                        if delete_downloaded {
+                            delete_downloaded_entry(&task)?;
+                        }
+                        self.repository.delete_tasks(&[task.id])?;
+                        continue;
+                    }
                     self.repository.mark_failed(&task.id, &error.to_string())?;
                     return Err(error);
                 }
@@ -861,6 +870,43 @@ mod tests {
     }
 
     #[test]
+    fn deleting_completed_aria2_task_deletes_local_file_after_rpc_bad_request() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let (url, server) = start_fake_aria2_bad_request();
+        save_aria2_settings_with_url(&connection, url);
+
+        let download_dir = temp_download_dir();
+        fs::create_dir_all(&download_dir).expect("download dir should create");
+        let download_file = download_dir.join("file.bin");
+        fs::write(&download_file, b"complete").expect("download file should write");
+
+        insert_aria2_task(
+            &connection,
+            "completed-aria2-bad-request-task",
+            DownloadStatus::Completed,
+            download_dir.to_string_lossy().as_ref(),
+            "file.bin",
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        service
+            .delete_tasks(&["completed-aria2-bad-request-task".to_string()], true)
+            .expect("completed task should delete locally after aria2 rejects history cleanup");
+
+        server.join().expect("fake aria2 should finish");
+        assert!(!download_file.exists());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(download_dir);
+    }
+
+    #[test]
     fn deleting_completed_task_ignores_invalid_download_path() {
         let database_path = temp_database_path();
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
@@ -1267,6 +1313,10 @@ mod tests {
     }
 
     fn save_unreachable_aria2_settings(connection: &Connection) {
+        save_aria2_settings_with_url(connection, "http://127.0.0.1:1/jsonrpc".to_string());
+    }
+
+    fn save_aria2_settings_with_url(connection: &Connection, connection_url: String) {
         EngineSettingsService::new(connection)
             .save(EngineSettingsInput {
                 id: "aria2".to_string(),
@@ -1276,7 +1326,7 @@ mod tests {
                 executable_path: None,
                 default_download_dir: String::new(),
                 default_args: String::new(),
-                connection_url: Some("http://127.0.0.1:1/jsonrpc".to_string()),
+                connection_url: Some(connection_url),
                 username: None,
                 password: None,
                 remote_path: None,
@@ -1290,6 +1340,25 @@ mod tests {
                 priority: 0,
             })
             .expect("aria2 settings should save");
+    }
+
+    fn start_fake_aria2_bad_request() -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake aria2 should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake aria2 should have address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("fake aria2 request should arrive");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer).expect("request should read");
+            stream
+                .write_all(
+                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("response should write");
+        });
+
+        (format!("http://{address}/jsonrpc"), server)
     }
 
     fn save_ytdlp_settings(connection: &Connection) {
