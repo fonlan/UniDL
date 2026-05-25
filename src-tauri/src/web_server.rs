@@ -20,8 +20,11 @@ use tiny_http::{Header, Method, Request, Response, ResponseBox, Server, StatusCo
 use uuid::Uuid;
 
 use crate::{
-    db,
-    models::{AppSettings, CreateDownloadTaskInput, EngineKind, EngineSettings, SourceType},
+    db, engine_install,
+    models::{
+        AppSettings, AppSettingsInput, CreateDownloadTaskInput, EngineKind, EngineSettings,
+        SourceType,
+    },
     repositories::EngineSettingsRepository,
     services::DownloadTaskService,
     system_open, task_events,
@@ -78,6 +81,62 @@ struct LoginOutput {
 #[serde(rename_all = "camelCase")]
 struct TaskIdsInput {
     ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteTasksInput {
+    ids: Vec<String>,
+    delete_completed_files: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TorrentFilesInput {
+    source: String,
+    source_type: SourceType,
+    engine_settings_id: Option<String>,
+    save_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskFileSelectionInput {
+    selected_file_indexes: Vec<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrackerSubscriptionInput {
+    subscription_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteDirectoriesInput {
+    engine_settings_id: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MagnetNameInput {
+    source: String,
+    engine_settings_id: String,
+    save_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidateEngineSourceTypeInput {
+    engine: EngineKind,
+    source_type: SourceType,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedEngineExecutablePathInput {
+    engine: EngineKind,
 }
 
 #[derive(Deserialize)]
@@ -229,6 +288,8 @@ fn handle_request(mut request: Request, context: &WebServerContext) {
                 error: "web access is disabled".to_string(),
             },
         )
+    } else if method == Method::Get && !path.starts_with("/api/") {
+        serve_frontend_asset(context, &path)
     } else if method == Method::Post && path == "/api/login" {
         handle_login(&mut request, context)
     } else if !is_authorized(&request, context) {
@@ -560,11 +621,220 @@ fn handle_authorized_request(
             })
         }
         (&Method::Post, "/api/tasks/delete") => {
-            let input: TaskIdsInput = read_json(request)?;
+            let input: DeleteTasksInput = read_json(request)?;
             with_task_service(context, |service| {
-                service.delete_tasks(&input.ids, false)?;
+                service.delete_tasks(&input.ids, input.delete_completed_files)?;
                 empty_json_response()
             })
+        }
+        (&Method::Post, "/api/tasks/pause-all") => with_task_service(context, |service| {
+            service.pause_all_unfinished()?;
+            empty_json_response()
+        }),
+        (&Method::Post, "/api/tasks/resume-all") => with_task_service(context, |service| {
+            service.resume_all_paused()?;
+            empty_json_response()
+        }),
+        (&Method::Post, "/api/torrent-files") => {
+            let input: TorrentFilesInput = read_json(request)?;
+            let files = match input.source_type {
+                SourceType::Torrent => crate::torrent_metadata::read_torrent_files(&input.source)?,
+                SourceType::Magnet => {
+                    let engine_settings_id = input
+                        .engine_settings_id
+                        .ok_or("engine settings id is required")?;
+                    let save_path = input.save_path.ok_or("save path is required")?;
+                    let connection = db::connect_path(context.database_path.clone())?;
+                    let settings = crate::services::EngineSettingsService::new(&connection)
+                        .get(&engine_settings_id)?;
+                    if !settings.enabled {
+                        return Err(format!("{} is disabled", settings.id).into());
+                    }
+                    crate::engine_adapters::resolve_magnet_files(
+                        &settings,
+                        &input.source,
+                        &save_path,
+                    )?
+                    .unwrap_or_default()
+                }
+                _ => {
+                    return Err(format!(
+                        "{} does not have torrent files",
+                        input.source_type.as_db()
+                    )
+                    .into())
+                }
+            };
+            json_response(StatusCode(200), &files)
+        }
+        (&Method::Get, path)
+            if path.starts_with("/api/tasks/") && path.ends_with("/torrent-files") =>
+        {
+            let id = path
+                .trim_start_matches("/api/tasks/")
+                .trim_end_matches("/torrent-files")
+                .trim_end_matches('/');
+            with_task_service(context, |service| {
+                json_response(StatusCode(200), &service.torrent_files(id)?)
+            })
+        }
+        (&Method::Post, path)
+            if path.starts_with("/api/tasks/") && path.ends_with("/file-selection") =>
+        {
+            let id = path
+                .trim_start_matches("/api/tasks/")
+                .trim_end_matches("/file-selection")
+                .trim_end_matches('/');
+            let input: TaskFileSelectionInput = read_json(request)?;
+            with_task_service(context, |service| {
+                json_response(
+                    StatusCode(200),
+                    &service.update_file_selection(id, input.selected_file_indexes)?,
+                )
+            })
+        }
+        (&Method::Post, path) if path.starts_with("/api/tasks/") && path.ends_with("/open") => {
+            let id = path
+                .trim_start_matches("/api/tasks/")
+                .trim_end_matches("/open")
+                .trim_end_matches('/');
+            with_task_service(context, |service| {
+                service.open_downloaded_file(id)?;
+                empty_json_response()
+            })
+        }
+        (&Method::Get, "/api/app-settings") => {
+            let connection = db::connect_path(context.database_path.clone())?;
+            json_response(
+                StatusCode(200),
+                &crate::services::AppSettingsService::new(&connection).get()?,
+            )
+        }
+        (&Method::Post, "/api/app-settings") => {
+            let input: AppSettingsInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            let next = crate::services::AppSettingsService::new(&connection).save(input)?;
+            drop(connection);
+            if let Some(app_handle) = &context.app_handle {
+                app_handle
+                    .state::<crate::AppState>()
+                    .apply_web_settings(app_handle.clone(), &next)
+                    .map_err(|error| -> Box<dyn Error> { error.into() })?;
+            }
+            json_response(StatusCode(200), &next)
+        }
+        (&Method::Get, "/api/engine-settings") => {
+            let connection = db::connect_path(context.database_path.clone())?;
+            json_response(
+                StatusCode(200),
+                &crate::services::EngineSettingsService::new(&connection).list_all()?,
+            )
+        }
+        (&Method::Post, "/api/engine-settings") => {
+            let input: crate::models::EngineSettingsInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            json_response(
+                StatusCode(200),
+                &crate::services::EngineSettingsService::new(&connection).save(input)?,
+            )
+        }
+        (&Method::Post, path)
+            if path.starts_with("/api/engine-settings/") && path.ends_with("/install-latest") =>
+        {
+            let settings_id = path
+                .trim_start_matches("/api/engine-settings/")
+                .trim_end_matches("/install-latest")
+                .trim_end_matches('/');
+            let connection = db::connect_path(context.database_path.clone())?;
+            json_response(
+                StatusCode(200),
+                &crate::services::EngineSettingsService::new(&connection)
+                    .install_latest(settings_id)?,
+            )
+        }
+        (&Method::Delete, path) if path.starts_with("/api/engine-settings/") => {
+            let settings_id = path.trim_start_matches("/api/engine-settings/");
+            let connection = db::connect_path(context.database_path.clone())?;
+            crate::services::EngineSettingsService::new(&connection).delete(settings_id)?;
+            empty_json_response()
+        }
+        (&Method::Post, path)
+            if path.starts_with("/api/engine-settings/") && path.ends_with("/trackers") =>
+        {
+            let settings_id = path
+                .trim_start_matches("/api/engine-settings/")
+                .trim_end_matches("/trackers")
+                .trim_end_matches('/');
+            let input: TrackerSubscriptionInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            json_response(
+                StatusCode(200),
+                &crate::services::EngineSettingsService::new(&connection)
+                    .update_tracker_subscription(settings_id, &input.subscription_url)?,
+            )
+        }
+        (&Method::Post, "/api/remote-directories") => {
+            let input: RemoteDirectoriesInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            let settings = crate::services::EngineSettingsService::new(&connection)
+                .get(&input.engine_settings_id)?;
+            if !settings.enabled {
+                return Err(format!("{} is disabled", settings.id).into());
+            }
+            json_response(
+                StatusCode(200),
+                &crate::engine_adapters::list_remote_directories(&settings, &input.path)?,
+            )
+        }
+        (&Method::Post, "/api/magnet-name") => {
+            let input: MagnetNameInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            let settings = crate::services::EngineSettingsService::new(&connection)
+                .get(&input.engine_settings_id)?;
+            if !settings.enabled {
+                return Err(format!("{} is disabled", settings.id).into());
+            }
+            let metadata = crate::engine_adapters::resolve_magnet_metadata(
+                &settings,
+                &input.source,
+                &input.save_path,
+            )?;
+            json_response(StatusCode(200), &metadata.name.unwrap_or_default())
+        }
+        (&Method::Post, "/api/test-engine-connection") => {
+            let input: crate::models::EngineSettingsInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            crate::services::EngineSettingsService::new(&connection).test_connection(input)?;
+            empty_json_response()
+        }
+        (&Method::Post, "/api/validate-engine-source-type") => {
+            let input: ValidateEngineSourceTypeInput = read_json(request)?;
+            let connection = db::connect_path(context.database_path.clone())?;
+            crate::services::EngineSettingsService::new(&connection)
+                .validate_source_type(input.engine, input.source_type)?;
+            empty_json_response()
+        }
+        (&Method::Get, "/api/system-download-dir") => {
+            let app_handle = context
+                .app_handle
+                .as_ref()
+                .ok_or("system download directory requires app handle")?;
+            json_response(
+                StatusCode(200),
+                &app_handle
+                    .path()
+                    .download_dir()?
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        }
+        (&Method::Post, "/api/managed-engine-executable-path") => {
+            let input: ManagedEngineExecutablePathInput = read_json(request)?;
+            json_response(
+                StatusCode(200),
+                &engine_install::managed_executable_path(input.engine)
+                    .map(|path| path.to_string_lossy().into_owned()),
+            )
         }
         _ => json_response(
             StatusCode(404),
@@ -667,6 +937,30 @@ fn is_authorized(request: &Request, context: &WebServerContext) -> bool {
         .unwrap_or(false)
 }
 
+fn serve_frontend_asset(
+    context: &WebServerContext,
+    path: &str,
+) -> Result<ResponseBox, Box<dyn Error>> {
+    let app_handle = context
+        .app_handle
+        .as_ref()
+        .ok_or("web frontend requires app handle")?;
+    let asset_path = if path == "/" || path.is_empty() {
+        "index.html".to_string()
+    } else {
+        path.trim_start_matches('/').to_string()
+    };
+    let asset = app_handle
+        .asset_resolver()
+        .get(asset_path.clone())
+        .ok_or_else(|| format!("frontend asset not found: {asset_path}"))?;
+    Ok(with_cors(
+        Response::from_data(asset.bytes)
+            .with_status_code(StatusCode(200))
+            .with_header(header("content-type", &asset.mime_type)),
+    )
+    .boxed())
+}
 fn event_stream_response(context: &WebServerContext) -> ResponseBox {
     let stream = TaskEventStream::new(context.database_path.clone(), Arc::clone(&context.stop));
     with_cors(
@@ -709,7 +1003,10 @@ fn json_response<T: Serialize>(
 fn with_cors<R: Read>(response: Response<R>) -> Response<R> {
     response
         .with_header(header("access-control-allow-origin", "*"))
-        .with_header(header("access-control-allow-methods", "GET, POST, OPTIONS"))
+        .with_header(header(
+            "access-control-allow-methods",
+            "GET, POST, DELETE, OPTIONS",
+        ))
         .with_header(header(
             "access-control-allow-headers",
             "authorization, content-type, x-unidl-token",

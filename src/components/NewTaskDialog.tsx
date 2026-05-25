@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { ChevronRight, FilePlus, FolderOpen, X } from "lucide-react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openDialog } from "@/lib/tauri";
 
 import {
   createDownloadTask,

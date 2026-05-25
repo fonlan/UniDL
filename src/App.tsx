@@ -14,9 +14,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
-import { message } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow, listen, message } from "@/lib/tauri";
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import TaskDetailPanel from "@/components/TaskDetailPanel";
@@ -34,6 +32,7 @@ import {
   writeLog,
 } from "@/lib/api";
 import type { OpenTaskRequest, SystemOpenRequestPayload } from "@/lib/api";
+import { getWebToken, hasTauriRuntime, isWebRuntime, webLogin } from "@/lib/runtime";
 import type { DownloadStatus, DownloadTask, EngineKind, SourceType } from "@shared/types";
 
 const statusLabels: Record<DownloadStatus, string> = {
@@ -173,10 +172,6 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
-function hasTauriRuntime() {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 const ERROR_AUTO_DISMISS_MS = 10_000;
 
 function IconButton({
@@ -253,6 +248,9 @@ function App() {
   const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [webPassword, setWebPassword] = useState("");
+  const [isWebAuthenticating, setIsWebAuthenticating] = useState(false);
+  const [isWebAuthorized, setIsWebAuthorized] = useState(() => !isWebRuntime() || !!getWebToken());
 
   useEffect(() => {
     if (!error) {
@@ -373,6 +371,9 @@ function App() {
       const nextTasks = await refreshDownloadTasks();
       replaceTasks(nextTasks);
     } catch (nextError) {
+      if (isWebRuntime() && !getWebToken()) {
+        setIsWebAuthorized(false);
+      }
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       hasLoadedTasksRef.current = true;
@@ -388,8 +389,12 @@ function App() {
 
   useEffect(() => {
     void writeLog("info", "task view mounted");
+    if (isWebRuntime() && !isWebAuthorized) {
+      setIsLoading(false);
+      return;
+    }
     void refreshTasks();
-  }, [refreshTasks]);
+  }, [isWebAuthorized, refreshTasks]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) {
@@ -495,6 +500,20 @@ function App() {
       unlisten?.();
     };
   }, [refreshTasks]);
+
+  useEffect(() => {
+    if (!isWebRuntime() || !isWebAuthorized) {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      void refreshTasks();
+    }, 2_000);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [isWebAuthorized, refreshTasks]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) {
@@ -785,6 +804,10 @@ function App() {
   }
 
   async function toggleWindowMaximized() {
+    if (!hasTauriRuntime()) {
+      return;
+    }
+
     const currentWindow = getCurrentWindow();
     await currentWindow.toggleMaximize();
     setIsWindowMaximized(await currentWindow.isMaximized());
@@ -809,6 +832,64 @@ function App() {
   const canPauseContextMenuTasks = contextMenuActionTasks.some(
     (task) => !isFinished(task.status) && task.status !== "paused",
   );
+  async function submitWebLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsWebAuthenticating(true);
+    setError(null);
+    try {
+      await webLogin(webPassword);
+      setIsWebAuthorized(true);
+      setWebPassword("");
+      await refreshTasks();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setIsWebAuthenticating(false);
+    }
+  }
+
+  if (isWebRuntime() && !isWebAuthorized) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+        <form
+          onSubmit={(event) => void submitWebLogin(event)}
+          className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+        >
+          <div className="mb-6 flex items-center gap-3">
+            <img src={logoUrl} alt="UniDL" className="h-10 w-10 rounded-xl" />
+            <div>
+              <div className="text-lg font-semibold text-slate-900">UniDL Web</div>
+              <div className="text-sm text-slate-500">输入访问密码后进入完整界面</div>
+            </div>
+          </div>
+
+          <label className="mb-2 block text-sm font-medium text-slate-700">访问密码</label>
+          <input
+            type="password"
+            value={webPassword}
+            onChange={(event) => setWebPassword(event.target.value)}
+            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none ring-0 transition focus:border-emerald-500"
+            autoFocus
+          />
+
+          {error && (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isWebAuthenticating || webPassword.trim().length === 0}
+            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-lg bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {isWebAuthenticating ? "登录中..." : "进入 UniDL"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   const canResumeContextMenuTasks = contextMenuActionTasks.some(
     (task) => task.status === "paused" || task.status === "failed",
   );
@@ -870,35 +951,37 @@ function App() {
           </IconButton>
         </div>
         <div data-tauri-drag-region className="h-full min-w-0 flex-1" />
-        <div className="flex h-full items-center">
-          <button
-            type="button"
-            title="最小化"
-            aria-label="最小化"
-            onClick={() => void getCurrentWindow().minimize()}
-            className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-slate-100"
-          >
-            <Minus size={16} />
-          </button>
-          <button
-            type="button"
-            title={isWindowMaximized ? "还原" : "最大化"}
-            aria-label={isWindowMaximized ? "还原" : "最大化"}
-            onClick={() => void toggleWindowMaximized()}
-            className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-slate-100"
-          >
-            {isWindowMaximized ? <Copy size={15} className="-scale-x-100" /> : <Square size={14} />}
-          </button>
-          <button
-            type="button"
-            title="关闭"
-            aria-label="关闭"
-            onClick={() => void getCurrentWindow().close()}
-            className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-rose-600 hover:text-white"
-          >
-            <X size={17} />
-          </button>
-        </div>
+        {hasTauriRuntime() && (
+          <div className="flex h-full items-center">
+            <button
+              type="button"
+              title="最小化"
+              aria-label="最小化"
+              onClick={() => void getCurrentWindow().minimize()}
+              className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-slate-100"
+            >
+              <Minus size={16} />
+            </button>
+            <button
+              type="button"
+              title={isWindowMaximized ? "还原" : "最大化"}
+              aria-label={isWindowMaximized ? "还原" : "最大化"}
+              onClick={() => void toggleWindowMaximized()}
+              className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-slate-100"
+            >
+              {isWindowMaximized ? <Copy size={15} className="-scale-x-100" /> : <Square size={14} />}
+            </button>
+            <button
+              type="button"
+              title="关闭"
+              aria-label="关闭"
+              onClick={() => void getCurrentWindow().close()}
+              className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-rose-600 hover:text-white"
+            >
+              <X size={17} />
+            </button>
+          </div>
+        )}
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col">

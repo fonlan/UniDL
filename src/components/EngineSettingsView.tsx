@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DragEvent as ReactDragEvent, ReactNode } from "react";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm } from "@/lib/tauri";
 import {
   Check,
   ChevronDown,
