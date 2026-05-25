@@ -62,6 +62,20 @@ pub fn add_task(
     }
 }
 
+pub fn test_connection(settings: &EngineSettings) -> Result<(), Box<dyn Error>> {
+    match settings.engine {
+        EngineKind::Aria2 => {
+            aria2_rpc(settings, "aria2.getVersion", json!([]))?;
+            Ok(())
+        }
+        EngineKind::QBittorrent => {
+            qbittorrent_client(settings)?;
+            Ok(())
+        }
+        EngineKind::YtDlp => Err("yt-dlp does not use a remote connection".into()),
+    }
+}
+
 pub fn pause_task(
     settings: &EngineSettings,
     task: &DownloadTask,
@@ -649,6 +663,10 @@ fn qbittorrent_client(settings: &EngineSettings) -> Result<Client, Box<dyn Error
         .send()?;
     if !response.status().is_success() {
         return Err(format!("qBittorrent login failed: {}", response.status()).into());
+    }
+    let body = response.text()?;
+    if body.trim() != "Ok." {
+        return Err("qBittorrent login failed: invalid username or password".into());
     }
     Ok(client)
 }

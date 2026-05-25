@@ -9,6 +9,7 @@ import {
   GripVertical,
   HardDrive,
   Plus,
+  PlugZap,
   RotateCcw,
   Save,
   Shield,
@@ -24,6 +25,7 @@ import {
   listEngineSettings,
   saveAppSettings,
   saveEngineSettings,
+  testEngineConnection,
   writeLog,
 } from "@/lib/api";
 import type {
@@ -319,9 +321,11 @@ export default function EngineSettingsView() {
   const [savingEngineId, setSavingEngineId] = useState<string | null>(null);
   const [deletingEngineId, setDeletingEngineId] = useState<string | null>(null);
   const [installingEngineId, setInstallingEngineId] = useState<string | null>(null);
+  const [testingEngineId, setTestingEngineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedApp, setSavedApp] = useState(false);
   const [savedEngineId, setSavedEngineId] = useState<string | null>(null);
+  const [testedEngineId, setTestedEngineId] = useState<string | null>(null);
   const [draggedEngineId, setDraggedEngineId] = useState<string | null>(null);
 
   const ready = Boolean(savedAppSettings && draftAppSettings);
@@ -408,6 +412,7 @@ export default function EngineSettingsView() {
   }
 
   function updateDraft(settingsId: string, patch: Partial<EngineSettings>) {
+    setTestedEngineId(null);
     setDraftSettings((current) =>
       current.map((item) => (item.id === settingsId ? { ...item, ...patch } : item)),
     );
@@ -425,6 +430,7 @@ export default function EngineSettingsView() {
       }
 
       setSavedEngineId(null);
+      setTestedEngineId(null);
       setIsAddMenuOpen(false);
       setDraftSettings((current) => {
         const next = {
@@ -444,6 +450,7 @@ export default function EngineSettingsView() {
     }
 
     setSavedEngineId(null);
+    setTestedEngineId(null);
     setDraftSettings((current) => {
       const ordered = sortSettings(current);
       const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
@@ -536,6 +543,7 @@ export default function EngineSettingsView() {
         sortSettings([...current.filter((item) => item.id !== next.id), next]),
       );
       setSavedEngineId(next.id);
+      setTestedEngineId(null);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -547,6 +555,7 @@ export default function EngineSettingsView() {
     setIsSavingEngines(true);
     setError(null);
     setSavedEngineId(null);
+    setTestedEngineId(null);
 
     try {
       void writeLog("info", "saving all engine settings");
@@ -582,6 +591,7 @@ export default function EngineSettingsView() {
         current.map((item) => (item.id === settingsId ? { ...saved } : item)),
       ),
     );
+    setTestedEngineId(null);
   }
 
   async function installLatest(settingsId: string) {
@@ -598,10 +608,32 @@ export default function EngineSettingsView() {
         sortSettings([...current.filter((item) => item.id !== next.settings.id), next.settings]),
       );
       setSavedEngineId(next.settings.id);
+      setTestedEngineId(null);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setInstallingEngineId(null);
+    }
+  }
+
+  async function testConnection(settingsId: string) {
+    const draft = draftSettings.find((item) => item.id === settingsId);
+    if (!draft) {
+      return;
+    }
+
+    setTestingEngineId(settingsId);
+    setError(null);
+    setTestedEngineId(null);
+
+    try {
+      void writeLog("info", `testing engine connection: id=${settingsId}`);
+      await testEngineConnection(toInput(draft));
+      setTestedEngineId(settingsId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setTestingEngineId(null);
     }
   }
 
@@ -906,8 +938,9 @@ export default function EngineSettingsView() {
                             const canInstall = usesExecutable && Boolean(saved);
                             const isSaving = savingEngineId === draft.id;
                             const isInstalling = installingEngineId === draft.id;
+                            const isTesting = testingEngineId === draft.id;
                             const isDeleting = deletingEngineId === draft.id;
-                            const isBusy = isSaving || isInstalling || isDeleting;
+                            const isBusy = isSaving || isInstalling || isTesting || isDeleting;
 
                             return (
                               <div
@@ -959,6 +992,18 @@ export default function EngineSettingsView() {
                                     </label>
                                     {savedEngineId === draft.id && (
                                       <InstalledBadge label="已保存" />
+                                    )}
+                                    {testedEngineId === draft.id && (
+                                      <InstalledBadge label="连接成功" />
+                                    )}
+                                    {usesConnection && (
+                                      <SmallIconButton
+                                        title="测试连接"
+                                        disabled={isBusy}
+                                        onClick={() => void testConnection(draft.id)}
+                                      >
+                                        <PlugZap size={15} />
+                                      </SmallIconButton>
                                     )}
                                     <SmallIconButton
                                       title="撤销"
@@ -1046,31 +1091,41 @@ export default function EngineSettingsView() {
                                         buttonLabel={<Download size={15} />}
                                       />
                                     )}
-                                    <Field
-                                      label="默认下载目录"
-                                      value={draft.defaultDownloadDir}
-                                      onChange={(value) =>
-                                        updateDraft(draft.id, { defaultDownloadDir: value })
-                                      }
-                                    />
-                                    {usesConnection && (
+                                    {draft.engine !== "qbittorrent" && (
                                       <Field
-                                        label="连接地址"
-                                        value={draft.connectionUrl ?? ""}
+                                        label="默认下载目录"
+                                        value={draft.defaultDownloadDir}
                                         onChange={(value) =>
-                                          updateDraft(draft.id, { connectionUrl: value })
+                                          updateDraft(draft.id, { defaultDownloadDir: value })
                                         }
                                       />
+                                    )}
+                                    {usesConnection && (
+                                      <div className="flex flex-col gap-1.5">
+                                        <Field
+                                          label="连接地址"
+                                          value={draft.connectionUrl ?? ""}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, { connectionUrl: value })
+                                          }
+                                        />
+                                        <span className="text-xs text-slate-500">
+                                          远程引擎 Web/API 地址，用于认证和控制下载任务。
+                                        </span>
+                                      </div>
                                     )}
                                     {draft.engine === "qbittorrent" && (
                                       <>
                                         <Field
-                                          label="保存路径"
+                                          label="保存路径（远程）"
                                           value={draft.remotePath ?? ""}
                                           onChange={(value) =>
                                             updateDraft(draft.id, { remotePath: value })
                                           }
                                         />
+                                        <div className="md:col-span-2 -mt-2 text-xs text-slate-500">
+                                          qBittorrent 任务只使用远程保存路径，不使用本机默认下载目录。
+                                        </div>
                                         <Field
                                           label="用户名"
                                           value={draft.username ?? ""}

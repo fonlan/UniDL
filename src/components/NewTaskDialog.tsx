@@ -148,7 +148,7 @@ function matchesPreferredDomain(settings: EngineSettings, hostname: string) {
 
 function defaultSavePath(settings: EngineSettings) {
   if (settings.engine === "qbittorrent") {
-    return settings.remotePath || settings.defaultDownloadDir;
+    return settings.remotePath ?? "";
   }
 
   return settings.defaultDownloadDir;

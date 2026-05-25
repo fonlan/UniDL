@@ -263,6 +263,17 @@ export function installLatestEngine(settingsId: string): Promise<EngineInstallRe
   return invoke("install_latest_engine", { settingsId });
 }
 
+export function testEngineConnection(settings: EngineSettingsInput): Promise<void> {
+  if (!hasTauriRuntime()) {
+    if (settings.engine === "yt-dlp") {
+      return Promise.reject(new Error("yt-dlp does not use a remote connection"));
+    }
+    return Promise.resolve();
+  }
+
+  return invoke("test_engine_connection", { settings });
+}
+
 export function validateEngineSourceType(
   engine: EngineSettings["engine"],
   sourceType: SourceType,

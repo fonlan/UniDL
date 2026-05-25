@@ -171,6 +171,7 @@ pub fn run() {
             commands::save_engine_settings,
             commands::delete_engine_settings,
             commands::install_latest_engine,
+            commands::test_engine_connection,
             commands::validate_engine_source_type,
             commands::write_log
         ])

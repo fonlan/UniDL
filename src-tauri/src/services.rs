@@ -496,32 +496,7 @@ impl<'connection> EngineSettingsService<'connection> {
     }
 
     pub fn save(&self, input: EngineSettingsInput) -> Result<EngineSettings, Box<dyn Error>> {
-        let name = input.name.trim().to_string();
-        if name.is_empty() {
-            return Err("engine settings name is required".into());
-        }
-
-        let supported = supported_source_types(input.engine);
-        for source_type in &input.supported_source_types {
-            if !supported.contains(source_type) {
-                return Err(format!(
-                    "{} does not support {} tasks",
-                    input.engine.as_db(),
-                    source_type.as_db()
-                )
-                .into());
-            }
-        }
-        let supported_source_types = supported
-            .into_iter()
-            .filter(|source_type| input.supported_source_types.contains(source_type))
-            .collect();
-
-        let input = EngineSettingsInput {
-            name,
-            supported_source_types,
-            ..input
-        };
+        let input = normalize_engine_settings_input(input)?;
         self.repository.save(&input)
     }
 
@@ -560,6 +535,28 @@ impl<'connection> EngineSettingsService<'connection> {
         })
     }
 
+    pub fn test_connection(&self, input: EngineSettingsInput) -> Result<(), Box<dyn Error>> {
+        let input = normalize_engine_settings_input(input)?;
+        let settings = EngineSettings {
+            id: input.id,
+            engine: input.engine,
+            name: input.name,
+            enabled: input.enabled,
+            executable_path: input.executable_path,
+            default_download_dir: input.default_download_dir,
+            default_args: input.default_args,
+            connection_url: input.connection_url,
+            username: input.username,
+            password: input.password,
+            remote_path: input.remote_path,
+            supported_source_types: input.supported_source_types,
+            preferred_domains: input.preferred_domains,
+            priority: input.priority,
+            updated_at: String::new(),
+        };
+        crate::engine_adapters::test_connection(&settings)
+    }
+
     pub fn validate_source_type(
         &self,
         engine: EngineKind,
@@ -576,6 +573,43 @@ impl<'connection> EngineSettingsService<'connection> {
             .into())
         }
     }
+}
+
+fn normalize_engine_settings_input(
+    input: EngineSettingsInput,
+) -> Result<EngineSettingsInput, Box<dyn Error>> {
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err("engine settings name is required".into());
+    }
+
+    if input.engine == EngineKind::QBittorrent
+        && input.remote_path.as_deref().unwrap_or("").trim().is_empty()
+    {
+        return Err("qBittorrent remote save path is required".into());
+    }
+
+    let supported = supported_source_types(input.engine);
+    for source_type in &input.supported_source_types {
+        if !supported.contains(source_type) {
+            return Err(format!(
+                "{} does not support {} tasks",
+                input.engine.as_db(),
+                source_type.as_db()
+            )
+            .into());
+        }
+    }
+    let supported_source_types = supported
+        .into_iter()
+        .filter(|source_type| input.supported_source_types.contains(source_type))
+        .collect();
+
+    Ok(EngineSettingsInput {
+        name,
+        supported_source_types,
+        ..input
+    })
 }
 
 #[cfg(test)]

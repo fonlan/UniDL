@@ -219,6 +219,21 @@ pub fn install_latest_engine(
 }
 
 #[tauri::command]
+pub fn test_engine_connection(
+    settings: EngineSettingsInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    logger::info(format!(
+        "testing engine connection: id={}, engine={:?}",
+        settings.id, settings.engine
+    ));
+    let connection = state.lock_connection()?;
+    EngineSettingsService::new(&connection)
+        .test_connection(settings)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn validate_engine_source_type(
     engine: EngineKind,
     source_type: SourceType,
