@@ -227,8 +227,13 @@ fn add_aria2_task(
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     start_aria2_process(settings, &task.save_path)?;
 
+    let output_file_name = match task.source_type {
+        SourceType::Http | SourceType::Ftp => Some(task.file_name.trim()),
+        SourceType::Magnet | SourceType::Torrent => None,
+    };
     let options = aria2_download_options(
         &task.save_path,
+        output_file_name,
         &settings.default_args,
         &task.engine_args,
         task.selected_file_indexes.as_deref(),
@@ -417,6 +422,7 @@ fn aria2_rpc_secret(args: &str) -> Option<String> {
 
 fn aria2_download_options(
     save_path: &str,
+    output_file_name: Option<&str>,
     default_args: &str,
     task_args: &str,
     selected_file_indexes: Option<&[i64]>,
@@ -426,6 +432,12 @@ fn aria2_download_options(
     append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
     append_aria2_options(&mut options, default_args);
     append_aria2_options(&mut options, task_args);
+    if let Some(output_file_name) = output_file_name.filter(|value| !value.is_empty()) {
+        options.insert(
+            "out".to_string(),
+            Value::String(output_file_name.to_string()),
+        );
+    }
     if let Some(selected_file_indexes) = selected_file_indexes {
         if !selected_file_indexes.is_empty() {
             options.insert(
@@ -1267,6 +1279,22 @@ mod tests {
         settings.connection_url = Some("http://127.0.0.1:6800/".to_string());
 
         assert_eq!(aria2_rpc_url(&settings), "http://127.0.0.1:6800/jsonrpc");
+    }
+
+    #[test]
+    fn aria2_download_options_uses_dialog_file_name() {
+        let options = aria2_download_options(
+            "C:\\Downloads",
+            Some("renamed.bin"),
+            "--continue=true --out=default.bin",
+            "--split=4 --out=task.bin",
+            None,
+        );
+
+        assert_eq!(
+            options.get("out").and_then(Value::as_str),
+            Some("renamed.bin")
+        );
     }
 
     #[test]
