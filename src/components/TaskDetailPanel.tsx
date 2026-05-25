@@ -32,6 +32,18 @@ const engineLabels: Record<EngineKind, string> = {
   qbittorrent: "qBittorrent",
 };
 
+const fileCategoryFilters = [
+  { label: "视频", extensions: ["3g2", "3gp", "avi", "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "rmvb", "ts", "webm", "wmv"] },
+  { label: "图片", extensions: ["avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] },
+  { label: "音频", extensions: ["aac", "ape", "flac", "m4a", "mp3", "ogg", "opus", "wav", "wma"] },
+  { label: "字幕", extensions: ["ass", "srt", "ssa", "sub", "sup", "vtt"] },
+  { label: "文档", extensions: ["azw3", "doc", "docx", "epub", "md", "mobi", "pdf", "ppt", "pptx", "txt", "xls", "xlsx"] },
+  { label: "压缩包", extensions: ["7z", "bz2", "gz", "iso", "rar", "tar", "tgz", "xz", "zip"] },
+].map((filter) => ({
+  ...filter,
+  extensions: new Set(filter.extensions),
+}));
+
 function formatSpeed(bytesPerSecond: number) {
   if (bytesPerSecond <= 0) {
     return "-";
@@ -96,6 +108,17 @@ function fileProgress(file: TorrentFileEntry) {
   return file.length > 0 ? (file.completedLength / file.length) * 100 : 0;
 }
 
+function fileExtension(path: string) {
+  const fileName = path.split(/[\\/]/).pop() ?? path;
+  const dotIndex = fileName.lastIndexOf(".");
+
+  if (dotIndex <= 0 || dotIndex === fileName.length - 1) {
+    return "";
+  }
+
+  return fileName.slice(dotIndex + 1).toLowerCase();
+}
+
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -123,6 +146,19 @@ export default function TaskDetailPanel({
   );
   const [isSavingFileSelection, setIsSavingFileSelection] = useState(false);
   const trackers = parseMagnetTrackers(task.source);
+  const selectedTorrentFileCount = useMemo(
+    () => torrentFiles.filter((file) => selectedFileIndexes.has(file.index)).length,
+    [selectedFileIndexes, torrentFiles],
+  );
+  const allTorrentFilesSelected = torrentFiles.length > 0 && torrentFiles.every((file) => selectedFileIndexes.has(file.index));
+  const categoryFilterButtons = useMemo(
+    () =>
+      fileCategoryFilters.map((filter) => ({
+        ...filter,
+        count: torrentFiles.filter((file) => filter.extensions.has(fileExtension(file.path))).length,
+      })),
+    [torrentFiles],
+  );
 
   useEffect(() => {
     setSelectedFileIndexes(new Set(task.selectedFileIndexes ?? []));
@@ -181,6 +217,14 @@ export default function TaskDetailPanel({
     } finally {
       setIsSavingFileSelection(false);
     }
+  }
+
+  function saveFiles(files: TorrentFileEntry[]) {
+    void saveFileSelection(new Set(files.map((file) => file.index)));
+  }
+
+  function invertFileSelection() {
+    saveFiles(torrentFiles.filter((file) => !selectedFileIndexes.has(file.index)));
   }
 
   return (
@@ -285,7 +329,7 @@ export default function TaskDetailPanel({
               <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">文件列表</div>
               {torrentFiles.length > 0 && (
                 <div className="text-xs text-slate-500">
-                  {selectedFileIndexes.size}/{torrentFiles.length} 个文件
+                  {selectedTorrentFileCount}/{torrentFiles.length} 个文件
                   {isSavingFileSelection ? "，正在保存…" : ""}
                 </div>
               )}
@@ -297,8 +341,38 @@ export default function TaskDetailPanel({
             ) : torrentFiles.length === 0 ? (
               <div className="px-3 py-2 text-sm text-slate-500">未读取到文件列表，请等待引擎获取 BT 元数据后刷新。</div>
             ) : (
-              <div className="max-h-[34vh] overflow-auto">
-                <table className="w-full table-fixed text-left text-sm">
+              <>
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
+                  <button
+                    type="button"
+                    disabled={isSavingFileSelection || allTorrentFilesSelected}
+                    onClick={() => saveFiles(torrentFiles)}
+                    className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingFileSelection || selectedTorrentFileCount === torrentFiles.length}
+                    onClick={invertFileSelection}
+                    className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    反选
+                  </button>
+                  {categoryFilterButtons.map((filter) => (
+                    <button
+                      key={filter.label}
+                      type="button"
+                      disabled={isSavingFileSelection || filter.count === 0}
+                      onClick={() => saveFiles(torrentFiles.filter((file) => filter.extensions.has(fileExtension(file.path))))}
+                      className="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {filter.label}({filter.count})
+                    </button>
+                  ))}
+                </div>
+                <div className="max-h-[30vh] overflow-auto">
+                  <table className="w-full table-fixed text-left text-sm">
                   <thead className="sticky top-0 bg-white text-xs text-slate-500">
                     <tr>
                       <th className="w-12 border-b border-slate-100 px-3 py-2">选择</th>
@@ -338,8 +412,9 @@ export default function TaskDetailPanel({
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
+                  </table>
+                </div>
+              </>
             )}
           </section>
         )}
