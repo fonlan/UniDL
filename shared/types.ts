@@ -50,6 +50,11 @@ export interface TorrentFileEntry {
   length: number;
 }
 
+export interface RemoteDirectoryEntry {
+  name: string;
+  path: string;
+}
+
 export interface EngineSettings {
   id: string;
   engine: EngineKind;

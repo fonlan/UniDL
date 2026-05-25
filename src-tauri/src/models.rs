@@ -173,6 +173,13 @@ pub struct NewDownloadTask {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RemoteDirectoryEntry {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EngineSettings {
     pub id: String,
     pub engine: EngineKind,

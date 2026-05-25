@@ -9,6 +9,7 @@ import type {
   EngineKind,
   EngineSettings,
   EngineSettingsInput,
+  RemoteDirectoryEntry,
   SourceType,
   TorrentFileEntry,
 } from "@shared/types";
@@ -79,6 +80,17 @@ export function getTorrentFiles(
     engineSettingsId: engineSettingsId ?? null,
     savePath: savePath ?? null,
   });
+}
+
+export function listRemoteDirectories(
+  engineSettingsId: string,
+  path: string,
+): Promise<RemoteDirectoryEntry[]> {
+  if (!hasTauriRuntime()) {
+    return Promise.reject(new Error("remote directory browser requires Tauri runtime"));
+  }
+
+  return invoke("list_remote_directories", { engineSettingsId, path });
 }
 
 export function resolveMagnetName(

@@ -18,7 +18,9 @@ use serde_json::{json, Value};
 
 use crate::{
     logger,
-    models::{DownloadStatus, DownloadTask, EngineKind, EngineSettings, SourceType},
+    models::{
+        DownloadStatus, DownloadTask, EngineKind, EngineSettings, RemoteDirectoryEntry, SourceType,
+    },
     repositories::DownloadTaskRepository,
     torrent_metadata::{read_torrent_info_hash, TorrentFileEntry},
 };
@@ -126,6 +128,20 @@ pub fn resolve_magnet_files(
         EngineKind::Aria2 => resolve_aria2_magnet_files(settings, source, save_path),
         EngineKind::QBittorrent => resolve_qbittorrent_magnet_files(settings, source, save_path),
         EngineKind::YtDlp => Err("yt-dlp does not support magnet metadata".into()),
+    }
+}
+
+pub fn list_remote_directories(
+    settings: &EngineSettings,
+    path: &str,
+) -> Result<Vec<RemoteDirectoryEntry>, Box<dyn Error>> {
+    match settings.engine {
+        EngineKind::QBittorrent => list_qbittorrent_directories(settings, path),
+        EngineKind::Aria2 | EngineKind::YtDlp => Err(format!(
+            "{:?} does not support remote directory browsing",
+            settings.engine
+        )
+        .into()),
     }
 }
 
@@ -1327,6 +1343,55 @@ fn qbittorrent_state(state: &str, progress: f64) -> DownloadStatus {
     } else {
         DownloadStatus::Running
     }
+}
+
+fn list_qbittorrent_directories(
+    settings: &EngineSettings,
+    path: &str,
+) -> Result<Vec<RemoteDirectoryEntry>, Box<dyn Error>> {
+    let client = qbittorrent_client(settings)?;
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("remote path is required".into());
+    }
+    let response = client
+        .get(qbittorrent_url(settings, "app/getDirectoryContent")?)
+        .query(&[
+            ("dirPath", path),
+            ("mode", "dirs"),
+            ("withMetadata", "false"),
+        ])
+        .send()?;
+    if !response.status().is_success() {
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err("qBittorrent remote directory browsing requires a Web API version that supports app/getDirectoryContent".into());
+        }
+        return Err(format!(
+            "qBittorrent directory listing failed: {}",
+            response.status()
+        )
+        .into());
+    }
+
+    let mut entries = response
+        .json::<Vec<String>>()?
+        .into_iter()
+        .map(|entry_path| RemoteDirectoryEntry {
+            name: remote_path_name(&entry_path),
+            path: entry_path,
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    Ok(entries)
+}
+
+fn remote_path_name(path: &str) -> String {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+        .to_string()
 }
 
 fn qbittorrent_client(settings: &EngineSettings) -> Result<Client, Box<dyn Error>> {

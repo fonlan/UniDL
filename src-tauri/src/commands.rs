@@ -4,7 +4,7 @@ use crate::{
     engine_adapters, engine_install, logger,
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineInstallResult,
-        EngineKind, EngineSettings, EngineSettingsInput, SourceType,
+        EngineKind, EngineSettings, EngineSettingsInput, RemoteDirectoryEntry, SourceType,
     },
     services::{AppSettingsService, DownloadTaskService, EngineSettingsService},
     AppState,
@@ -132,6 +132,22 @@ fn magnet_file_cache_key(
         source,
         save_path.as_deref().unwrap_or("")
     )
+}
+
+#[tauri::command]
+pub fn list_remote_directories(
+    engine_settings_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<RemoteDirectoryEntry>, String> {
+    let connection = state.lock_connection()?;
+    let settings = EngineSettingsService::new(&connection)
+        .get(&engine_settings_id)
+        .map_err(|error| error.to_string())?;
+    if !settings.enabled {
+        return Err(format!("{} is disabled", settings.id));
+    }
+    engine_adapters::list_remote_directories(&settings, &path).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
