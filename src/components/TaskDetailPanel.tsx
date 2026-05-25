@@ -130,7 +130,7 @@ export default function TaskDetailPanel({
     }
 
     setIsLoadingTorrentFiles(true);
-    void getTorrentFiles(task.source)
+    void getTorrentFiles(task.source, task.sourceType, task.engineSettingsId, task.savePath)
       .then((files) => {
         if (!disposed) {
           setTorrentFiles(files);

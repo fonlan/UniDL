@@ -1,8 +1,7 @@
 use tauri::{AppHandle, Manager, State};
 
 use crate::{
-    engine_adapters, engine_install,
-    logger,
+    engine_adapters, engine_install, logger,
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineInstallResult,
         EngineKind, EngineSettings, EngineSettingsInput, SourceType,
@@ -38,8 +37,53 @@ pub fn take_pending_open_requests(
 }
 
 #[tauri::command]
-pub fn get_torrent_files(source: String) -> Result<Vec<crate::torrent_metadata::TorrentFileEntry>, String> {
-    crate::torrent_metadata::read_torrent_files(&source).map_err(|error| error.to_string())
+pub fn get_torrent_files(
+    source: String,
+    source_type: SourceType,
+    engine_settings_id: Option<String>,
+    save_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::torrent_metadata::TorrentFileEntry>, String> {
+    match source_type {
+        SourceType::Torrent => {
+            crate::torrent_metadata::read_torrent_files(&source).map_err(|error| error.to_string())
+        }
+        SourceType::Magnet => {
+            let cache_key = magnet_file_cache_key(&engine_settings_id, &source, &save_path);
+            if let Some(files) = state.cached_magnet_files(&cache_key)? {
+                return Ok(files);
+            }
+            let engine_settings_id = engine_settings_id.ok_or("engine settings id is required")?;
+            let save_path = save_path.ok_or("save path is required")?;
+            let connection = state.lock_connection()?;
+            let settings = EngineSettingsService::new(&connection)
+                .get(&engine_settings_id)
+                .map_err(|error| error.to_string())?;
+            if !settings.enabled {
+                return Err(format!("{} is disabled", settings.id));
+            }
+            match engine_adapters::resolve_magnet_files(&settings, &source, &save_path)
+                .map_err(|error| error.to_string())
+            {
+                Ok(Some(files)) => Ok(files),
+                Ok(None) => Ok(Vec::new()),
+                Err(error) => Err(error),
+            }
+        }
+        _ => Err(format!(
+            "{} does not have torrent files",
+            source_type_label(source_type)
+        )),
+    }
+}
+
+fn source_type_label(source_type: SourceType) -> &'static str {
+    match source_type {
+        SourceType::Http => "http",
+        SourceType::Ftp => "ftp",
+        SourceType::Magnet => "magnet",
+        SourceType::Torrent => "torrent",
+    }
 }
 
 #[tauri::command]
@@ -59,13 +103,35 @@ pub fn resolve_magnet_name(
     if !settings.enabled {
         return Err(format!("{} is disabled", settings.id));
     }
-    match engine_adapters::resolve_magnet_name(&settings, &source, &save_path)
+    let cache_key = magnet_file_cache_key(
+        &Some(engine_settings_id.clone()),
+        &source,
+        &Some(save_path.clone()),
+    );
+    match engine_adapters::resolve_magnet_metadata(&settings, &source, &save_path)
         .map_err(|error| error.to_string())
     {
-        Ok(Some(name)) => Ok(name),
-        Ok(None) => Ok(String::new()),
+        Ok(metadata) => {
+            if let Some(files) = metadata.files.filter(|files| !files.is_empty()) {
+                state.cache_magnet_files(cache_key, files)?;
+            }
+            Ok(metadata.name.unwrap_or_default())
+        }
         Err(error) => Err(error),
     }
+}
+
+fn magnet_file_cache_key(
+    engine_settings_id: &Option<String>,
+    source: &str,
+    save_path: &Option<String>,
+) -> String {
+    format!(
+        "{}\n{}\n{}",
+        engine_settings_id.as_deref().unwrap_or(""),
+        source,
+        save_path.as_deref().unwrap_or("")
+    )
 }
 
 #[tauri::command]
@@ -126,7 +192,8 @@ pub fn delete_download_tasks(
 ) -> Result<(), String> {
     logger::info(format!(
         "deleting download tasks: count={}, delete_completed_files={}",
-        ids.len(), delete_completed_files
+        ids.len(),
+        delete_completed_files
     ));
     let connection = state.lock_connection()?;
     DownloadTaskService::new(&connection, state.database_path())
@@ -250,7 +317,9 @@ pub fn install_latest_engine(
     settings_id: String,
     state: State<'_, AppState>,
 ) -> Result<EngineInstallResult, String> {
-    logger::info(format!("installing latest engine: settings_id={settings_id}"));
+    logger::info(format!(
+        "installing latest engine: settings_id={settings_id}"
+    ));
     let connection = state.lock_connection()?;
     EngineSettingsService::new(&connection)
         .install_latest(&settings_id)

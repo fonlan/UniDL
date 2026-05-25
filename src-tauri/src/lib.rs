@@ -12,6 +12,7 @@ mod torrent_metadata;
 mod web_server;
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -25,6 +26,7 @@ pub struct AppState {
     connection: Mutex<Connection>,
     database_path: PathBuf,
     pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
+    magnet_file_cache: Arc<Mutex<HashMap<String, Vec<torrent_metadata::TorrentFileEntry>>>>,
     web_server: Mutex<Option<web_server::WebServerHandle>>,
 }
 
@@ -40,6 +42,7 @@ impl AppState {
             pending_open_sources: Arc::new(Mutex::new(system_open::source_requests(
                 pending_open_sources,
             ))),
+            magnet_file_cache: Arc::new(Mutex::new(HashMap::new())),
             web_server: Mutex::new(None),
         }
     }
@@ -72,6 +75,30 @@ impl AppState {
             .lock()
             .map_err(|_| "system open request lock was poisoned".to_string())?;
         Ok(std::mem::take(&mut *pending))
+    }
+
+    fn cache_magnet_files(
+        &self,
+        key: String,
+        files: Vec<torrent_metadata::TorrentFileEntry>,
+    ) -> Result<(), String> {
+        let mut cache = self
+            .magnet_file_cache
+            .lock()
+            .map_err(|_| "magnet file cache lock was poisoned".to_string())?;
+        cache.insert(key, files);
+        Ok(())
+    }
+
+    fn cached_magnet_files(
+        &self,
+        key: &str,
+    ) -> Result<Option<Vec<torrent_metadata::TorrentFileEntry>>, String> {
+        let cache = self
+            .magnet_file_cache
+            .lock()
+            .map_err(|_| "magnet file cache lock was poisoned".to_string())?;
+        Ok(cache.get(key).cloned())
     }
 
     fn apply_web_settings(
@@ -111,7 +138,10 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let sources = system_open::parse_open_sources(argv);
             if !sources.is_empty() {
-                logger::info(format!("received system open request: {} source(s)", sources.len()));
+                logger::info(format!(
+                    "received system open request: {} source(s)",
+                    sources.len()
+                ));
                 let requests = system_open::source_requests(sources);
                 app.state::<AppState>()
                     .push_open_requests(requests.clone())

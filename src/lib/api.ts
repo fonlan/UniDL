@@ -63,12 +63,22 @@ export function refreshDownloadTasks(): Promise<DownloadTask[]> {
 }
 
 
-export function getTorrentFiles(source: string): Promise<TorrentFileEntry[]> {
+export function getTorrentFiles(
+  source: string,
+  sourceType: SourceType,
+  engineSettingsId?: string | null,
+  savePath?: string | null,
+): Promise<TorrentFileEntry[]> {
   if (!hasTauriRuntime()) {
     return Promise.resolve([]);
   }
 
-  return invoke("get_torrent_files", { source });
+  return invoke("get_torrent_files", {
+    source,
+    sourceType,
+    engineSettingsId: engineSettingsId ?? null,
+    savePath: savePath ?? null,
+  });
 }
 
 export function resolveMagnetName(

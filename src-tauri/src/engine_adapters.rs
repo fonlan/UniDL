@@ -20,14 +20,17 @@ use crate::{
     logger,
     models::{DownloadStatus, DownloadTask, EngineKind, EngineSettings, SourceType},
     repositories::DownloadTaskRepository,
-    torrent_metadata::read_torrent_info_hash,
+    torrent_metadata::{read_torrent_info_hash, TorrentFileEntry},
 };
 
 const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
 const YTDLP_FAST_DEFAULT_ARGS: &str =
     "--newline --no-playlist --js-runtimes node --concurrent-fragments 8";
 const MAGNET_NAME_RESOLVE_ATTEMPTS: usize = 60;
+const COLD_ARIA2_MAGNET_RESOLVE_ATTEMPTS: usize = 180;
 const MAGNET_NAME_RESOLVE_INTERVAL: Duration = Duration::from_secs(1);
+const ARIA2_STARTUP_ATTEMPTS: usize = 20;
+const ARIA2_STARTUP_INTERVAL: Duration = Duration::from_millis(250);
 const MAGNET_FALLBACK_TRACKERS: &[&str] = &[
     "udp://tracker.opentrackr.org:1337/announce",
     "udp://open.stealth.si:80/announce",
@@ -72,12 +75,21 @@ pub fn add_task(
     }
 }
 
-pub fn resolve_magnet_name(
+pub struct MagnetMetadata {
+    pub name: Option<String>,
+    pub files: Option<Vec<TorrentFileEntry>>,
+}
+
+pub fn resolve_magnet_metadata(
     settings: &EngineSettings,
     source: &str,
     save_path: &str,
-) -> Result<Option<String>, Box<dyn Error>> {
-    if !source.trim_start().to_ascii_lowercase().starts_with("magnet:") {
+) -> Result<MagnetMetadata, Box<dyn Error>> {
+    if !source
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("magnet:")
+    {
         return Err("source must be a magnet link".into());
     }
     if save_path.trim().is_empty() {
@@ -85,8 +97,34 @@ pub fn resolve_magnet_name(
     }
 
     match settings.engine {
-        EngineKind::Aria2 => resolve_aria2_magnet_name(settings, source, save_path),
-        EngineKind::QBittorrent => resolve_qbittorrent_magnet_name(settings, source, save_path),
+        EngineKind::Aria2 => resolve_aria2_magnet_metadata(settings, source, save_path),
+        EngineKind::QBittorrent => Ok(MagnetMetadata {
+            name: resolve_qbittorrent_magnet_name(settings, source, save_path)?,
+            files: None,
+        }),
+        EngineKind::YtDlp => Err("yt-dlp does not support magnet metadata".into()),
+    }
+}
+
+pub fn resolve_magnet_files(
+    settings: &EngineSettings,
+    source: &str,
+    save_path: &str,
+) -> Result<Option<Vec<TorrentFileEntry>>, Box<dyn Error>> {
+    if !source
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("magnet:")
+    {
+        return Err("source must be a magnet link".into());
+    }
+    if save_path.trim().is_empty() {
+        return Err("save path is required".into());
+    }
+
+    match settings.engine {
+        EngineKind::Aria2 => resolve_aria2_magnet_files(settings, source, save_path),
+        EngineKind::QBittorrent => resolve_qbittorrent_magnet_files(settings, source, save_path),
         EngineKind::YtDlp => Err("yt-dlp does not support magnet metadata".into()),
     }
 }
@@ -305,12 +343,12 @@ fn add_aria2_task(
     Ok(EngineTaskState::running(gid))
 }
 
-fn resolve_aria2_magnet_name(
+fn resolve_aria2_magnet_metadata(
     settings: &EngineSettings,
     source: &str,
     save_path: &str,
-) -> Result<Option<String>, Box<dyn Error>> {
-    start_aria2_process(settings, save_path)?;
+) -> Result<MagnetMetadata, Box<dyn Error>> {
+    let started = start_aria2_process(settings, save_path)?;
 
     let options = aria2_download_options(save_path, None, &settings.default_args, "", None);
     let source = magnet_with_fallback_trackers(settings, source);
@@ -319,29 +357,192 @@ fn resolve_aria2_magnet_name(
         .as_str()
         .ok_or("aria2 did not return a task gid")?
         .to_string();
-    let (resolved, cleanup_gids) = poll_aria2_magnet_name(settings, &gid)?;
+    let attempts = if started {
+        COLD_ARIA2_MAGNET_RESOLVE_ATTEMPTS
+    } else {
+        MAGNET_NAME_RESOLVE_ATTEMPTS
+    };
+    let (metadata, cleanup_gids) = poll_aria2_magnet_metadata(settings, &gid, save_path, attempts)?;
     cleanup_aria2_metadata_tasks(settings, &cleanup_gids);
-    Ok(resolved)
+    Ok(metadata)
 }
 
-fn poll_aria2_magnet_name(
+fn resolve_aria2_magnet_files(
+    settings: &EngineSettings,
+    source: &str,
+    save_path: &str,
+) -> Result<Option<Vec<TorrentFileEntry>>, Box<dyn Error>> {
+    let started = start_aria2_process(settings, save_path)?;
+
+    let options = aria2_download_options(save_path, None, &settings.default_args, "", None);
+    let source = magnet_with_fallback_trackers(settings, source);
+    let result = aria2_rpc(settings, "aria2.addUri", json!([[source], options]))?;
+    let gid = result
+        .as_str()
+        .ok_or("aria2 did not return a task gid")?
+        .to_string();
+    let attempts = if started {
+        COLD_ARIA2_MAGNET_RESOLVE_ATTEMPTS
+    } else {
+        MAGNET_NAME_RESOLVE_ATTEMPTS
+    };
+    let (files, cleanup_gids) = poll_aria2_magnet_files(settings, &gid, save_path, attempts)?;
+    cleanup_aria2_metadata_tasks(settings, &cleanup_gids);
+    Ok(files)
+}
+
+fn poll_aria2_magnet_files(
     settings: &EngineSettings,
     gid: &str,
-) -> Result<(Option<String>, Vec<String>), Box<dyn Error>> {
-    let fields = [
-        "gid",
-        "status",
-        "bittorrent",
-        "errorMessage",
-        "followedBy",
-    ];
+    save_path: &str,
+    attempts: usize,
+) -> Result<(Option<Vec<TorrentFileEntry>>, Vec<String>), Box<dyn Error>> {
+    let fields = ["gid", "status", "bittorrent", "errorMessage", "followedBy"];
     let mut last_error = None;
     let mut cleanup_gids = vec![gid.to_string()];
 
-    for _ in 0..MAGNET_NAME_RESOLVE_ATTEMPTS {
+    for _ in 0..attempts {
+        let status = aria2_rpc(settings, "aria2.tellStatus", json!([gid, fields]))?;
+        for file_gid in aria2_candidate_file_gids(&status, gid) {
+            let files = aria2_file_entries(settings, &file_gid, Some(save_path))?;
+            if !files.is_empty() {
+                if file_gid != gid {
+                    cleanup_gids.push(file_gid);
+                }
+                return Ok((Some(files), cleanup_gids));
+            }
+        }
+
+        if let Some(message) = status
+            .get("errorMessage")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+        {
+            last_error = Some(message.to_string());
+        }
+
+        thread::sleep(MAGNET_NAME_RESOLVE_INTERVAL);
+    }
+
+    if let Some(error) = last_error {
+        logger::warn(format!("magnet metadata files were not resolved: {error}"));
+    }
+    Ok((None, cleanup_gids))
+}
+
+fn aria2_candidate_file_gids(status: &Value, gid: &str) -> Vec<String> {
+    let mut gids = status
+        .get("followedBy")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if aria2_bittorrent_name(status).is_some() {
+        gids.push(gid.to_string());
+    }
+    gids
+}
+
+fn aria2_file_entries(
+    settings: &EngineSettings,
+    gid: &str,
+    save_path: Option<&str>,
+) -> Result<Vec<TorrentFileEntry>, Box<dyn Error>> {
+    let files = aria2_rpc(settings, "aria2.getFiles", json!([gid]))?;
+    let Some(files) = files.as_array() else {
+        return Ok(Vec::new());
+    };
+
+    files
+        .iter()
+        .enumerate()
+        .filter_map(|(index, file)| {
+            let path = file.get("path")?.as_str()?.trim();
+            if path.is_empty() {
+                return None;
+            }
+            Some((index, file, aria2_display_file_path(path, save_path)))
+        })
+        .map(|(index, file, path)| {
+            let length = file
+                .get("length")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<i64>().ok())
+                .ok_or("aria2 file length is missing")?;
+            Ok(TorrentFileEntry {
+                index: i64::try_from(index + 1)?,
+                path,
+                length,
+            })
+        })
+        .collect()
+}
+
+fn aria2_display_file_path(path: &str, save_path: Option<&str>) -> String {
+    let Some(save_path) = save_path.map(str::trim).filter(|value| !value.is_empty()) else {
+        return path.to_string();
+    };
+
+    if let Some(display_path) = strip_path_prefix(path, save_path) {
+        return display_path;
+    }
+
+    path.to_string()
+}
+
+fn strip_path_prefix(path: &str, prefix: &str) -> Option<String> {
+    let path_parts = split_path_parts(path).collect::<Vec<_>>();
+    let prefix_parts = split_path_parts(prefix).collect::<Vec<_>>();
+    if prefix_parts.is_empty() || path_parts.len() <= prefix_parts.len() {
+        return None;
+    }
+
+    let matches = path_parts
+        .iter()
+        .zip(prefix_parts.iter())
+        .all(|(path_part, prefix_part)| {
+            if cfg!(windows) {
+                path_part.eq_ignore_ascii_case(prefix_part)
+            } else {
+                path_part == prefix_part
+            }
+        });
+    if !matches {
+        return None;
+    }
+
+    Some(path_parts[prefix_parts.len()..].join("/"))
+}
+
+fn poll_aria2_magnet_metadata(
+    settings: &EngineSettings,
+    gid: &str,
+    save_path: &str,
+    attempts: usize,
+) -> Result<(MagnetMetadata, Vec<String>), Box<dyn Error>> {
+    let fields = ["gid", "status", "bittorrent", "errorMessage", "followedBy"];
+    let mut last_error = None;
+    let mut cleanup_gids = vec![gid.to_string()];
+
+    for _ in 0..attempts {
         let status = aria2_rpc(settings, "aria2.tellStatus", json!([gid, fields]))?;
         if let Some(name) = aria2_bittorrent_name(&status) {
-            return Ok((Some(name.to_string()), cleanup_gids));
+            let files = aria2_files_from_candidate_gids(
+                settings,
+                &status,
+                gid,
+                save_path,
+                &mut cleanup_gids,
+            )?;
+            return Ok((
+                MagnetMetadata {
+                    name: Some(name.to_string()),
+                    files,
+                },
+                cleanup_gids,
+            ));
         }
         if let Some((next_gid, name)) = status
             .get("followedBy")
@@ -354,13 +555,43 @@ fn poll_aria2_magnet_name(
                     .and_then(|next_status| {
                         aria2_bittorrent_name(&next_status)
                             .map(ToOwned::to_owned)
-                            .or_else(|| aria2_task_top_level_name(settings, next_gid).ok().flatten())
+                            .or_else(|| {
+                                aria2_task_top_level_name(settings, next_gid).ok().flatten()
+                            })
                             .map(|name| (next_gid.to_string(), name.to_string()))
                     })
             })
         {
-            cleanup_gids.push(next_gid);
-            return Ok((Some(name), cleanup_gids));
+            let next_status =
+                aria2_rpc(settings, "aria2.tellStatus", json!([next_gid, fields])).ok();
+            let files = next_status
+                .as_ref()
+                .and_then(|status| {
+                    aria2_files_from_candidate_gids(
+                        settings,
+                        status,
+                        &next_gid,
+                        save_path,
+                        &mut cleanup_gids,
+                    )
+                    .ok()
+                    .flatten()
+                })
+                .or_else(|| {
+                    aria2_file_entries(settings, &next_gid, Some(save_path))
+                        .ok()
+                        .filter(|files| !files.is_empty())
+                });
+            if !cleanup_gids.contains(&next_gid) {
+                cleanup_gids.push(next_gid);
+            }
+            return Ok((
+                MagnetMetadata {
+                    name: Some(name),
+                    files,
+                },
+                cleanup_gids,
+            ));
         }
 
         if let Some(message) = status
@@ -377,7 +608,32 @@ fn poll_aria2_magnet_name(
     if let Some(error) = last_error {
         logger::warn(format!("magnet metadata name was not resolved: {error}"));
     }
-    Ok((None, cleanup_gids))
+    Ok((
+        MagnetMetadata {
+            name: None,
+            files: None,
+        },
+        cleanup_gids,
+    ))
+}
+
+fn aria2_files_from_candidate_gids(
+    settings: &EngineSettings,
+    status: &Value,
+    gid: &str,
+    save_path: &str,
+    cleanup_gids: &mut Vec<String>,
+) -> Result<Option<Vec<TorrentFileEntry>>, Box<dyn Error>> {
+    for file_gid in aria2_candidate_file_gids(status, gid) {
+        let files = aria2_file_entries(settings, &file_gid, Some(save_path))?;
+        if !files.is_empty() {
+            if file_gid != gid && !cleanup_gids.contains(&file_gid) {
+                cleanup_gids.push(file_gid);
+            }
+            return Ok(Some(files));
+        }
+    }
+    Ok(None)
 }
 
 fn aria2_bittorrent_name(status: &Value) -> Option<&str> {
@@ -416,15 +672,18 @@ fn common_download_entry_name<'a>(paths: &'a [&'a str]) -> Option<&'a str> {
         return None;
     }
 
-    let common_len = paths.iter().skip(1).fold(first_parts.len(), |common, path| {
-        let parts = split_path_parts(path).collect::<Vec<_>>();
-        first_parts
-            .iter()
-            .zip(parts.iter())
-            .take(common)
-            .take_while(|(left, right)| left == right)
-            .count()
-    });
+    let common_len = paths
+        .iter()
+        .skip(1)
+        .fold(first_parts.len(), |common, path| {
+            let parts = split_path_parts(path).collect::<Vec<_>>();
+            first_parts
+                .iter()
+                .zip(parts.iter())
+                .take(common)
+                .take_while(|(left, right)| left == right)
+                .count()
+        });
 
     if common_len == 0 {
         return first_parts.first().copied();
@@ -434,11 +693,16 @@ fn common_download_entry_name<'a>(paths: &'a [&'a str]) -> Option<&'a str> {
 }
 
 fn split_path_parts(path: &str) -> impl Iterator<Item = &str> {
-    path.split(['/', '\\']).filter(|part| !part.trim().is_empty())
+    path.split(['/', '\\'])
+        .filter(|part| !part.trim().is_empty())
 }
 
 fn magnet_with_fallback_trackers(settings: &EngineSettings, source: &str) -> String {
-    if !source.trim_start().to_ascii_lowercase().starts_with("magnet:") {
+    if !source
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("magnet:")
+    {
         return source.to_string();
     }
 
@@ -514,10 +778,14 @@ fn cleanup_aria2_metadata_tasks(settings: &EngineSettings, gids: &[String]) {
     }
 }
 
-fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<(), Box<dyn Error>> {
+fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<bool, Box<dyn Error>> {
+    if aria2_rpc(settings, "aria2.getVersion", json!([])).is_ok() {
+        return Ok(false);
+    }
+
     let executable = settings.executable_path.as_deref().unwrap_or("").trim();
     if executable.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
 
     let mut command = Command::new(executable);
@@ -535,7 +803,25 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<(),
         logger::error(format!("aria2 spawn failed: {error}"));
         error
     })?;
-    Ok(())
+    wait_for_aria2_rpc(settings)?;
+    Ok(true)
+}
+
+fn wait_for_aria2_rpc(settings: &EngineSettings) -> Result<(), Box<dyn Error>> {
+    let mut last_error = None;
+    for _ in 0..ARIA2_STARTUP_ATTEMPTS {
+        match aria2_rpc(settings, "aria2.getVersion", json!([])) {
+            Ok(_) => return Ok(()),
+            Err(error) => last_error = Some(error.to_string()),
+        }
+        thread::sleep(ARIA2_STARTUP_INTERVAL);
+    }
+
+    Err(format!(
+        "aria2 rpc was not ready after startup: {}",
+        last_error.unwrap_or_else(|| "unknown error".to_string())
+    )
+    .into())
 }
 
 fn refresh_aria2_task(
@@ -873,6 +1159,83 @@ fn resolve_qbittorrent_magnet_name(
     resolved
 }
 
+fn resolve_qbittorrent_magnet_files(
+    settings: &EngineSettings,
+    source: &str,
+    save_path: &str,
+) -> Result<Option<Vec<TorrentFileEntry>>, Box<dyn Error>> {
+    let client = qbittorrent_client(settings)?;
+    let hash = parse_magnet_hash(source).ok_or("magnet hash is required")?;
+    let existed = !qbittorrent_get_torrents(&client, settings, &hash)?.is_empty();
+
+    if !existed {
+        let form = multipart::Form::new()
+            .text("savepath", save_path.to_string())
+            .text("paused", "false")
+            .text("urls", source.to_string());
+
+        let response = client
+            .post(qbittorrent_url(settings, "torrents/add")?)
+            .multipart(form)
+            .send()?;
+        if !response.status().is_success() {
+            return Err(format!("qBittorrent add failed: {}", response.status()).into());
+        }
+    }
+
+    let resolved = poll_qbittorrent_magnet_files(&client, settings, &hash);
+    if !existed {
+        cleanup_qbittorrent_metadata_task(&client, settings, &hash);
+    }
+    resolved
+}
+
+fn poll_qbittorrent_magnet_files(
+    client: &Client,
+    settings: &EngineSettings,
+    hash: &str,
+) -> Result<Option<Vec<TorrentFileEntry>>, Box<dyn Error>> {
+    let mut last_state = None;
+
+    for _ in 0..MAGNET_NAME_RESOLVE_ATTEMPTS {
+        let torrents = qbittorrent_get_torrents(client, settings, hash)?;
+        if let Some(torrent) = torrents.first() {
+            last_state = Some(torrent.state.clone());
+            let name = torrent.name.trim();
+            if name.is_empty() || name.eq_ignore_ascii_case(hash) {
+                thread::sleep(MAGNET_NAME_RESOLVE_INTERVAL);
+                continue;
+            }
+
+            let files = qbittorrent_get_files(client, settings, hash)?;
+            if !files.is_empty() {
+                return files
+                    .into_iter()
+                    .map(|file| {
+                        Ok(TorrentFileEntry {
+                            index: file.index + 1,
+                            path: file.name,
+                            length: file.size,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Box<dyn Error>>>()
+                    .map(Some);
+            }
+        }
+
+        thread::sleep(MAGNET_NAME_RESOLVE_INTERVAL);
+    }
+
+    if let Some(state) = last_state {
+        logger::warn(format!("magnet metadata files were not resolved: {state}"));
+    } else {
+        logger::warn(format!(
+            "qBittorrent task not found while resolving magnet files: {hash}"
+        ));
+    }
+    Ok(None)
+}
+
 fn poll_qbittorrent_magnet_name(
     client: &Client,
     settings: &EngineSettings,
@@ -896,7 +1259,9 @@ fn poll_qbittorrent_magnet_name(
     if let Some(state) = last_state {
         logger::warn(format!("magnet metadata name was not resolved: {state}"));
     } else {
-        logger::warn(format!("qBittorrent task not found while resolving magnet name: {hash}"));
+        logger::warn(format!(
+            "qBittorrent task not found while resolving magnet name: {hash}"
+        ));
     }
     Ok(None)
 }
@@ -1001,6 +1366,8 @@ fn qbittorrent_post(
 #[derive(Deserialize)]
 struct QbTorrentFileInfo {
     index: i64,
+    name: String,
+    size: i64,
 }
 
 fn qbittorrent_select_files(

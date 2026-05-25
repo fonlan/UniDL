@@ -54,6 +54,23 @@ function classNames(...names: Array<string | false | null | undefined>) {
   return names.filter(Boolean).join(" ");
 }
 
+function formatBytes(bytes: number) {
+  if (bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 function parseSource(value: string): ParsedSource | null {
   const source = value.trim();
   if (!source) {
@@ -200,10 +217,10 @@ export default function NewTaskDialog({
   const [engineSettings, setEngineSettings] = useState<EngineSettings[]>([]);
   const [selectedEngineSettingsId, setSelectedEngineSettingsId] = useState("");
   const [savePath, setSavePath] = useState("");
-  const [engineArgs, setEngineArgs] = useState("");
   const [torrentSelection, setTorrentSelection] = useState<TorrentSelectionState | null>(null);
   const [isResolvingMagnetName, setIsResolvingMagnetName] = useState(false);
   const [magnetNameResolved, setMagnetNameResolved] = useState(false);
+  const [isLoadingTorrentFiles, setIsLoadingTorrentFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -242,6 +259,8 @@ export default function NewTaskDialog({
     fileName.trim().length > 0 &&
     savePath.trim().length > 0 &&
     (parsedSource?.sourceType !== "magnet" || magnetNameResolved) &&
+    (!torrentSelection || torrentSelection.selectedIndexes.size > 0) &&
+    !isLoadingTorrentFiles &&
     !isCreating;
   const canSelectLocalSavePath = selectedSettings?.engine !== "qbittorrent";
   const shouldResolveMagnetName =
@@ -301,13 +320,11 @@ export default function NewTaskDialog({
   useEffect(() => {
     if (!selectedSettings) {
       setSavePath("");
-      setEngineArgs("");
       setTorrentSelection(null);
       return;
     }
 
     setSavePath(defaultSavePath(selectedSettings));
-    setEngineArgs("");
     setTorrentSelection(null);
   }, [selectedSettings]);
 
@@ -354,7 +371,6 @@ export default function NewTaskDialog({
     setMagnetNameResolved(false);
     setSelectedEngineSettingsId("");
     setSavePath("");
-    setEngineArgs("");
     setError(null);
     setTorrentSelection(null);
     onClose();
@@ -403,7 +419,7 @@ export default function NewTaskDialog({
         engineSettingsId: selectedSettings.id,
         fileName: fileName.trim(),
         savePath: savePath.trim(),
-        engineArgs,
+        engineArgs: "",
         selectedFileIndexes: torrentSelection?.selectedIndexes.size
           ? [...torrentSelection.selectedIndexes].sort((left, right) => left - right)
           : null,
@@ -420,28 +436,56 @@ export default function NewTaskDialog({
   }
 
   useEffect(() => {
-    if (!open || !parsedSource || parsedSource.sourceType !== "torrent") {
+    if (
+      !open ||
+      !parsedSource ||
+      !selectedSettings?.enabled ||
+      (parsedSource.sourceType !== "torrent" && parsedSource.sourceType !== "magnet") ||
+      (parsedSource.sourceType === "magnet" && (!magnetNameResolved || savePath.trim().length === 0))
+    ) {
       setTorrentSelection(null);
+      setIsLoadingTorrentFiles(false);
       return;
     }
 
     const source = parsedSource.source;
+    const sourceType = parsedSource.sourceType;
+    const engineSettingsId = selectedSettings.id;
+    const currentSavePath = savePath.trim();
+    let disposed = false;
 
     async function loadTorrentFiles() {
+      setIsLoadingTorrentFiles(true);
       try {
-        const files = await getTorrentFiles(source);
-        setTorrentSelection({
-          files,
-          selectedIndexes: new Set(files.map((file) => file.index)),
-        });
+        const files = await getTorrentFiles(source, sourceType, engineSettingsId, currentSavePath);
+        if (!disposed) {
+          setTorrentSelection(
+            files.length > 0
+              ? {
+                  files,
+                  selectedIndexes: new Set(files.map((file) => file.index)),
+                }
+              : null,
+          );
+        }
       } catch (nextError) {
-        setTorrentSelection(null);
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        if (!disposed) {
+          setTorrentSelection(null);
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        }
+      } finally {
+        if (!disposed) {
+          setIsLoadingTorrentFiles(false);
+        }
       }
     }
 
     void loadTorrentFiles();
-  }, [open, parsedSource]);
+
+    return () => {
+      disposed = true;
+    };
+  }, [open, parsedSource, selectedSettings, savePath, magnetNameResolved]);
 
   async function selectSavePath() {
     const selected = await openDialog({
@@ -530,7 +574,13 @@ export default function NewTaskDialog({
                 )}
               </label>
 
-              {parsedSource?.sourceType === "torrent" && torrentSelection && (
+              {isLoadingTorrentFiles && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 md:col-span-2">
+                  正在读取 BT 文件列表…
+                </div>
+              )}
+
+              {torrentSelection && (
                 <div className="md:col-span-2 rounded-md border border-slate-200 bg-slate-50 p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-sm font-medium text-slate-700">文件选择</span>
@@ -582,7 +632,7 @@ export default function NewTaskDialog({
                           }
                         />
                         <span className="min-w-0 flex-1 truncate">{file.path}</span>
-                        <span className="text-xs text-slate-500">{file.length}</span>
+                        <span className="text-xs text-slate-500">{formatBytes(file.length)}</span>
                       </label>
                     ))}
                   </div>
@@ -636,15 +686,6 @@ export default function NewTaskDialog({
                 </div>
               </div>
 
-              <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700 md:col-span-2">
-                <span className="font-medium">参数</span>
-                <textarea
-                  value={engineArgs}
-                  onChange={(event) => setEngineArgs(event.currentTarget.value)}
-                  rows={3}
-                  className="min-h-20 resize-y rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-                />
-              </label>
             </div>
 
             {error && (
