@@ -64,6 +64,8 @@ export interface EngineSettings {
   remotePath: string | null;
   supportedSourceTypes: SourceType[];
   preferredDomains: string[];
+  trackerSubscriptionUrl: string | null;
+  trackers: string[];
   priority: number;
   updatedAt: string;
 }

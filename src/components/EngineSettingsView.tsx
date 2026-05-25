@@ -26,6 +26,7 @@ import {
   saveAppSettings,
   saveEngineSettings,
   testEngineConnection,
+  updateEngineTrackers,
   writeLog,
 } from "@/lib/api";
 import type {
@@ -40,6 +41,9 @@ import type {
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
 type SettingsGroup = "web-access" | "privacy" | "download-engines";
+
+const defaultTrackerSubscriptionUrl =
+  "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
 
 const engineLabels: Record<EngineKind, string> = {
   aria2: "aria2",
@@ -100,6 +104,8 @@ function defaultEngineSettings(
     remotePath: engine === "qbittorrent" ? "" : null,
     supportedSourceTypes: supportedSourceTypes(engine),
     preferredDomains: [],
+    trackerSubscriptionUrl: engine === "aria2" ? defaultTrackerSubscriptionUrl : null,
+    trackers: [],
     priority: 0,
     updatedAt: "",
   };
@@ -141,6 +147,8 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     remotePath: emptyToNull(settings.remotePath ?? ""),
     supportedSourceTypes: settings.supportedSourceTypes,
     preferredDomains: normalizePreferredDomains(settings.preferredDomains),
+    trackerSubscriptionUrl: emptyToNull(settings.trackerSubscriptionUrl ?? ""),
+    trackers: normalizeTrackers(settings.trackers),
     priority: settings.priority,
   };
 }
@@ -157,6 +165,28 @@ function preferredDomainsText(domains: string[]) {
 
 function parsePreferredDomains(value: string) {
   return normalizePreferredDomains(value.split(/[\s,;]+/));
+}
+
+function normalizeTrackers(trackers: string[]) {
+  const normalized: string[] = [];
+  for (const tracker of trackers) {
+    const trimmed = tracker.trim();
+    if (!trimmed || !trimmed.includes("://")) {
+      continue;
+    }
+    if (!normalized.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
+      normalized.push(trimmed);
+    }
+  }
+  return normalized;
+}
+
+function trackersText(trackers: string[]) {
+  return trackers.join("\n");
+}
+
+function parseTrackers(value: string) {
+  return normalizeTrackers(value.split(/[\s,;]+/));
 }
 
 function isDirty(saved: EngineSettings, draft: EngineSettings) {
@@ -322,6 +352,7 @@ export default function EngineSettingsView() {
   const [deletingEngineId, setDeletingEngineId] = useState<string | null>(null);
   const [installingEngineId, setInstallingEngineId] = useState<string | null>(null);
   const [testingEngineId, setTestingEngineId] = useState<string | null>(null);
+  const [updatingTrackersEngineId, setUpdatingTrackersEngineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedApp, setSavedApp] = useState(false);
   const [savedEngineId, setSavedEngineId] = useState<string | null>(null);
@@ -637,6 +668,35 @@ export default function EngineSettingsView() {
     }
   }
 
+  async function updateTrackers(settingsId: string) {
+    const draft = draftSettings.find((item) => item.id === settingsId);
+    if (!draft) {
+      return;
+    }
+
+    const subscriptionUrl = draft.trackerSubscriptionUrl?.trim() || defaultTrackerSubscriptionUrl;
+    setUpdatingTrackersEngineId(settingsId);
+    setError(null);
+    setSavedEngineId(null);
+
+    try {
+      void writeLog("info", `updating engine trackers: id=${settingsId}`);
+      const next = await updateEngineTrackers(settingsId, subscriptionUrl);
+      setSavedSettings((current) =>
+        sortSettings([...current.filter((item) => item.id !== next.id), next]),
+      );
+      setDraftSettings((current) =>
+        sortSettings([...current.filter((item) => item.id !== next.id), next]),
+      );
+      setSavedEngineId(next.id);
+      setTestedEngineId(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setUpdatingTrackersEngineId(null);
+    }
+  }
+
   return (
     <section className="min-h-0 flex-1 overflow-auto bg-surface">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4">
@@ -939,8 +999,14 @@ export default function EngineSettingsView() {
                             const isSaving = savingEngineId === draft.id;
                             const isInstalling = installingEngineId === draft.id;
                             const isTesting = testingEngineId === draft.id;
+                            const isUpdatingTrackers = updatingTrackersEngineId === draft.id;
                             const isDeleting = deletingEngineId === draft.id;
-                            const isBusy = isSaving || isInstalling || isTesting || isDeleting;
+                            const isBusy =
+                              isSaving ||
+                              isInstalling ||
+                              isTesting ||
+                              isUpdatingTrackers ||
+                              isDeleting;
 
                             return (
                               <div
@@ -1142,6 +1208,55 @@ export default function EngineSettingsView() {
                                           }
                                         />
                                       </>
+                                    )}
+                                    {draft.engine === "aria2" && (
+                                      <div className="md:col-span-2 grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <div>
+                                            <div className="text-sm font-medium text-slate-700">
+                                              Tracker 订阅
+                                            </div>
+                                            <div className="mt-1 text-xs text-slate-500">
+                                              已保存 {draft.trackers.length} 个 tracker，磁链任务会自动追加。
+                                            </div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            disabled={isUpdatingTrackers || dirty || !saved}
+                                            onClick={() => void updateTrackers(draft.id)}
+                                            className={classNames(
+                                              "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition",
+                                              isUpdatingTrackers || dirty || !saved
+                                                ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                                                : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                                            )}
+                                          >
+                                            <Download size={14} />
+                                            {isUpdatingTrackers ? "更新中" : "自动更新"}
+                                          </button>
+                                        </div>
+                                        <Field
+                                          label="订阅地址"
+                                          value={draft.trackerSubscriptionUrl ?? ""}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              trackerSubscriptionUrl: value,
+                                            })
+                                          }
+                                        />
+                                        <TextAreaField
+                                          label="Tracker 列表（每行一个）"
+                                          value={trackersText(draft.trackers)}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              trackers: parseTrackers(value),
+                                            })
+                                          }
+                                        />
+                                        <div className="text-xs text-slate-500">
+                                          内建推荐源：ngosang/trackerslist，可改成 XIU2/TrackersListCollection 等 GitHub raw 地址。
+                                        </div>
+                                      </div>
                                     )}
                                     <div className="md:col-span-2">
                                       <TextAreaField

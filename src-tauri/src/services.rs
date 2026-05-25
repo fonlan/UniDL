@@ -495,6 +495,10 @@ impl<'connection> EngineSettingsService<'connection> {
         self.repository.list_all()
     }
 
+    pub fn get(&self, settings_id: &str) -> Result<EngineSettings, Box<dyn Error>> {
+        self.repository.get(settings_id)
+    }
+
     pub fn save(&self, input: EngineSettingsInput) -> Result<EngineSettings, Box<dyn Error>> {
         let input = normalize_engine_settings_input(input)?;
         self.repository.save(&input)
@@ -526,6 +530,8 @@ impl<'connection> EngineSettingsService<'connection> {
             remote_path: current.remote_path,
             supported_source_types: current.supported_source_types,
             preferred_domains: current.preferred_domains,
+            tracker_subscription_url: current.tracker_subscription_url,
+            trackers: current.trackers,
             priority: current.priority,
         })?;
 
@@ -551,10 +557,47 @@ impl<'connection> EngineSettingsService<'connection> {
             remote_path: input.remote_path,
             supported_source_types: input.supported_source_types,
             preferred_domains: input.preferred_domains,
+            tracker_subscription_url: input.tracker_subscription_url,
+            trackers: input.trackers,
             priority: input.priority,
             updated_at: String::new(),
         };
         crate::engine_adapters::test_connection(&settings)
+    }
+
+    pub fn update_tracker_subscription(
+        &self,
+        settings_id: &str,
+        subscription_url: &str,
+    ) -> Result<EngineSettings, Box<dyn Error>> {
+        let current = self.repository.get(settings_id)?;
+        if current.engine != EngineKind::Aria2 {
+            return Err("tracker subscription is only supported for aria2".into());
+        }
+
+        let trackers = fetch_trackers(subscription_url)?;
+        if trackers.is_empty() {
+            return Err("tracker subscription returned no trackers".into());
+        }
+
+        self.save(EngineSettingsInput {
+            id: current.id,
+            engine: current.engine,
+            name: current.name,
+            enabled: current.enabled,
+            executable_path: current.executable_path,
+            default_download_dir: current.default_download_dir,
+            default_args: current.default_args,
+            connection_url: current.connection_url,
+            username: current.username,
+            password: current.password,
+            remote_path: current.remote_path,
+            supported_source_types: current.supported_source_types,
+            preferred_domains: current.preferred_domains,
+            tracker_subscription_url: Some(subscription_url.trim().to_string()),
+            trackers,
+            priority: current.priority,
+        })
     }
 
     pub fn validate_source_type(
@@ -607,9 +650,51 @@ fn normalize_engine_settings_input(
 
     Ok(EngineSettingsInput {
         name,
+        tracker_subscription_url: input
+            .tracker_subscription_url
+            .and_then(|value| {
+                let trimmed = value.trim().to_string();
+                (!trimmed.is_empty()).then_some(trimmed)
+            }),
+        trackers: normalize_trackers(input.trackers),
         supported_source_types,
         ..input
     })
+}
+
+fn fetch_trackers(subscription_url: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    let url = subscription_url.trim();
+    if url.is_empty() {
+        return Err("tracker subscription url is required".into());
+    }
+
+    let response = reqwest::blocking::get(url)?;
+    if !response.status().is_success() {
+        return Err(format!("tracker subscription failed: {}", response.status()).into());
+    }
+
+    Ok(normalize_trackers(parse_trackers(&response.text()?)))
+}
+
+fn parse_trackers(value: &str) -> Vec<String> {
+    value
+        .split(|character: char| character.is_whitespace() || character == ',' || character == ';')
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn normalize_trackers(trackers: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for tracker in trackers {
+        let tracker = tracker.trim().to_string();
+        if tracker.is_empty() || !tracker.contains("://") {
+            continue;
+        }
+        if !normalized.iter().any(|item: &String| item.eq_ignore_ascii_case(&tracker)) {
+            normalized.push(tracker);
+        }
+    }
+    normalized
 }
 
 #[cfg(test)]

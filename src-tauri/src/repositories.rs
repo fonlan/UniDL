@@ -97,6 +97,8 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path,
                 supported_source_types,
                 preferred_domains,
+                tracker_subscription_url,
+                trackers,
                 priority,
                 updated_at
             FROM engine_settings
@@ -133,10 +135,12 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path,
                 supported_source_types,
                 preferred_domains,
+                tracker_subscription_url,
+                trackers,
                 priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -149,6 +153,8 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path = excluded.remote_path,
                 supported_source_types = excluded.supported_source_types,
                 preferred_domains = excluded.preferred_domains,
+                tracker_subscription_url = excluded.tracker_subscription_url,
+                trackers = excluded.trackers,
                 priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
@@ -166,6 +172,8 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 input.remote_path.as_deref(),
                 encode_source_types(&input.supported_source_types),
                 encode_domains(&input.preferred_domains),
+                input.tracker_subscription_url.as_deref(),
+                encode_domains(&input.trackers),
                 input.priority,
             ),
         )?;
@@ -190,6 +198,8 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 remote_path,
                 supported_source_types,
                 preferred_domains,
+                tracker_subscription_url,
+                trackers,
                 priority,
                 updated_at
             FROM engine_settings
@@ -288,6 +298,8 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
             &row.get::<_, String>("supported_source_types")?,
         )?,
         preferred_domains: decode_domains(&row.get::<_, String>("preferred_domains")?),
+        tracker_subscription_url: row.get("tracker_subscription_url")?,
+        trackers: decode_domains(&row.get::<_, String>("trackers")?),
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })

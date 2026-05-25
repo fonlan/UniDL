@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Manager, State};
 
 use crate::{
-    engine_install,
+    engine_adapters, engine_install,
     logger,
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineInstallResult,
@@ -40,6 +40,32 @@ pub fn take_pending_open_requests(
 #[tauri::command]
 pub fn get_torrent_files(source: String) -> Result<Vec<crate::torrent_metadata::TorrentFileEntry>, String> {
     crate::torrent_metadata::read_torrent_files(&source).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn resolve_magnet_name(
+    source: String,
+    engine_settings_id: String,
+    save_path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    logger::info(format!(
+        "resolving magnet name: engine_settings_id={engine_settings_id}"
+    ));
+    let connection = state.lock_connection()?;
+    let settings = EngineSettingsService::new(&connection)
+        .get(&engine_settings_id)
+        .map_err(|error| error.to_string())?;
+    if !settings.enabled {
+        return Err(format!("{} is disabled", settings.id));
+    }
+    match engine_adapters::resolve_magnet_name(&settings, &source, &save_path)
+        .map_err(|error| error.to_string())
+    {
+        Ok(Some(name)) => Ok(name),
+        Ok(None) => Ok(String::new()),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
@@ -203,6 +229,19 @@ pub fn delete_engine_settings(
     let connection = state.lock_connection()?;
     EngineSettingsService::new(&connection)
         .delete(&settings_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn update_engine_trackers(
+    settings_id: String,
+    subscription_url: String,
+    state: State<'_, AppState>,
+) -> Result<EngineSettings, String> {
+    logger::info(format!("updating engine trackers: id={settings_id}"));
+    let connection = state.lock_connection()?;
+    EngineSettingsService::new(&connection)
+        .update_tracker_subscription(&settings_id, &subscription_url)
         .map_err(|error| error.to_string())
 }
 

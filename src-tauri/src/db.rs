@@ -34,6 +34,8 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             remote_path TEXT,
             supported_source_types TEXT NOT NULL DEFAULT '',
             preferred_domains TEXT NOT NULL DEFAULT '',
+            tracker_subscription_url TEXT,
+            trackers TEXT NOT NULL DEFAULT '',
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -84,6 +86,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_priority(connection)?;
     migrate_engine_settings_supported_source_types(connection)?;
     migrate_engine_settings_preferred_domains(connection)?;
+    migrate_engine_settings_trackers(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     migrate_download_tasks_size_fields(connection)?;
@@ -150,6 +153,8 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             remote_path TEXT,
             supported_source_types TEXT NOT NULL DEFAULT '',
             preferred_domains TEXT NOT NULL DEFAULT '',
+            tracker_subscription_url TEXT,
+            trackers TEXT NOT NULL DEFAULT '',
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -169,6 +174,8 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             remote_path,
             supported_source_types,
             preferred_domains,
+            tracker_subscription_url,
+            trackers,
             priority,
             created_at,
             updated_at
@@ -191,6 +198,8 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
                 WHEN 'qbittorrent' THEN 'magnet,torrent'
                 ELSE ''
             END,
+            '',
+            NULL,
             '',
             CASE engine
                 WHEN 'aria2' THEN 0
@@ -282,6 +291,30 @@ fn migrate_engine_settings_preferred_domains(
         "#,
         [],
     )?;
+
+    Ok(())
+}
+
+fn migrate_engine_settings_trackers(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if !has_column(connection, "engine_settings", "tracker_subscription_url")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN tracker_subscription_url TEXT;
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "trackers")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN trackers TEXT NOT NULL DEFAULT '';
+            "#,
+            [],
+        )?;
+    }
 
     Ok(())
 }

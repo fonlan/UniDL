@@ -3,7 +3,13 @@ import type { ClipboardEvent, DragEvent } from "react";
 import { FilePlus, FolderOpen, X } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
-import { createDownloadTask, getTorrentFiles, listEngineSettings, writeLog } from "@/lib/api";
+import {
+  createDownloadTask,
+  getTorrentFiles,
+  listEngineSettings,
+  resolveMagnetName,
+  writeLog,
+} from "@/lib/api";
 import type {
   DownloadTask,
   EngineKind,
@@ -118,6 +124,26 @@ function parsePathName(value: string) {
   return parts.at(-1) ?? null;
 }
 
+function resolvedInitialFileName(
+  initialFileName: string | null,
+  parsedSource: ParsedSource | null,
+) {
+  const initial = initialFileName?.trim();
+  if (!initial) {
+    return parsedSource?.fileName ?? "";
+  }
+
+  if (
+    parsedSource?.sourceType === "magnet" &&
+    initial === "magnet" &&
+    parsedSource.fileName !== "magnet"
+  ) {
+    return parsedSource.fileName;
+  }
+
+  return initial;
+}
+
 function valueFromDroppedFile(file: File) {
   const fileWithPath = file as File & { path?: string };
   return fileWithPath.path ?? file.name;
@@ -176,6 +202,8 @@ export default function NewTaskDialog({
   const [savePath, setSavePath] = useState("");
   const [engineArgs, setEngineArgs] = useState("");
   const [torrentSelection, setTorrentSelection] = useState<TorrentSelectionState | null>(null);
+  const [isResolvingMagnetName, setIsResolvingMagnetName] = useState(false);
+  const [magnetNameResolved, setMagnetNameResolved] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,8 +241,14 @@ export default function NewTaskDialog({
     Boolean(selectedSettings?.enabled) &&
     fileName.trim().length > 0 &&
     savePath.trim().length > 0 &&
+    (parsedSource?.sourceType !== "magnet" || magnetNameResolved) &&
     !isCreating;
   const canSelectLocalSavePath = selectedSettings?.engine !== "qbittorrent";
+  const shouldResolveMagnetName =
+    parsedSource?.sourceType === "magnet" &&
+    fileName.trim() === "magnet" &&
+    Boolean(selectedSettings?.enabled) &&
+    savePath.trim().length > 0;
 
   useEffect(() => {
     if (!open) {
@@ -247,7 +281,9 @@ export default function NewTaskDialog({
   }, [open]);
 
   useEffect(() => {
-    setFileName(initialFileName ?? parsedSource?.fileName ?? "");
+    const nextFileName = resolvedInitialFileName(initialFileName, parsedSource);
+    setFileName(nextFileName);
+    setMagnetNameResolved(parsedSource?.sourceType !== "magnet" || nextFileName !== "magnet");
   }, [initialFileName, parsedSource]);
 
   useEffect(() => {
@@ -275,9 +311,47 @@ export default function NewTaskDialog({
     setTorrentSelection(null);
   }, [selectedSettings]);
 
+  useEffect(() => {
+    if (!open || !parsedSource || !selectedSettings || !shouldResolveMagnetName) {
+      return;
+    }
+
+    let disposed = false;
+    const source = parsedSource.source;
+    const engineSettingsId = selectedSettings.id;
+    const currentSavePath = savePath.trim();
+
+    async function loadMagnetName() {
+      setMagnetNameResolved(false);
+      setIsResolvingMagnetName(true);
+      try {
+        const name = await resolveMagnetName(source, engineSettingsId, currentSavePath);
+        if (!disposed && name.trim()) {
+          setFileName(name.trim());
+          setMagnetNameResolved(true);
+        }
+      } catch (nextError) {
+        if (!disposed) {
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        }
+      } finally {
+        if (!disposed) {
+          setIsResolvingMagnetName(false);
+        }
+      }
+    }
+
+    void loadMagnetName();
+
+    return () => {
+      disposed = true;
+    };
+  }, [open, parsedSource, savePath, selectedSettings, shouldResolveMagnetName]);
+
   function resetAndClose() {
     setSourceInput("");
     setFileName("");
+    setMagnetNameResolved(false);
     setSelectedEngineSettingsId("");
     setSavePath("");
     setEngineArgs("");
@@ -451,6 +525,9 @@ export default function NewTaskDialog({
                   onChange={(event) => setFileName(event.currentTarget.value)}
                   className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
                 />
+                {isResolvingMagnetName && (
+                  <span className="text-xs text-slate-500">正在解析磁链文件名…</span>
+                )}
               </label>
 
               {parsedSource?.sourceType === "torrent" && torrentSelection && (

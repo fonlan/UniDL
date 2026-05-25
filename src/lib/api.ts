@@ -70,6 +70,19 @@ export function getTorrentFiles(source: string): Promise<TorrentFileEntry[]> {
 
   return invoke("get_torrent_files", { source });
 }
+
+export function resolveMagnetName(
+  source: string,
+  engineSettingsId: string,
+  savePath: string,
+): Promise<string> {
+  if (!hasTauriRuntime()) {
+    return Promise.reject(new Error("magnet metadata requires Tauri runtime"));
+  }
+
+  return invoke("resolve_magnet_name", { source, engineSettingsId, savePath });
+}
+
 export function writeLog(level: LogLevel, message: string): Promise<void> {
   if (!hasTauriRuntime()) {
     return Promise.resolve();
@@ -236,6 +249,17 @@ export function deleteEngineSettings(settingsId: string): Promise<void> {
   }
 
   return invoke("delete_engine_settings", { settingsId });
+}
+
+export function updateEngineTrackers(
+  settingsId: string,
+  subscriptionUrl: string,
+): Promise<EngineSettings> {
+  if (!hasTauriRuntime()) {
+    return Promise.reject(new Error("tracker update requires Tauri runtime"));
+  }
+
+  return invoke("update_engine_trackers", { settingsId, subscriptionUrl });
 }
 
 export function installLatestEngine(settingsId: string): Promise<EngineInstallResult> {
