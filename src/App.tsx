@@ -90,6 +90,14 @@ const taskTableColumns: TaskColumn[] = [
   { key: "completedAt", label: "完成时间", width: 128, minWidth: 104, resizable: true },
 ];
 
+const centeredTaskColumnKeys = new Set<TaskColumnKey>([
+  "engine",
+  "status",
+  "progress",
+  "size",
+  "speed",
+]);
+
 function isFinished(status: DownloadStatus) {
   return status === "completed" || status === "failed" || status === "deleted";
 }
@@ -708,8 +716,8 @@ function App() {
         ) : (
           <section className="min-h-0 flex-1 overflow-auto">
             <table
-              className="table-fixed border-separate border-spacing-0 text-left text-sm"
-              style={{ width: `${totalTaskTableWidth}px` }}
+              className="table-fixed border-separate border-spacing-0 text-sm"
+              style={{ width: "100%", minWidth: `${totalTaskTableWidth}px` }}
             >
               <colgroup>
                 {taskTableColumns.map((column) => (
@@ -724,6 +732,7 @@ function App() {
                       className={classNames(
                         "relative border-b border-slate-200 py-3",
                         column.key === "selected" ? "px-4" : "px-3",
+                        centeredTaskColumnKeys.has(column.key) ? "text-center" : "text-left",
                       )}
                     >
                       {column.key === "selected" ? (
@@ -794,29 +803,29 @@ function App() {
                         {sourceLabels[task.sourceType]}
                       </div>
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-slate-700">
+                    <td className="border-b border-slate-100 px-3 py-3 text-center text-slate-700">
                       {engineLabels[task.engine]}
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-3">
+                    <td className="border-b border-slate-100 px-3 py-3 text-center">
                       <StatusBadge status={task.status} />
                     </td>
                     <td className="border-b border-slate-100 px-3 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+                      <div className="space-y-1.5">
+                        <div className="text-center text-xs tabular-nums text-slate-600">
+                          {task.progress.toFixed(1)}%
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
                           <div
                             className="h-full rounded-full bg-emerald-700"
                             style={{ width: `${Math.min(100, Math.max(0, task.progress))}%` }}
                           />
                         </div>
-                        <span className="w-14 text-right text-xs tabular-nums text-slate-600">
-                          {task.progress.toFixed(1)}%
-                        </span>
                       </div>
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums text-slate-700">
+                    <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
                       {formatBytes(task.downloadedBytes)} / {formatBytes(task.totalBytes)}
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-3 tabular-nums text-slate-700">
+                    <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
                       {formatSpeed(task.speedBytesPerSec)}
                     </td>
                     <td className="border-b border-slate-100 px-3 py-3">
