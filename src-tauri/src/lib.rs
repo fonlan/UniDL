@@ -187,6 +187,8 @@ pub fn run() {
             commands::refresh_download_tasks,
             commands::create_download_task,
             commands::get_torrent_files,
+            commands::get_task_torrent_files,
+            commands::update_task_file_selection,
             commands::list_remote_directories,
             commands::resolve_magnet_name,
             commands::pause_download_tasks,

@@ -82,6 +82,25 @@ export function getTorrentFiles(
   });
 }
 
+export function getTaskTorrentFiles(id: string): Promise<TorrentFileEntry[]> {
+  if (!hasTauriRuntime()) {
+    return Promise.resolve([]);
+  }
+
+  return invoke("get_task_torrent_files", { id });
+}
+
+export function updateTaskFileSelection(
+  id: string,
+  selectedFileIndexes: number[],
+): Promise<DownloadTask> {
+  if (!hasTauriRuntime()) {
+    return Promise.reject(new Error("task file selection requires Tauri runtime"));
+  }
+
+  return invoke("update_task_file_selection", { id, selectedFileIndexes });
+}
+
 export function listRemoteDirectories(
   engineSettingsId: string,
   path: string,

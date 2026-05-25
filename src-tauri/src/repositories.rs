@@ -554,6 +554,34 @@ impl<'connection> DownloadTaskRepository<'connection> {
         Ok(())
     }
 
+    pub fn update_selected_file_indexes(
+        &self,
+        id: &str,
+        indexes: Option<&[i64]>,
+    ) -> Result<(), rusqlite::Error> {
+        self.connection.execute(
+            r#"
+            UPDATE download_tasks
+            SET selected_file_indexes = ?1
+            WHERE id = ?2
+            "#,
+            (encode_selected_file_indexes(indexes), id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_file_name(&self, id: &str, file_name: &str) -> Result<(), rusqlite::Error> {
+        self.connection.execute(
+            r#"
+            UPDATE download_tasks
+            SET file_name = ?1
+            WHERE id = ?2
+            "#,
+            (file_name, id),
+        )?;
+        Ok(())
+    }
+
     pub fn mark_failed(&self, id: &str, error: &str) -> Result<(), rusqlite::Error> {
         self.connection.execute(
             r#"

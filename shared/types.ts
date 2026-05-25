@@ -48,6 +48,7 @@ export interface TorrentFileEntry {
   index: number;
   path: string;
   length: number;
+  completedLength: number;
 }
 
 export interface RemoteDirectoryEntry {

@@ -8,6 +8,7 @@ pub struct TorrentFileEntry {
     pub index: i64,
     pub path: String,
     pub length: i64,
+    pub completed_length: i64,
 }
 
 #[derive(Debug)]
@@ -56,6 +57,7 @@ fn torrent_files(bytes: &[u8]) -> Result<Vec<TorrentFileEntry>, Box<dyn Error>> 
         index: 1,
         path: name,
         length,
+        completed_length: 0,
     }])
 }
 
@@ -76,6 +78,7 @@ fn torrent_file_entry(index: usize, file: &BValue) -> Result<TorrentFileEntry, B
         index: i64::try_from(index)?,
         path,
         length,
+        completed_length: 0,
     })
 }
 
@@ -102,7 +105,10 @@ fn required_integer(dict: &[(Vec<u8>, BValue)], key: &[u8]) -> Result<i64, Box<d
     }
 }
 
-fn required_bytes<'a>(dict: &'a [(Vec<u8>, BValue)], key: &[u8]) -> Result<&'a [u8], Box<dyn Error>> {
+fn required_bytes<'a>(
+    dict: &'a [(Vec<u8>, BValue)],
+    key: &[u8],
+) -> Result<&'a [u8], Box<dyn Error>> {
     match dict_value(dict, key) {
         Some(BValue::Bytes(value)) => Ok(value),
         Some(_) => Err(format!("torrent {} must be bytes", bytes_to_string(key)).into()),
@@ -198,7 +204,10 @@ impl<'a> Parser<'a> {
         }
         let length = std::str::from_utf8(&self.bytes[start..self.pos])?.parse::<usize>()?;
         self.expect(b':')?;
-        let end = self.pos.checked_add(length).ok_or("bencode byte string is too long")?;
+        let end = self
+            .pos
+            .checked_add(length)
+            .ok_or("bencode byte string is too long")?;
         if end > self.bytes.len() {
             return Err("bencode byte string exceeds input".into());
         }

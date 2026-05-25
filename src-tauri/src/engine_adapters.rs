@@ -48,6 +48,7 @@ pub struct EngineTaskState {
     pub downloaded_bytes: i64,
     pub total_bytes: i64,
     pub engine_task_id: Option<String>,
+    pub file_name: Option<String>,
     pub error_message: Option<String>,
 }
 
@@ -60,6 +61,7 @@ impl EngineTaskState {
             downloaded_bytes: 0,
             total_bytes: 0,
             engine_task_id: Some(engine_task_id.into()),
+            file_name: None,
             error_message: None,
         }
     }
@@ -105,6 +107,49 @@ pub fn resolve_magnet_metadata(
             files: None,
         }),
         EngineKind::YtDlp => Err("yt-dlp does not support magnet metadata".into()),
+    }
+}
+
+pub fn task_torrent_files(
+    settings: &EngineSettings,
+    task: &DownloadTask,
+) -> Result<Vec<TorrentFileEntry>, Box<dyn Error>> {
+    match settings.engine {
+        EngineKind::Aria2 => aria2_file_entries(
+            settings,
+            required_engine_task_id(task)?,
+            Some(&task.save_path),
+        ),
+        EngineKind::QBittorrent => qbittorrent_task_files(settings, task),
+        EngineKind::YtDlp => Err("yt-dlp does not support torrent files".into()),
+    }
+}
+
+pub fn update_task_file_selection(
+    settings: &EngineSettings,
+    task: &DownloadTask,
+    selected_file_indexes: &[i64],
+) -> Result<(), Box<dyn Error>> {
+    match settings.engine {
+        EngineKind::Aria2 => aria2_rpc(
+            settings,
+            "aria2.changeOption",
+            json!([
+                required_engine_task_id(task)?,
+                { "select-file": format_select_file_indexes(selected_file_indexes) }
+            ]),
+        )
+        .map(|_| ()),
+        EngineKind::QBittorrent => {
+            let client = qbittorrent_client(settings)?;
+            qbittorrent_select_files(
+                &client,
+                settings,
+                required_engine_task_id(task)?,
+                selected_file_indexes,
+            )
+        }
+        EngineKind::YtDlp => Err("yt-dlp does not support torrent file selection".into()),
     }
 }
 
@@ -175,6 +220,7 @@ pub fn pause_task(
                         downloaded_bytes: task.downloaded_bytes,
                         total_bytes: task.total_bytes,
                         engine_task_id: task.engine_task_id.clone(),
+                        file_name: None,
                         error_message: Some("aria2 rpc is unavailable".to_string()),
                     });
                 }
@@ -187,6 +233,7 @@ pub fn pause_task(
                 downloaded_bytes: task.downloaded_bytes,
                 total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
+                file_name: None,
                 error_message: None,
             })
         }
@@ -199,6 +246,7 @@ pub fn pause_task(
                 downloaded_bytes: task.downloaded_bytes,
                 total_bytes: task.total_bytes,
                 engine_task_id: None,
+                file_name: None,
                 error_message: None,
             })
         }
@@ -213,6 +261,7 @@ pub fn pause_task(
                 downloaded_bytes: task.downloaded_bytes,
                 total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
+                file_name: None,
                 error_message: None,
             })
         }
@@ -236,6 +285,7 @@ pub fn resume_task(
                         downloaded_bytes: task.downloaded_bytes,
                         total_bytes: task.total_bytes,
                         engine_task_id: task.engine_task_id.clone(),
+                        file_name: None,
                         error_message: None,
                     }),
                     Err(error) if aria2_resumable_after_restart(error.as_ref()) => {
@@ -259,6 +309,7 @@ pub fn resume_task(
                 downloaded_bytes: task.downloaded_bytes,
                 total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
+                file_name: None,
                 error_message: None,
             })
         }
@@ -487,10 +538,16 @@ fn aria2_file_entries(
                 .and_then(Value::as_str)
                 .and_then(|value| value.parse::<i64>().ok())
                 .ok_or("aria2 file length is missing")?;
+            let completed_length = file
+                .get("completedLength")
+                .and_then(Value::as_str)
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(0);
             Ok(TorrentFileEntry {
                 index: i64::try_from(index + 1)?,
                 path,
                 length,
+                completed_length,
             })
         })
         .collect()
@@ -853,6 +910,8 @@ fn refresh_aria2_task(
             [
                 "gid",
                 "status",
+                "followedBy",
+                "bittorrent",
                 "totalLength",
                 "completedLength",
                 "downloadSpeed",
@@ -869,6 +928,7 @@ fn refresh_aria2_task(
                 downloaded_bytes: task.downloaded_bytes,
                 total_bytes: task.total_bytes,
                 engine_task_id: task.engine_task_id.clone(),
+                file_name: None,
                 error_message: None,
             });
         }
@@ -892,21 +952,41 @@ fn refresh_aria2_task(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let bittorrent_name = aria2_bittorrent_name(&result)
+        .map(str::trim)
+        .map(ToOwned::to_owned);
+    let followed_by = result
+        .get("followedBy")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .next()
+        .map(ToOwned::to_owned);
+    let next_engine_task_id = followed_by.or_else(|| task.engine_task_id.clone());
+    let normalized_status = match status {
+        "complete"
+            if task.source_type == SourceType::Magnet
+                && next_engine_task_id.as_deref() != Some(gid) =>
+        {
+            DownloadStatus::Running
+        }
+        "complete" => DownloadStatus::Completed,
+        "active" => DownloadStatus::Running,
+        "waiting" => DownloadStatus::Queued,
+        "paused" => DownloadStatus::Paused,
+        "removed" => DownloadStatus::Deleted,
+        _ => DownloadStatus::Failed,
+    };
 
     Ok(EngineTaskState {
-        status: match status {
-            "complete" => DownloadStatus::Completed,
-            "active" => DownloadStatus::Running,
-            "waiting" => DownloadStatus::Queued,
-            "paused" => DownloadStatus::Paused,
-            "removed" => DownloadStatus::Deleted,
-            _ => DownloadStatus::Failed,
-        },
+        status: normalized_status,
         progress,
         speed_bytes_per_sec: speed,
         downloaded_bytes: completed,
         total_bytes: total,
-        engine_task_id: task.engine_task_id.clone(),
+        engine_task_id: next_engine_task_id,
+        file_name: bittorrent_name,
         error_message,
     })
 }
@@ -1228,10 +1308,12 @@ fn poll_qbittorrent_magnet_files(
                 return files
                     .into_iter()
                     .map(|file| {
+                        let completed_length = file.progress_bytes();
                         Ok(TorrentFileEntry {
                             index: file.index + 1,
                             path: file.name,
                             length: file.size,
+                            completed_length,
                         })
                     })
                     .collect::<Result<Vec<_>, Box<dyn Error>>>()
@@ -1316,6 +1398,7 @@ fn refresh_qbittorrent_task(
         downloaded_bytes: torrent.downloaded,
         total_bytes: torrent.total_size,
         engine_task_id: task.engine_task_id.clone(),
+        file_name: Some(torrent.name.clone()),
         error_message: None,
     })
 }
@@ -1433,6 +1516,32 @@ struct QbTorrentFileInfo {
     index: i64,
     name: String,
     size: i64,
+    progress: f64,
+}
+
+impl QbTorrentFileInfo {
+    fn progress_bytes(&self) -> i64 {
+        (self.size as f64 * self.progress).round() as i64
+    }
+}
+
+fn qbittorrent_task_files(
+    settings: &EngineSettings,
+    task: &DownloadTask,
+) -> Result<Vec<TorrentFileEntry>, Box<dyn Error>> {
+    let client = qbittorrent_client(settings)?;
+    qbittorrent_get_files(&client, settings, required_engine_task_id(task)?)?
+        .into_iter()
+        .map(|file| {
+            let completed_length = file.progress_bytes();
+            Ok(TorrentFileEntry {
+                index: file.index + 1,
+                path: file.name,
+                length: file.size,
+                completed_length,
+            })
+        })
+        .collect()
 }
 
 fn qbittorrent_select_files(
@@ -1719,6 +1828,7 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
             downloaded_bytes: task.downloaded_bytes,
             total_bytes: task.total_bytes,
             engine_task_id: None,
+            file_name: None,
             error_message: task.error_message.clone(),
         });
     }
@@ -1746,6 +1856,7 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
         downloaded_bytes: task.downloaded_bytes,
         total_bytes: task.total_bytes,
         engine_task_id: task.engine_task_id.clone(),
+        file_name: None,
         error_message: if running || task.status == DownloadStatus::Completed {
             task.error_message.clone()
         } else {

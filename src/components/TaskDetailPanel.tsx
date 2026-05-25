@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 
-import { getTorrentFiles } from "@/lib/api";
+import { getTaskTorrentFiles, updateTaskFileSelection } from "@/lib/api";
 import type {
   DownloadStatus,
   DownloadTask,
@@ -92,6 +92,10 @@ function parseMagnetTrackers(source: string) {
   return new URLSearchParams(source.slice("magnet:?".length)).getAll("tr");
 }
 
+function fileProgress(file: TorrentFileEntry) {
+  return file.length > 0 ? (file.completedLength / file.length) * 100 : 0;
+}
+
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -110,30 +114,38 @@ export default function TaskDetailPanel({
   task: DownloadTask;
   onClose: () => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"detail" | "files">("detail");
   const [torrentFiles, setTorrentFiles] = useState<TorrentFileEntry[]>([]);
   const [isLoadingTorrentFiles, setIsLoadingTorrentFiles] = useState(false);
   const [torrentFileError, setTorrentFileError] = useState<string | null>(null);
-  const trackers = parseMagnetTrackers(task.source);
-  const selectedFileIndexes = useMemo(
+  const [selectedFileIndexes, setSelectedFileIndexes] = useState<Set<number>>(
     () => new Set(task.selectedFileIndexes ?? []),
-    [task.selectedFileIndexes],
   );
+  const [isSavingFileSelection, setIsSavingFileSelection] = useState(false);
+  const trackers = parseMagnetTrackers(task.source);
+
+  useEffect(() => {
+    setSelectedFileIndexes(new Set(task.selectedFileIndexes ?? []));
+  }, [task.id, task.selectedFileIndexes]);
 
   useEffect(() => {
     let disposed = false;
     setTorrentFiles([]);
     setTorrentFileError(null);
 
-    if (task.sourceType !== "torrent") {
+    if (task.sourceType !== "magnet" && task.sourceType !== "torrent") {
       setIsLoadingTorrentFiles(false);
       return;
     }
 
     setIsLoadingTorrentFiles(true);
-    void getTorrentFiles(task.source, task.sourceType, task.engineSettingsId, task.savePath)
+    void getTaskTorrentFiles(task.id)
       .then((files) => {
         if (!disposed) {
           setTorrentFiles(files);
+          if (!task.selectedFileIndexes || task.selectedFileIndexes.length === 0) {
+            setSelectedFileIndexes(new Set(files.map((file) => file.index)));
+          }
         }
       })
       .catch((nextError) => {
@@ -150,7 +162,26 @@ export default function TaskDetailPanel({
     return () => {
       disposed = true;
     };
-  }, [task.source, task.sourceType]);
+  }, [task.id, task.sourceType, task.selectedFileIndexes]);
+
+  async function saveFileSelection(nextSelectedFileIndexes: Set<number>) {
+    if (nextSelectedFileIndexes.size === 0) {
+      return;
+    }
+    setSelectedFileIndexes(nextSelectedFileIndexes);
+    setIsSavingFileSelection(true);
+    setTorrentFileError(null);
+    try {
+      await updateTaskFileSelection(
+        task.id,
+        [...nextSelectedFileIndexes].sort((left, right) => left - right),
+      );
+    } catch (nextError) {
+      setTorrentFileError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setIsSavingFileSelection(false);
+    }
+  }
 
   return (
     <aside className="shrink-0 border-t border-slate-200 bg-white shadow-[0_-16px_40px_rgba(15,23,42,0.08)]">
@@ -170,7 +201,31 @@ export default function TaskDetailPanel({
         </button>
       </div>
 
+      {(task.sourceType === "magnet" || task.sourceType === "torrent") && (
+        <div className="flex gap-2 border-b border-slate-100 px-4 pt-3">
+          {[
+            ["detail", "详情"],
+            ["files", "文件列表"],
+          ].map(([tab, label]) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab as "detail" | "files")}
+              className={`border-b-2 px-3 pb-2 text-sm font-medium ${
+                activeTab === tab
+                  ? "border-emerald-700 text-emerald-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="max-h-[42vh] overflow-auto px-4 py-4">
+        {activeTab === "detail" && (
+          <>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <DetailField label="任务 ID" value={task.id} />
           <DetailField label="引擎任务 ID" value={task.engineTaskId ?? "-"} />
@@ -196,7 +251,7 @@ export default function TaskDetailPanel({
         </div>
 
         {(task.sourceType === "magnet" || task.sourceType === "torrent") && (
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div className="mt-4">
             <section className="rounded-lg border border-slate-200">
               <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
                 Tracker
@@ -219,58 +274,74 @@ export default function TaskDetailPanel({
                 </div>
               )}
             </section>
+          </div>
+        )}
+          </>
+        )}
 
-            <section className="rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">文件列表</div>
-                {task.sourceType === "torrent" && torrentFiles.length > 0 && (
-                  <div className="text-xs text-slate-500">{torrentFiles.length} 个文件</div>
-                )}
-              </div>
-              {task.sourceType === "magnet" ? (
-                <div className="px-3 py-2 text-sm text-slate-500">
-                  磁链任务当前无法在开始前解析文件列表，需要下载引擎暴露元数据后显示。
-                </div>
-              ) : isLoadingTorrentFiles ? (
-                <div className="px-3 py-2 text-sm text-slate-500">正在读取文件列表...</div>
-              ) : torrentFileError ? (
-                <div className="px-3 py-2 text-sm text-rose-700">{torrentFileError}</div>
-              ) : torrentFiles.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-slate-500">未读取到文件列表。</div>
-              ) : (
-                <div className="max-h-56 overflow-auto">
-                  <table className="w-full table-fixed text-left text-sm">
-                    <thead className="sticky top-0 bg-white text-xs text-slate-500">
-                      <tr>
-                        <th className="w-16 border-b border-slate-100 px-3 py-2">序号</th>
-                        <th className="border-b border-slate-100 px-3 py-2">路径</th>
-                        <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">大小</th>
-                        <th className="w-20 border-b border-slate-100 px-3 py-2 text-right">选择</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {torrentFiles.map((file) => (
-                        <tr key={file.index}>
-                          <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">
-                            {file.index}
-                          </td>
-                          <td className="border-b border-slate-100 px-3 py-2">
-                            <div className="truncate text-slate-700" title={file.path}>{file.path}</div>
-                          </td>
-                          <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
-                            {formatBytes(file.length)}
-                          </td>
-                          <td className="border-b border-slate-100 px-3 py-2 text-right text-slate-600">
-                            {selectedFileIndexes.size === 0 || selectedFileIndexes.has(file.index) ? "是" : "否"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        {activeTab === "files" && (task.sourceType === "magnet" || task.sourceType === "torrent") && (
+          <section className="rounded-lg border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">文件列表</div>
+              {torrentFiles.length > 0 && (
+                <div className="text-xs text-slate-500">
+                  {selectedFileIndexes.size}/{torrentFiles.length} 个文件
+                  {isSavingFileSelection ? "，正在保存…" : ""}
                 </div>
               )}
-            </section>
-          </div>
+            </div>
+            {isLoadingTorrentFiles ? (
+              <div className="px-3 py-2 text-sm text-slate-500">正在读取文件列表...</div>
+            ) : torrentFileError ? (
+              <div className="px-3 py-2 text-sm text-rose-700">{torrentFileError}</div>
+            ) : torrentFiles.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-slate-500">未读取到文件列表，请等待引擎获取 BT 元数据后刷新。</div>
+            ) : (
+              <div className="max-h-[34vh] overflow-auto">
+                <table className="w-full table-fixed text-left text-sm">
+                  <thead className="sticky top-0 bg-white text-xs text-slate-500">
+                    <tr>
+                      <th className="w-12 border-b border-slate-100 px-3 py-2">选择</th>
+                      <th className="border-b border-slate-100 px-3 py-2">相对路径</th>
+                      <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">大小</th>
+                      <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">进度</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {torrentFiles.map((file) => (
+                      <tr key={file.index}>
+                        <td className="border-b border-slate-100 px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedFileIndexes.has(file.index)}
+                            disabled={isSavingFileSelection || (selectedFileIndexes.size === 1 && selectedFileIndexes.has(file.index))}
+                            onChange={(event) => {
+                              const next = new Set(selectedFileIndexes);
+                              if (event.currentTarget.checked) {
+                                next.add(file.index);
+                              } else {
+                                next.delete(file.index);
+                              }
+                              void saveFileSelection(next);
+                            }}
+                          />
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-2">
+                          <div className="truncate text-slate-700" title={file.path}>{file.path}</div>
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
+                          {formatBytes(file.length)}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
+                          {fileProgress(file).toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         )}
       </div>
     </aside>

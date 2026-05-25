@@ -83,6 +83,51 @@ impl<'connection> DownloadTaskService<'connection> {
         }
     }
 
+    pub fn torrent_files(
+        &self,
+        id: &str,
+    ) -> Result<Vec<crate::torrent_metadata::TorrentFileEntry>, Box<dyn Error>> {
+        let task = self.repository.get_by_id(id)?;
+        if !matches!(task.source_type, SourceType::Magnet | SourceType::Torrent) {
+            return Err(format!("{} does not have torrent files", task.source_type.as_db()).into());
+        }
+        let engine_settings =
+            EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
+        engine_adapters::task_torrent_files(&engine_settings, &task)
+    }
+
+    pub fn update_file_selection(
+        &self,
+        id: &str,
+        selected_file_indexes: Vec<i64>,
+    ) -> Result<DownloadTask, Box<dyn Error>> {
+        if selected_file_indexes.is_empty() {
+            return Err("selected file indexes cannot be empty".into());
+        }
+        if selected_file_indexes.iter().any(|index| *index < 1) {
+            return Err("selected file indexes must start from 1".into());
+        }
+
+        let task = self.repository.get_by_id(id)?;
+        if !matches!(task.source_type, SourceType::Magnet | SourceType::Torrent) {
+            return Err(format!(
+                "{} does not support file selection",
+                task.source_type.as_db()
+            )
+            .into());
+        }
+        let engine_settings =
+            EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
+        engine_adapters::update_task_file_selection(
+            &engine_settings,
+            &task,
+            &selected_file_indexes,
+        )?;
+        self.repository
+            .update_selected_file_indexes(id, Some(&selected_file_indexes))?;
+        self.repository.get_by_id(id)
+    }
+
     pub fn refresh_all(&self) -> Result<Vec<DownloadTask>, Box<dyn Error>> {
         let tasks = self.repository.list_created_desc()?;
         for task in tasks {
@@ -229,6 +274,17 @@ impl<'connection> DownloadTaskService<'connection> {
             state.engine_task_id.as_deref(),
             state.error_message.as_deref(),
         )?;
+        if let Some(file_name) = state
+            .file_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let task = self.repository.get_by_id(task_id)?;
+            if task.source_type == SourceType::Magnet && task.file_name != file_name {
+                self.repository.update_file_name(task_id, file_name)?;
+            }
+        }
         if state.status == DownloadStatus::Completed {
             let task = self.repository.get_by_id(task_id)?;
             let app_settings = AppSettingsRepository::new(self.connection).get()?;
@@ -650,12 +706,10 @@ fn normalize_engine_settings_input(
 
     Ok(EngineSettingsInput {
         name,
-        tracker_subscription_url: input
-            .tracker_subscription_url
-            .and_then(|value| {
-                let trimmed = value.trim().to_string();
-                (!trimmed.is_empty()).then_some(trimmed)
-            }),
+        tracker_subscription_url: input.tracker_subscription_url.and_then(|value| {
+            let trimmed = value.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
+        }),
         trackers: normalize_trackers(input.trackers),
         supported_source_types,
         ..input
@@ -690,7 +744,10 @@ fn normalize_trackers(trackers: Vec<String>) -> Vec<String> {
         if tracker.is_empty() || !tracker.contains("://") {
             continue;
         }
-        if !normalized.iter().any(|item: &String| item.eq_ignore_ascii_case(&tracker)) {
+        if !normalized
+            .iter()
+            .any(|item: &String| item.eq_ignore_ascii_case(&tracker))
+        {
             normalized.push(tracker);
         }
     }

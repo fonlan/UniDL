@@ -5,10 +5,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
   createDownloadTask,
-  getTorrentFiles,
   listEngineSettings,
   listRemoteDirectories,
-  resolveMagnetName,
   writeLog,
 } from "@/lib/api";
 import type {
@@ -17,7 +15,6 @@ import type {
   EngineSettings,
   RemoteDirectoryEntry,
   SourceType,
-  TorrentFileEntry,
 } from "@shared/types";
 
 const sourceLabels: Record<SourceType, string> = {
@@ -46,11 +43,6 @@ interface ParsedSource {
 }
 
 
-interface TorrentSelectionState {
-  files: TorrentFileEntry[];
-  selectedIndexes: Set<number>;
-}
-
 interface RemoteDirectoryTreeState {
   open: boolean;
   path: string;
@@ -63,23 +55,6 @@ function classNames(...names: Array<string | false | null | undefined>) {
   return names.filter(Boolean).join(" ");
 }
 
-function formatBytes(bytes: number) {
-  if (bytes <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
 function parseSource(value: string): ParsedSource | null {
   const source = value.trim();
   if (!source) {
@@ -90,7 +65,7 @@ function parseSource(value: string): ParsedSource | null {
     return {
       sourceType: "magnet",
       source,
-      fileName: parseMagnetName(source) ?? "magnet",
+      fileName: parseMagnetHash(source) ?? "magnet",
     };
   }
 
@@ -121,19 +96,6 @@ function parseSource(value: string): ParsedSource | null {
   return null;
 }
 
-function parseMagnetName(value: string) {
-  const match = /(?:[?&])dn=([^&]+)/i.exec(value);
-  if (!match) {
-    return null;
-  }
-
-  try {
-    return decodeURIComponent(match[1].replace(/\+/g, " "));
-  } catch {
-    return match[1];
-  }
-}
-
 function parseUrlName(value: string) {
   try {
     const url = new URL(value);
@@ -150,6 +112,19 @@ function parsePathName(value: string) {
   return parts.at(-1) ?? null;
 }
 
+function parseMagnetHash(value: string) {
+  const match = /(?:^magnet:\?|[?&])xt=urn:btih:([^&]+)/i.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 function resolvedInitialFileName(
   initialFileName: string | null,
   parsedSource: ParsedSource | null,
@@ -159,12 +134,8 @@ function resolvedInitialFileName(
     return parsedSource?.fileName ?? "";
   }
 
-  if (
-    parsedSource?.sourceType === "magnet" &&
-    initial === "magnet" &&
-    parsedSource.fileName !== "magnet"
-  ) {
-    return parsedSource.fileName;
+  if (parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent") {
+    return "";
   }
 
   return initial;
@@ -226,11 +197,7 @@ export default function NewTaskDialog({
   const [engineSettings, setEngineSettings] = useState<EngineSettings[]>([]);
   const [selectedEngineSettingsId, setSelectedEngineSettingsId] = useState("");
   const [savePath, setSavePath] = useState("");
-  const [torrentSelection, setTorrentSelection] = useState<TorrentSelectionState | null>(null);
   const [remoteDirectoryTree, setRemoteDirectoryTree] = useState<RemoteDirectoryTreeState | null>(null);
-  const [isResolvingMagnetName, setIsResolvingMagnetName] = useState(false);
-  const [magnetNameResolved, setMagnetNameResolved] = useState(false);
-  const [isLoadingTorrentFiles, setIsLoadingTorrentFiles] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -266,20 +233,11 @@ export default function NewTaskDialog({
   const canCreate =
     Boolean(parsedSource) &&
     Boolean(selectedSettings?.enabled) &&
-    fileName.trim().length > 0 &&
+    (parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent" || fileName.trim().length > 0) &&
     savePath.trim().length > 0 &&
-    (parsedSource?.sourceType !== "magnet" || magnetNameResolved) &&
-    (!torrentSelection || torrentSelection.selectedIndexes.size > 0) &&
-    !isLoadingTorrentFiles &&
     !isCreating;
   const canSelectLocalSavePath = selectedSettings?.engine !== "qbittorrent";
   const canSelectRemoteSavePath = selectedSettings?.engine === "qbittorrent" && Boolean(selectedSettings.enabled);
-  const shouldResolveMagnetName =
-    parsedSource?.sourceType === "magnet" &&
-    fileName.trim() === "magnet" &&
-    Boolean(selectedSettings?.enabled) &&
-    savePath.trim().length > 0;
-
   useEffect(() => {
     if (!open) {
       return;
@@ -313,7 +271,6 @@ export default function NewTaskDialog({
   useEffect(() => {
     const nextFileName = resolvedInitialFileName(initialFileName, parsedSource);
     setFileName(nextFileName);
-    setMagnetNameResolved(parsedSource?.sourceType !== "magnet" || nextFileName !== "magnet");
   }, [initialFileName, parsedSource]);
 
   useEffect(() => {
@@ -331,61 +288,20 @@ export default function NewTaskDialog({
   useEffect(() => {
     if (!selectedSettings) {
       setSavePath("");
-      setTorrentSelection(null);
       setRemoteDirectoryTree(null);
       return;
     }
 
     setSavePath(defaultSavePath(selectedSettings));
-    setTorrentSelection(null);
     setRemoteDirectoryTree(null);
   }, [selectedSettings]);
-
-  useEffect(() => {
-    if (!open || !parsedSource || !selectedSettings || !shouldResolveMagnetName) {
-      return;
-    }
-
-    let disposed = false;
-    const source = parsedSource.source;
-    const engineSettingsId = selectedSettings.id;
-    const currentSavePath = savePath.trim();
-
-    async function loadMagnetName() {
-      setMagnetNameResolved(false);
-      setIsResolvingMagnetName(true);
-      try {
-        const name = await resolveMagnetName(source, engineSettingsId, currentSavePath);
-        if (!disposed && name.trim()) {
-          setFileName(name.trim());
-          setMagnetNameResolved(true);
-        }
-      } catch (nextError) {
-        if (!disposed) {
-          setError(nextError instanceof Error ? nextError.message : String(nextError));
-        }
-      } finally {
-        if (!disposed) {
-          setIsResolvingMagnetName(false);
-        }
-      }
-    }
-
-    void loadMagnetName();
-
-    return () => {
-      disposed = true;
-    };
-  }, [open, parsedSource, savePath, selectedSettings, shouldResolveMagnetName]);
 
   function resetAndClose() {
     setSourceInput("");
     setFileName("");
-    setMagnetNameResolved(false);
     setSelectedEngineSettingsId("");
     setSavePath("");
     setError(null);
-    setTorrentSelection(null);
     setRemoteDirectoryTree(null);
     onClose();
   }
@@ -431,12 +347,10 @@ export default function NewTaskDialog({
         source: parsedSource.source,
         engine: selectedSettings.engine,
         engineSettingsId: selectedSettings.id,
-        fileName: fileName.trim(),
+        fileName: fileName.trim() || parsedSource.fileName || sourceLabels[parsedSource.sourceType],
         savePath: savePath.trim(),
         engineArgs: "",
-        selectedFileIndexes: torrentSelection?.selectedIndexes.size
-          ? [...torrentSelection.selectedIndexes].sort((left, right) => left - right)
-          : null,
+        selectedFileIndexes: null,
         browserCookies: initialBrowserCookies,
       });
       onCreated(task);
@@ -448,58 +362,6 @@ export default function NewTaskDialog({
       setIsCreating(false);
     }
   }
-
-  useEffect(() => {
-    if (
-      !open ||
-      !parsedSource ||
-      !selectedSettings?.enabled ||
-      (parsedSource.sourceType !== "torrent" && parsedSource.sourceType !== "magnet") ||
-      (parsedSource.sourceType === "magnet" && (!magnetNameResolved || savePath.trim().length === 0))
-    ) {
-      setTorrentSelection(null);
-      setIsLoadingTorrentFiles(false);
-      return;
-    }
-
-    const source = parsedSource.source;
-    const sourceType = parsedSource.sourceType;
-    const engineSettingsId = selectedSettings.id;
-    const currentSavePath = savePath.trim();
-    let disposed = false;
-
-    async function loadTorrentFiles() {
-      setIsLoadingTorrentFiles(true);
-      try {
-        const files = await getTorrentFiles(source, sourceType, engineSettingsId, currentSavePath);
-        if (!disposed) {
-          setTorrentSelection(
-            files.length > 0
-              ? {
-                  files,
-                  selectedIndexes: new Set(files.map((file) => file.index)),
-                }
-              : null,
-          );
-        }
-      } catch (nextError) {
-        if (!disposed) {
-          setTorrentSelection(null);
-          setError(nextError instanceof Error ? nextError.message : String(nextError));
-        }
-      } finally {
-        if (!disposed) {
-          setIsLoadingTorrentFiles(false);
-        }
-      }
-    }
-
-    void loadTorrentFiles();
-
-    return () => {
-      disposed = true;
-    };
-  }, [open, parsedSource, selectedSettings, savePath, magnetNameResolved]);
 
   async function selectSavePath() {
     const selected = await openDialog({
@@ -613,78 +475,14 @@ export default function NewTaskDialog({
                 <span className="font-medium">文件名</span>
                 <input
                   value={fileName}
+                  disabled={parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent"}
                   onChange={(event) => setFileName(event.currentTarget.value)}
-                  className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                  className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
                 />
-                {isResolvingMagnetName && (
-                  <span className="text-xs text-slate-500">正在解析磁链文件名…</span>
+                {(parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent") && (
+                  <span className="text-xs text-slate-500">BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。</span>
                 )}
               </label>
-
-              {isLoadingTorrentFiles && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 md:col-span-2">
-                  正在读取 BT 文件列表…
-                </div>
-              )}
-
-              {torrentSelection && (
-                <div className="md:col-span-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-slate-700">文件选择</span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-white"
-                        onClick={() =>
-                          setTorrentSelection({
-                            ...torrentSelection,
-                            selectedIndexes: new Set(torrentSelection.files.map((file) => file.index)),
-                          })
-                        }
-                      >
-                        全选
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-white"
-                        onClick={() =>
-                          setTorrentSelection({
-                            ...torrentSelection,
-                            selectedIndexes: new Set(),
-                          })
-                        }
-                      >
-                        取消
-                      </button>
-                    </div>
-                  </div>
-                  <div className="max-h-48 overflow-auto rounded border border-slate-200 bg-white">
-                    {torrentSelection.files.map((file) => (
-                      <label
-                        key={file.index}
-                        className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={torrentSelection.selectedIndexes.has(file.index)}
-                          onChange={(event) =>
-                            setTorrentSelection({
-                              ...torrentSelection,
-                              selectedIndexes: new Set(
-                                event.currentTarget.checked
-                                  ? [...torrentSelection.selectedIndexes, file.index]
-                                  : [...torrentSelection.selectedIndexes].filter((value) => value !== file.index),
-                              ),
-                            })
-                          }
-                        />
-                        <span className="min-w-0 flex-1 truncate">{file.path}</span>
-                        <span className="text-xs text-slate-500">{formatBytes(file.length)}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
                 <span className="font-medium">引擎</span>

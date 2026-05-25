@@ -22,7 +22,9 @@ pub fn spawn_download_task_refresh_worker(app_handle: AppHandle, database_path: 
             }
         };
 
-        if let Err(error) = DownloadTaskService::new(&connection, database_path.clone()).refresh_all() {
+        if let Err(error) =
+            DownloadTaskService::new(&connection, database_path.clone()).refresh_all()
+        {
             eprintln!("download task refresh worker refresh error: {error}");
             continue;
         }

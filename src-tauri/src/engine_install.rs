@@ -115,7 +115,11 @@ fn download_to_file(client: &Client, url: &str, path: &Path) -> Result<(), Box<d
     Ok(())
 }
 
-fn extract_file_from_zip(bytes: &[u8], file_name: &str, output: &Path) -> Result<(), Box<dyn Error>> {
+fn extract_file_from_zip(
+    bytes: &[u8],
+    file_name: &str,
+    output: &Path,
+) -> Result<(), Box<dyn Error>> {
     let reader = Cursor::new(bytes);
     let mut archive = ZipArchive::new(reader)?;
     let index = find_zip_index(&mut archive, file_name)?;

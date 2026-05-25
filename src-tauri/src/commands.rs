@@ -77,6 +77,29 @@ pub fn get_torrent_files(
     }
 }
 
+#[tauri::command]
+pub fn get_task_torrent_files(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::torrent_metadata::TorrentFileEntry>, String> {
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .torrent_files(&id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn update_task_file_selection(
+    id: String,
+    selected_file_indexes: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<DownloadTask, String> {
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .update_file_selection(&id, selected_file_indexes)
+        .map_err(|error| error.to_string())
+}
+
 fn source_type_label(source_type: SourceType) -> &'static str {
     match source_type {
         SourceType::Http => "http",
