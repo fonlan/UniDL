@@ -38,6 +38,8 @@ import type {
   SourceType,
 } from "@shared/types";
 
+const ERROR_AUTO_DISMISS_MS = 10_000;
+
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
 type SettingsGroup = "web-access" | "privacy" | "download-engines";
@@ -406,6 +408,20 @@ export default function EngineSettingsView() {
 
     void loadSettings();
   }, []);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setError(null);
+    }, ERROR_AUTO_DISMISS_MS);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [error]);
 
   function updateAppDraft(patch: Partial<AppSettings>) {
     setSavedApp(false);

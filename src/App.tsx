@@ -170,6 +170,8 @@ function hasTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+const ERROR_AUTO_DISMISS_MS = 10_000;
+
 function IconButton({
   title,
   disabled,
@@ -243,6 +245,21 @@ function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setError(null);
+    }, ERROR_AUTO_DISMISS_MS);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [error]);
+
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [taskColumnWidths, setTaskColumnWidths] = useState<Record<TaskColumnKey, number>>(() =>

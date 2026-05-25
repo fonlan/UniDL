@@ -30,6 +30,7 @@ const engineLabels: Record<EngineKind, string> = {
   qbittorrent: "qBittorrent",
 };
 
+const ERROR_AUTO_DISMISS_MS = 10_000;
 function engineOptionLabel(settings: EngineSettings) {
   const name = settings.name.trim();
   const engineLabel = engineLabels[settings.engine];
@@ -296,6 +297,20 @@ export default function NewTaskDialog({
     setRemoteDirectoryTree(null);
   }, [selectedSettings]);
 
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setError(null);
+    }, ERROR_AUTO_DISMISS_MS);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [error]);
+
   function resetAndClose() {
     setSourceInput("");
     setFileName("");
@@ -376,6 +391,23 @@ export default function NewTaskDialog({
     }
   }
 
+  async function selectTorrentFile() {
+    const selected = await openDialog({
+      multiple: false,
+      filters: [
+        {
+          name: "Torrent",
+          extensions: ["torrent"],
+        },
+      ],
+      title: "选择本地 torrent 文件",
+    });
+
+    if (typeof selected === "string") {
+      setSourceInput(selected);
+    }
+  }
+
   async function loadRemoteDirectories(path: string) {
     if (!selectedSettings) {
       return;
@@ -435,7 +467,17 @@ export default function NewTaskDialog({
         <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
           <div className="grid gap-4">
             <label className="flex flex-col gap-1.5 text-sm text-slate-700">
-              <span className="font-medium">来源</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">来源</span>
+                <button
+                  type="button"
+                  onClick={() => void selectTorrentFile()}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <FolderOpen size={15} />
+                  选择 torrent 文件
+                </button>
+              </div>
               <textarea
                 value={sourceInput}
                 onChange={(event) => setSourceInput(event.currentTarget.value)}
