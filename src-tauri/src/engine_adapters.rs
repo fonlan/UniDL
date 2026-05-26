@@ -1669,6 +1669,7 @@ fn add_ytdlp_task(
         .as_deref()
         .ok_or("yt-dlp executable path is required")?;
     let mut command = Command::new(executable);
+    apply_ytdlp_utf8_env(&mut command);
     let cookie_path = write_ytdlp_cookie_file(task)?;
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
@@ -1781,7 +1782,7 @@ fn spawn_ytdlp_progress_reader(
             while matches!(bytes.last(), Some(b'\n' | b'\r')) {
                 bytes.pop();
             }
-            let line = String::from_utf8_lossy(&bytes).into_owned();
+            let line = decode_ytdlp_stdout_line(&bytes);
             if let Some(progress) = parse_ytdlp_progress(&line) {
                 let _ = update_ytdlp_progress(
                     &database_path,
@@ -1792,10 +1793,152 @@ fn spawn_ytdlp_progress_reader(
                     progress.total_bytes,
                 );
             }
+            if let Some(file_name) = parse_ytdlp_destination_name(&line) {
+                if !is_ytdlp_format_temp_file_name(&file_name) {
+                    let _ = update_ytdlp_file_name(&database_path, &task_id, &file_name);
+                }
+            }
             remember_ytdlp_output_line(&output_lines, line);
             bytes.clear();
         }
     })
+}
+
+/// Decode one stdout/stderr line from yt-dlp into a String, tolerating the
+/// common Windows mojibake case where the PyInstaller-frozen yt-dlp.exe ignores
+/// `PYTHONIOENCODING` and writes the active ANSI/OEM code page (e.g. CP936/GBK
+/// on Chinese Windows) to its pipe. Strategy:
+///   1. Try UTF-8 strict — works for any modern yt-dlp on any platform that
+///      honours `PYTHONIOENCODING=utf-8`.
+///   2. On Windows, fall back to the system ANSI code page (resolved by
+///      `windows_ansi_encoding`), which covers all CJK/EE/etc. mojibake cases.
+///   3. As a last resort, lossy UTF-8 (preserves ASCII, replaces the rest with
+///      U+FFFD).
+pub(crate) fn decode_ytdlp_stdout_line(bytes: &[u8]) -> String {
+    if let Ok(value) = std::str::from_utf8(bytes) {
+        return value.to_string();
+    }
+    #[cfg(windows)]
+    {
+        if let Some(encoding) = windows_ansi_encoding() {
+            let (decoded, _, had_errors) = encoding.decode(bytes);
+            if !had_errors {
+                return decoded.into_owned();
+            }
+        }
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[cfg(windows)]
+fn windows_ansi_encoding() -> Option<&'static encoding_rs::Encoding> {
+    static CACHED: std::sync::OnceLock<Option<&'static encoding_rs::Encoding>> =
+        std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        let acp = read_active_code_page().unwrap_or(936);
+        encoding_for_windows_code_page(acp).or(Some(encoding_rs::GBK))
+    })
+}
+
+#[cfg(windows)]
+fn read_active_code_page() -> Option<u32> {
+    let key = windows_registry::LOCAL_MACHINE
+        .open(r"SYSTEM\CurrentControlSet\Control\Nls\CodePage")
+        .ok()?;
+    let acp: String = key.get_string("ACP").ok()?;
+    acp.trim().parse::<u32>().ok()
+}
+
+#[cfg(windows)]
+fn encoding_for_windows_code_page(code_page: u32) -> Option<&'static encoding_rs::Encoding> {
+    // Map the most common Windows ANSI/OEM code pages to encoding_rs labels.
+    // 936/950/932/949 are the four CJK ANSI pages that produce the worst
+    // mojibake when decoded as UTF-8 — the rest are EU/Latin variants that
+    // happen to be ASCII-compatible for typical filenames.
+    let label: &[u8] = match code_page {
+        936 => b"GBK",
+        950 => b"Big5",
+        932 => b"Shift_JIS",
+        949 => b"EUC-KR",
+        874 => b"windows-874",
+        1250 => b"windows-1250",
+        1251 => b"windows-1251",
+        1252 => b"windows-1252",
+        1253 => b"windows-1253",
+        1254 => b"windows-1254",
+        1255 => b"windows-1255",
+        1256 => b"windows-1256",
+        1257 => b"windows-1257",
+        1258 => b"windows-1258",
+        _ => return None,
+    };
+    encoding_rs::Encoding::for_label(label)
+}
+
+/// Parse the file name out of yt-dlp's progress lines that announce a chosen
+/// output path, so we can keep the task's display name in sync with the actual
+/// file written to disk (the only place that knows the final extension).
+///
+/// Recognized line shapes (yt-dlp 2024+):
+/// - `[download] Destination: <path>` — for any single stream, including the
+///   final file in the non-merging case.
+/// - `[Merger] Merging formats into "<path>"` — the post-merge final file.
+/// - `[ExtractAudio] Destination: <path>` — audio-only / extracted-audio path.
+pub(crate) fn parse_ytdlp_destination_name(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let path = if let Some(rest) = trimmed.strip_prefix("[download] Destination: ") {
+        rest.trim().to_string()
+    } else if let Some(rest) = trimmed.strip_prefix("[ExtractAudio] Destination: ") {
+        rest.trim().to_string()
+    } else if let Some(rest) = trimmed.strip_prefix("[Merger] Merging formats into ") {
+        let rest = rest.trim();
+        rest.strip_prefix('"')
+            .and_then(|inner| inner.strip_suffix('"'))
+            .unwrap_or(rest)
+            .to_string()
+    } else {
+        return None;
+    };
+    if path.is_empty() {
+        return None;
+    }
+    Path::new(&path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_string())
+}
+
+/// yt-dlp writes per-format streams as `<base>.f<digits>.<ext>` while it is
+/// still in the middle of downloading audio + video separately. These names are
+/// transient — the merger step will rename to `<base>.<ext>` — so we skip them
+/// when syncing the task's display name.
+pub(crate) fn is_ytdlp_format_temp_file_name(name: &str) -> bool {
+    let mut parts = name.rsplitn(3, '.');
+    let _ext = match parts.next() {
+        Some(value) if !value.is_empty() => value,
+        _ => return false,
+    };
+    let Some(format_part) = parts.next() else {
+        return false;
+    };
+    if parts.next().is_none() {
+        return false;
+    }
+    let Some(digits) = format_part.strip_prefix('f') else {
+        return false;
+    };
+    !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+fn update_ytdlp_file_name(
+    database_path: &Path,
+    task_id: &str,
+    file_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    let connection = rusqlite::Connection::open(database_path)?;
+    let repository = DownloadTaskRepository::new(&connection);
+    repository.update_file_name(task_id, file_name)?;
+    Ok(())
 }
 
 fn remember_ytdlp_output_line(output_lines: &Arc<Mutex<VecDeque<String>>>, line: String) {
@@ -1842,6 +1985,16 @@ pub(crate) fn sanitize_ytdlp_output_name(file_name: &str) -> String {
         .to_string()
 }
 
+/// Force yt-dlp.exe (PyInstaller-frozen Python) to emit UTF-8 on stdout / stderr.
+/// Without this, on a Chinese / non-en Windows host yt-dlp falls back to the
+/// system OEM code page (e.g. CP936/GBK) for piped output, so any Chinese path
+/// or title we parse out of progress lines becomes mojibake when we decode it
+/// via `from_utf8_lossy`. Setting both vars covers all yt-dlp builds we ship.
+pub(crate) fn apply_ytdlp_utf8_env(command: &mut Command) {
+    command.env("PYTHONIOENCODING", "utf-8");
+    command.env("PYTHONUTF8", "1");
+}
+
 fn write_ytdlp_cookie_file(task: &DownloadTask) -> Result<Option<PathBuf>, Box<dyn Error>> {
     let Some(cookies) = task.browser_cookies.as_deref() else {
         return Ok(None);
@@ -1870,35 +2023,48 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
     }
 
     let pid = required_engine_task_id(task)?;
-    let output = Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid)])
-        .output()?;
-    let running = String::from_utf8_lossy(&output.stdout).contains(pid);
+    let pid_alive = ytdlp_pid_appears_alive(pid);
+
+    // The background thread spawned by add_ytdlp_task is the authoritative source
+    // for terminal status transitions (Completed/Failed) via update_ytdlp_completion.
+    // Periodic refresh must never downgrade a Running task to Failed based on a
+    // flaky tasklist read: tasklist can transiently miss live processes (locale
+    // quirks, contention, spawn-thread timing), and yt-dlp on YouTube spawns
+    // sub-stages (audio/video formats + ffmpeg merge) during which the parent
+    // PID stays alive but a single tasklist invocation may glitch.
+    let status = if pid_alive {
+        DownloadStatus::Running
+    } else if task.status == DownloadStatus::Running {
+        DownloadStatus::Running
+    } else if task.status == DownloadStatus::Completed {
+        DownloadStatus::Completed
+    } else {
+        DownloadStatus::Failed
+    };
 
     Ok(EngineTaskState {
-        status: if running {
-            DownloadStatus::Running
-        } else if task.status == DownloadStatus::Completed {
-            DownloadStatus::Completed
-        } else {
-            DownloadStatus::Failed
-        },
-        progress: if running || task.status != DownloadStatus::Completed {
-            task.progress
-        } else {
-            100.0
-        },
-        speed_bytes_per_sec: if running { task.speed_bytes_per_sec } else { 0 },
+        status,
+        progress: task.progress,
+        speed_bytes_per_sec: if pid_alive { task.speed_bytes_per_sec } else { 0 },
         downloaded_bytes: task.downloaded_bytes,
         total_bytes: task.total_bytes,
         engine_task_id: task.engine_task_id.clone(),
         file_name: None,
-        error_message: if running || task.status == DownloadStatus::Completed {
-            task.error_message.clone()
-        } else {
-            Some("yt-dlp process is not running".to_string())
-        },
+        error_message: task.error_message.clone(),
     })
+}
+
+fn ytdlp_pid_appears_alive(pid: &str) -> bool {
+    let Ok(output) = Command::new("tasklist")
+        .args(["/NH", "/FO", "CSV", "/FI", &format!("PID eq {pid}")])
+        .output()
+    else {
+        return true;
+    };
+    if !output.status.success() {
+        return true;
+    }
+    String::from_utf8_lossy(&output.stdout).contains(pid)
 }
 
 #[derive(Debug, PartialEq)]
@@ -2295,6 +2461,28 @@ mod tests {
     }
 
     #[test]
+    fn refresh_running_ytdlp_task_does_not_downgrade_on_dead_pid() {
+        // Use a PID that is overwhelmingly unlikely to be alive. The bug being
+        // guarded here is: refresh used to flip Running -> Failed whenever
+        // tasklist reported the PID as gone, which clobbered live downloads
+        // whose spawn thread was still writing progress.
+        let mut task = aria2_task();
+        task.engine = EngineKind::YtDlp;
+        task.status = DownloadStatus::Running;
+        task.engine_task_id = Some("4294967290".to_string());
+        task.progress = 11.0;
+        task.speed_bytes_per_sec = 1234;
+        task.error_message = None;
+
+        let state =
+            refresh_ytdlp_task(&task).expect("running yt-dlp task should refresh without error");
+
+        assert_eq!(state.status, DownloadStatus::Running);
+        assert_eq!(state.progress, 11.0);
+        assert_eq!(state.error_message, None);
+    }
+
+    #[test]
     fn parse_ytdlp_progress_reads_percent_and_speed() {
         let progress = parse_ytdlp_progress("[download]  42.5% of 10.00MiB at 1.25MiB/s ETA 00:04")
             .expect("progress should parse");
@@ -2319,6 +2507,56 @@ mod tests {
     fn parse_ytdlp_speed_supports_decimal_units() {
         assert_eq!(parse_ytdlp_speed("128.5KB/s"), Some(128_500));
         assert_eq!(parse_ytdlp_speed("2MB/s"), Some(2_000_000));
+    }
+
+    #[test]
+    fn decode_ytdlp_stdout_line_passes_through_utf8() {
+        let input = "[Merger] Merging formats into \"国家\".mp4".as_bytes();
+        let decoded = decode_ytdlp_stdout_line(input);
+        assert!(decoded.contains("国家"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn decode_ytdlp_stdout_line_recovers_from_gbk_on_windows() {
+        // "中国" in GBK is D6 D0 B9 FA — invalid as UTF-8, valid as CP936/GBK.
+        let bytes = [0xD6, 0xD0, 0xB9, 0xFA];
+        let decoded = decode_ytdlp_stdout_line(&bytes);
+        assert_eq!(decoded, "中国");
+    }
+
+    #[test]
+    fn parse_ytdlp_destination_name_recognises_download_merger_and_extract_lines() {
+        assert_eq!(
+            parse_ytdlp_destination_name("[download] Destination: C:\\Downloads\\My Video.mp4")
+                .as_deref(),
+            Some("My Video.mp4")
+        );
+        assert_eq!(
+            parse_ytdlp_destination_name(
+                "[Merger] Merging formats into \"C:\\Downloads\\My Video.mp4\""
+            )
+            .as_deref(),
+            Some("My Video.mp4")
+        );
+        assert_eq!(
+            parse_ytdlp_destination_name("[ExtractAudio] Destination: /tmp/Track.m4a").as_deref(),
+            Some("Track.m4a")
+        );
+        assert_eq!(
+            parse_ytdlp_destination_name("[download]  42.5% of 10.00MiB at 1.25MiB/s ETA 00:04"),
+            None
+        );
+    }
+
+    #[test]
+    fn is_ytdlp_format_temp_file_name_matches_per_format_streams_only() {
+        assert!(is_ytdlp_format_temp_file_name("My Video.f137.mp4"));
+        assert!(is_ytdlp_format_temp_file_name("My Video.f140.m4a"));
+        assert!(!is_ytdlp_format_temp_file_name("My Video.mp4"));
+        assert!(!is_ytdlp_format_temp_file_name("My Video.fancy.mp4"));
+        assert!(!is_ytdlp_format_temp_file_name("My Video"));
+        assert!(!is_ytdlp_format_temp_file_name(""));
     }
 
     #[test]

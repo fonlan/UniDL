@@ -11,13 +11,23 @@ const fields = {
 let videos = [];
 let canDetectVideos = false;
 let videoDetectionDone = false;
+let isDetecting = false;
 
 document.querySelector("#connect").addEventListener("click", () => {
   void connect();
 });
 
 fields.detectVideos.addEventListener("click", () => {
-  void run("\u68c0\u6d4b\u5b8c\u6210", () => sendMessage("detect-videos", { settings: collectSettings() }));
+  if (isDetecting) {
+    return;
+  }
+  isDetecting = true;
+  renderVideos();
+  void run("\u68c0\u6d4b\u5b8c\u6210", () => sendMessage("detect-videos", { settings: collectSettings() }))
+    .finally(() => {
+      isDetecting = false;
+      renderVideos();
+    });
 });
 
 for (const field of [fields.interceptEnabled, fields.cancelOriginal]) {
@@ -88,7 +98,22 @@ function applyState(state) {
 function renderVideos() {
   fields.videos.textContent = "";
   fields.detectVideos.hidden = !canDetectVideos;
-  fields.detectVideos.disabled = !canDetectVideos;
+  fields.detectVideos.disabled = !canDetectVideos || isDetecting;
+  fields.detectVideos.textContent = isDetecting
+    ? "\u68c0\u6d4b\u4e2d\u2026"
+    : "\u68c0\u6d4b\u5f53\u524d\u9875\u9762";
+  if (isDetecting) {
+    const loading = document.createElement("div");
+    loading.className = "detecting";
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = "\u6b63\u5728\u8c03\u7528 yt-dlp \u68c0\u6d4b\u5f53\u524d\u9875\u9762\u2026";
+    loading.append(spinner, text);
+    fields.videos.append(loading);
+    return;
+  }
   if (!canDetectVideos) {
     const empty = document.createElement("p");
     empty.textContent = "\u5f53\u524d\u9875\u9762\u4e0d\u53ef\u68c0\u6d4b\uff0c\u6216\u672a\u914d\u7f6e\u53ef\u7528 yt-dlp \u5f15\u64ce";

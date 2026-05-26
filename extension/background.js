@@ -106,9 +106,10 @@ async function detectActiveTabVideos(settings) {
   if (!tab?.id || !source) {
     return { ...settings, videos: [], canDetectVideos: false, videoDetectionDone: true };
   }
+  const cookies = await exportCookies(source);
   const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos", {
     method: "POST",
-    body: { source, title: tab.title ?? "" },
+    body: { source, title: tab.title ?? "", cookies },
   });
   const videos = Array.isArray(result.videos) ? result.videos : [];
   return { ...settings, videos, canDetectVideos: true, videoDetectionDone: true };

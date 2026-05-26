@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
 chrono = "0.4"
+encoding_rs = "0.8"
 reqwest = { version = "0.12", features = [
     "blocking",
     "cookies",

@@ -1,9 +1,10 @@
 use std::{
     collections::HashSet,
     error::Error,
+    fs,
     io::{Cursor, Read},
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -145,6 +146,7 @@ struct ManagedEngineExecutablePathInput {
 struct ExtensionVideosInput {
     source: String,
     title: Option<String>,
+    cookies: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -393,7 +395,22 @@ fn handle_extension_videos(
         );
     };
 
-    let videos = extract_extension_videos(executable_path, source, input.title.as_deref())?;
+    let proxy_url = engine_proxy_url(&settings);
+    let cookie_path = write_detection_cookie_file(input.cookies.as_deref())?;
+
+    let result = extract_extension_videos(
+        executable_path,
+        source,
+        input.title.as_deref(),
+        proxy_url,
+        cookie_path.as_deref(),
+    );
+
+    if let Some(cookie_path) = &cookie_path {
+        let _ = fs::remove_file(cookie_path);
+    }
+
+    let videos = result?;
 
     json_response(StatusCode(200), &ExtensionVideosOutput { videos })
 }
@@ -448,19 +465,55 @@ fn extract_extension_videos(
     executable_path: &str,
     source: &str,
     page_title: Option<&str>,
+    proxy_url: Option<&str>,
+    cookie_path: Option<&Path>,
 ) -> Result<Vec<ExtensionVideoEntry>, Box<dyn Error>> {
-    let output = Command::new(executable_path)
-        .args([
-            "--dump-single-json",
-            "--flat-playlist",
-            "--skip-download",
-            "--no-warnings",
-            source,
-        ])
-        .output()?;
+    let mut command = Command::new(executable_path);
+    crate::engine_adapters::apply_ytdlp_utf8_env(&mut command);
+    command.args([
+        "--dump-single-json",
+        "--flat-playlist",
+        "--no-playlist",
+        "--skip-download",
+        "--no-warnings",
+        // Detection only needs metadata (title/id/url) — we don't actually pick
+        // a format here. Without this flag yt-dlp aborts when the (possibly
+        // user-config-imposed) format selector matches nothing, or when YouTube
+        // briefly returns no formats due to anti-bot / region / PO Token gating,
+        // even though the page itself is perfectly downloadable later.
+        "--ignore-no-formats-error",
+        // Skip HEAD probes on format URLs — irrelevant for metadata-only runs
+        // and a frequent cause of slow / flaky detection.
+        "--no-check-formats",
+    ]);
+    if let Some(proxy_url) = proxy_url {
+        command.arg("--proxy").arg(proxy_url);
+    }
+    if let Some(cookie_path) = cookie_path {
+        command.arg("--cookies").arg(cookie_path);
+    }
+    command.arg(source);
+
+    let output = command.output()?;
 
     if !output.status.success() {
-        return Ok(Vec::new());
+        let stderr = String::from_utf8_lossy(&output.stderr)
+            .trim()
+            .to_string();
+        let stderr_summary = if stderr.is_empty() {
+            "(no stderr output)".to_string()
+        } else {
+            stderr.lines().last().unwrap_or(&stderr).to_string()
+        };
+        logger::error(format!(
+            "yt-dlp video detection failed: source={source}, status={}, stderr={stderr}",
+            output.status
+        ));
+        return Err(format!(
+            "yt-dlp 检测失败 (exit {}): {stderr_summary}",
+            output.status
+        )
+        .into());
     }
 
     let value: Value = serde_json::from_slice(&output.stdout)?;
@@ -483,6 +536,27 @@ fn extract_extension_videos(
     };
 
     Ok(videos)
+}
+
+fn engine_proxy_url(settings: &EngineSettings) -> Option<&str> {
+    settings
+        .proxy_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn write_detection_cookie_file(cookies: Option<&str>) -> Result<Option<PathBuf>, Box<dyn Error>> {
+    let Some(cookies) = cookies else {
+        return Ok(None);
+    };
+    if cookies.trim().is_empty() {
+        return Ok(None);
+    }
+    let cookie_path = std::env::temp_dir()
+        .join(format!("unidl-detect-{}.cookies.txt", Uuid::new_v4()));
+    fs::write(&cookie_path, cookies)?;
+    Ok(Some(cookie_path))
 }
 
 fn build_extension_video_entry(
@@ -1171,6 +1245,8 @@ mod tests {
             script_path.to_str().expect("script path should be utf-8"),
             "https://example.com/watch",
             Some("Example page"),
+            None,
+            None,
         )
         .expect("video extraction should succeed");
 

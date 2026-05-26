@@ -132,6 +132,36 @@ button:hover {
   white-space: nowrap;
 }
 
+.detecting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  color: #047857;
+  font-weight: 600;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #d1fae5;
+  border-top-color: #047857;
+  border-radius: 50%;
+  animation: spinner-rotate 0.8s linear infinite;
+  flex: none;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 #status {
   min-height: 18px;
 }
