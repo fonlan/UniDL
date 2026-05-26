@@ -645,7 +645,7 @@ export default function EngineSettingsView() {
     });
   }
 
-  function handleDragStart(event: ReactDragEvent<HTMLDivElement>, settingsId: string) {
+  function handleDragStart(event: ReactDragEvent<HTMLElement>, settingsId: string) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", settingsId);
     setDraggedEngineId(settingsId);
@@ -1325,7 +1325,7 @@ export default function EngineSettingsView() {
                       </h2>
                       <div className="mt-1 text-xs text-slate-500">
                         {engineSettingsCount > 0
-                          ? `共 ${engineSettingsCount} 个引擎，已启用 ${enabledEnginesCount} 个 · 拖拽卡片调整优先级`
+                          ? `共 ${engineSettingsCount} 个引擎，已启用 ${enabledEnginesCount} 个 · 拖拽手柄调整优先级`
                           : "尚未添加任何下载引擎"}
                       </div>
                     </div>
@@ -1421,9 +1421,6 @@ export default function EngineSettingsView() {
                         return (
                           <div
                             key={draft.id}
-                            draggable
-                            onDragStart={(event) => handleDragStart(event, draft.id)}
-                            onDragEnd={() => setDraggedEngineId(null)}
                             onDragOver={handleDragOver}
                             onDrop={(event) => handleDrop(event, draft.id)}
                             className={classNames(
@@ -1444,7 +1441,10 @@ export default function EngineSettingsView() {
                               <div className="flex min-w-0 items-center gap-3">
                                 <span
                                   title="拖拽调整优先级"
-                                  className="grid h-7 w-5 cursor-grab place-items-center text-slate-300 hover:text-slate-500"
+                                  draggable
+                                  onDragStart={(event) => handleDragStart(event, draft.id)}
+                                  onDragEnd={() => setDraggedEngineId(null)}
+                                  className="grid h-7 w-5 cursor-grab select-none place-items-center text-slate-300 hover:text-slate-500"
                                 >
                                   <GripVertical size={14} />
                                 </span>
