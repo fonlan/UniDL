@@ -30,7 +30,9 @@ impl<'connection> AppSettingsRepository<'connection> {
             web_access_password: self.get_value("web_access_password")?,
             web_access_url: self.get_value("web_access_url")?,
             private_download_domains: decode_domains(&self.get_value("private_download_domains")?),
-            app_proxy_url: self.get_optional_value("app_proxy_url")?.unwrap_or_default(),
+            app_proxy_url: self
+                .get_optional_value("app_proxy_url")?
+                .unwrap_or_default(),
         })
     }
 
@@ -555,7 +557,7 @@ impl<'connection> DownloadTaskRepository<'connection> {
                 speed_bytes_per_sec = ?3,
                 downloaded_bytes = ?4,
                 total_bytes = ?5,
-                engine_task_id = COALESCE(?6, engine_task_id),
+                engine_task_id = ?6,
                 error_message = ?7,
                 completed_at = {}
             WHERE id = ?8
@@ -577,6 +579,64 @@ impl<'connection> DownloadTaskRepository<'connection> {
             ),
         )?;
         Ok(())
+    }
+
+    pub fn update_engine_state_if_current(
+        &self,
+        id: &str,
+        expected_status: DownloadStatus,
+        expected_engine_task_id: Option<&str>,
+        status: DownloadStatus,
+        progress: f64,
+        speed_bytes_per_sec: i64,
+        downloaded_bytes: i64,
+        total_bytes: i64,
+        engine_task_id: Option<&str>,
+        error_message: Option<&str>,
+    ) -> Result<bool, rusqlite::Error> {
+        let completed_at_sql = if status == DownloadStatus::Completed {
+            "datetime('now')"
+        } else {
+            "completed_at"
+        };
+        let sql = format!(
+            r#"
+            UPDATE download_tasks
+            SET
+                status = ?1,
+                progress = ?2,
+                speed_bytes_per_sec = ?3,
+                downloaded_bytes = ?4,
+                total_bytes = ?5,
+                engine_task_id = ?6,
+                error_message = ?7,
+                completed_at = {}
+            WHERE id = ?8
+              AND status = ?9
+              AND (
+                (?10 IS NULL AND engine_task_id IS NULL)
+                OR engine_task_id = ?10
+              )
+            "#,
+            completed_at_sql
+        );
+
+        let changed = self.connection.execute(
+            &sql,
+            params![
+                status.as_db(),
+                progress,
+                speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
+                engine_task_id,
+                error_message,
+                id,
+                expected_status.as_db(),
+                expected_engine_task_id,
+            ],
+        )?;
+        Ok(changed > 0)
     }
 
     pub fn update_selected_file_indexes(
@@ -607,16 +667,33 @@ impl<'connection> DownloadTaskRepository<'connection> {
         Ok(())
     }
 
-    pub fn mark_failed(&self, id: &str, error: &str) -> Result<(), rusqlite::Error> {
-        self.connection.execute(
+    pub fn mark_failed_if_current(
+        &self,
+        id: &str,
+        expected_status: DownloadStatus,
+        expected_engine_task_id: Option<&str>,
+        error: &str,
+    ) -> Result<bool, rusqlite::Error> {
+        let changed = self.connection.execute(
             r#"
             UPDATE download_tasks
             SET status = ?1, error_message = COALESCE(error_message, ?2)
             WHERE id = ?3
+              AND status = ?4
+              AND (
+                (?5 IS NULL AND engine_task_id IS NULL)
+                OR engine_task_id = ?5
+              )
             "#,
-            (DownloadStatus::Failed.as_db(), error, id),
+            params![
+                DownloadStatus::Failed.as_db(),
+                error,
+                id,
+                expected_status.as_db(),
+                expected_engine_task_id,
+            ],
         )?;
-        Ok(())
+        Ok(changed > 0)
     }
 
     pub fn delete_tasks(&self, ids: &[String]) -> Result<(), rusqlite::Error> {

@@ -2190,7 +2190,7 @@ fn update_ytdlp_progress(
         speed_bytes_per_sec,
         downloaded_bytes,
         total_bytes,
-        None,
+        Some(pid),
         None,
     )?;
     Ok(())
@@ -2229,7 +2229,7 @@ fn update_ytdlp_completion(
         0,
         downloaded_bytes,
         task.total_bytes,
-        None,
+        Some(pid),
         error_message,
     )?;
     Ok(())

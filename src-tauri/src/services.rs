@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::{
-    engine_adapters, engine_install,
+    engine_adapters, engine_install, logger,
     models::{
         engine_supports_source_type, supported_source_types, AppSettings, AppSettingsInput,
         CreateDownloadTaskInput, DownloadStatus, DownloadTask, EngineInstallResult, EngineKind,
@@ -27,10 +27,7 @@ pub fn build_app_http_client(proxy_url: Option<&str>) -> Result<Client, Box<dyn 
     let mut builder = Client::builder()
         .user_agent(APP_HTTP_USER_AGENT)
         .timeout(APP_HTTP_TIMEOUT);
-    if let Some(proxy_url) = proxy_url
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(proxy_url) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
         builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
     }
     Ok(builder.build()?)
@@ -78,9 +75,8 @@ pub fn validate_proxy_url(value: &str, allowed_schemes: &[&str]) -> Result<(), B
         )
         .into());
     }
-    reqwest::Proxy::all(trimmed).map_err(|error| -> Box<dyn Error> {
-        format!("invalid proxy url: {error}").into()
-    })?;
+    reqwest::Proxy::all(trimmed)
+        .map_err(|error| -> Box<dyn Error> { format!("invalid proxy url: {error}").into() })?;
     Ok(())
 }
 
@@ -206,7 +202,10 @@ impl<'connection> DownloadTaskService<'connection> {
             }
 
             if let Err(error) = self.refresh_one(&task) {
-                self.repository.mark_failed(&task.id, &error.to_string())?;
+                logger::warn(format!(
+                    "download task refresh skipped: task_id={}, error={error}",
+                    task.id
+                ));
             }
         }
 
@@ -215,12 +214,25 @@ impl<'connection> DownloadTaskService<'connection> {
 
     pub fn pause_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
+            if !matches!(
+                task.status,
+                DownloadStatus::Queued | DownloadStatus::Running
+            ) {
+                continue;
+            }
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             match engine_adapters::pause_task(&engine_settings, &task) {
-                Ok(state) => self.apply_engine_state(&task.id, state)?,
+                Ok(state) => {
+                    self.apply_engine_state_if_current(&task, state)?;
+                }
                 Err(error) => {
-                    self.repository.mark_failed(&task.id, &error.to_string())?;
+                    self.repository.mark_failed_if_current(
+                        &task.id,
+                        task.status,
+                        task.engine_task_id.as_deref(),
+                        &error.to_string(),
+                    )?;
                     return Err(error);
                 }
             }
@@ -230,13 +242,23 @@ impl<'connection> DownloadTaskService<'connection> {
 
     pub fn resume_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
+            if !matches!(task.status, DownloadStatus::Paused | DownloadStatus::Failed) {
+                continue;
+            }
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             match engine_adapters::resume_task(&engine_settings, &task, self.database_path.clone())
             {
-                Ok(state) => self.apply_engine_state(&task.id, state)?,
+                Ok(state) => {
+                    self.apply_engine_state_if_current(&task, state)?;
+                }
                 Err(error) => {
-                    self.repository.mark_failed(&task.id, &error.to_string())?;
+                    self.repository.mark_failed_if_current(
+                        &task.id,
+                        task.status,
+                        task.engine_task_id.as_deref(),
+                        &error.to_string(),
+                    )?;
                     return Err(error);
                 }
             }
@@ -262,7 +284,8 @@ impl<'connection> DownloadTaskService<'connection> {
     ) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
             let delete_downloaded = delete_completed_files
-                && (task.engine != EngineKind::QBittorrent || downloaded_entry_path(&task).exists());
+                && (task.engine != EngineKind::QBittorrent
+                    || downloaded_entry_path(&task).exists());
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             let delete_result =
@@ -294,7 +317,12 @@ impl<'connection> DownloadTaskService<'connection> {
                         self.repository.delete_tasks(&[task.id])?;
                         continue;
                     }
-                    self.repository.mark_failed(&task.id, &error.to_string())?;
+                    self.repository.mark_failed_if_current(
+                        &task.id,
+                        task.status,
+                        task.engine_task_id.as_deref(),
+                        &error.to_string(),
+                    )?;
                     return Err(error);
                 }
             }
@@ -326,7 +354,8 @@ impl<'connection> DownloadTaskService<'connection> {
         let engine_settings =
             EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
         let state = engine_adapters::refresh_task(&engine_settings, task)?;
-        self.apply_engine_state(&task.id, state)
+        self.apply_engine_state_if_current(task, state)?;
+        Ok(())
     }
 
     fn apply_engine_state(
@@ -344,6 +373,37 @@ impl<'connection> DownloadTaskService<'connection> {
             state.engine_task_id.as_deref(),
             state.error_message.as_deref(),
         )?;
+        self.apply_engine_state_side_effects(task_id, &state)
+    }
+
+    fn apply_engine_state_if_current(
+        &self,
+        task: &DownloadTask,
+        state: engine_adapters::EngineTaskState,
+    ) -> Result<bool, Box<dyn Error>> {
+        let updated = self.repository.update_engine_state_if_current(
+            &task.id,
+            task.status,
+            task.engine_task_id.as_deref(),
+            state.status,
+            state.progress,
+            state.speed_bytes_per_sec,
+            state.downloaded_bytes,
+            state.total_bytes,
+            state.engine_task_id.as_deref(),
+            state.error_message.as_deref(),
+        )?;
+        if updated {
+            self.apply_engine_state_side_effects(&task.id, &state)?;
+        }
+        Ok(updated)
+    }
+
+    fn apply_engine_state_side_effects(
+        &self,
+        task_id: &str,
+        state: &engine_adapters::EngineTaskState,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(file_name) = state
             .file_name
             .as_deref()
@@ -874,8 +934,9 @@ mod tests {
         io::{Read, Write},
         net::TcpListener,
         path::PathBuf,
-        sync::{Arc, Mutex},
+        sync::{mpsc, Arc, Mutex},
         thread,
+        time::Duration,
     };
 
     use uuid::Uuid;
@@ -1667,7 +1728,12 @@ mod tests {
             )
             .expect("failed task should insert");
         repository
-            .mark_failed("failed-without-engine-id", "engine failed before id")
+            .mark_failed_if_current(
+                "failed-without-engine-id",
+                DownloadStatus::Queued,
+                None,
+                "engine failed before id",
+            )
             .expect("failed task should mark failed");
 
         let service = DownloadTaskService::new(&connection, database_path.clone());
@@ -1769,6 +1835,117 @@ mod tests {
         let _ = fs::remove_file(database_path);
     }
 
+    #[test]
+    fn refresh_all_does_not_resurrect_deleted_task_after_stale_engine_response() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        let (url, request_seen, release_response, server) =
+            start_fake_aria2_blocking_status("active");
+        save_aria2_settings_with_url(&connection, url);
+        insert_aria2_task(
+            &connection,
+            "stale-refresh-task",
+            DownloadStatus::Running,
+            "C:\\Downloads",
+            "file.bin",
+        );
+        drop(connection);
+
+        let refresh_database_path = database_path.clone();
+        let refresh_thread = thread::spawn(move || {
+            let connection =
+                db::connect_path(refresh_database_path.clone()).expect("database should migrate");
+            DownloadTaskService::new(&connection, refresh_database_path)
+                .refresh_all()
+                .expect("refresh should not fail");
+        });
+
+        request_seen
+            .recv_timeout(Duration::from_secs(5))
+            .expect("refresh should reach fake aria2");
+
+        let connection = db::connect_path(database_path.clone()).expect("database should reopen");
+        DownloadTaskRepository::new(&connection)
+            .delete_tasks(&["stale-refresh-task".to_string()])
+            .expect("task should delete while refresh is in flight");
+        drop(connection);
+
+        release_response
+            .send(())
+            .expect("fake aria2 response should release");
+        refresh_thread.join().expect("refresh thread should finish");
+        server.join().expect("fake aria2 should finish");
+
+        let connection = db::connect_path(database_path.clone()).expect("database should reopen");
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        assert!(service
+            .list_created_desc()
+            .expect("task list should load")
+            .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn refresh_all_keeps_qbittorrent_running_when_connection_is_unavailable() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_qbittorrent_settings_with_url(&connection, "http://127.0.0.1:1".to_string());
+        insert_qbittorrent_task(&connection, "qb-refresh-task", DownloadStatus::Running);
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        let tasks = service
+            .refresh_all()
+            .expect("refresh should keep listing tasks");
+        let task = tasks
+            .iter()
+            .find(|task| task.id == "qb-refresh-task")
+            .expect("task should remain visible");
+
+        assert_eq!(task.status, DownloadStatus::Running);
+        assert_eq!(task.error_message, None);
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn update_engine_state_can_clear_engine_task_id() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        insert_aria2_task(
+            &connection,
+            "clear-engine-id-task",
+            DownloadStatus::Running,
+            "C:\\Downloads",
+            "file.bin",
+        );
+        let repository = DownloadTaskRepository::new(&connection);
+
+        repository
+            .update_engine_state(
+                "clear-engine-id-task",
+                DownloadStatus::Paused,
+                12.0,
+                0,
+                120,
+                1_000,
+                None,
+                None,
+            )
+            .expect("engine state should update");
+        let task = repository
+            .get_by_id("clear-engine-id-task")
+            .expect("task should load");
+
+        assert_eq!(task.status, DownloadStatus::Paused);
+        assert_eq!(task.engine_task_id, None);
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
     fn save_unreachable_aria2_settings(connection: &Connection) {
         save_aria2_settings_with_url(connection, "http://127.0.0.1:1/jsonrpc".to_string());
     }
@@ -1865,6 +2042,83 @@ mod tests {
         (format!("http://{address}/jsonrpc"), server)
     }
 
+    fn start_fake_aria2_blocking_status(
+        status: &'static str,
+    ) -> (
+        String,
+        mpsc::Receiver<()>,
+        mpsc::Sender<()>,
+        thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake aria2 should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake aria2 should have address");
+        let (request_seen_sender, request_seen_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("fake aria2 request should arrive");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer).expect("request should read");
+            request_seen_sender
+                .send(())
+                .expect("request notification should send");
+            release_receiver
+                .recv()
+                .expect("response release should arrive");
+            let body = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "unidl",
+                "result": {
+                    "status": status,
+                    "totalLength": "1000",
+                    "completedLength": "500",
+                    "downloadSpeed": "100",
+                }
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("response should write");
+        });
+
+        (
+            format!("http://{address}/jsonrpc"),
+            request_seen_receiver,
+            release_sender,
+            server,
+        )
+    }
+
+    fn save_qbittorrent_settings_with_url(connection: &Connection, connection_url: String) {
+        EngineSettingsService::new(connection)
+            .save(EngineSettingsInput {
+                id: "qbittorrent".to_string(),
+                engine: EngineKind::QBittorrent,
+                name: "qBittorrent".to_string(),
+                enabled: true,
+                executable_path: None,
+                default_download_dir: String::new(),
+                default_args: String::new(),
+                connection_url: Some(connection_url),
+                username: Some("admin".to_string()),
+                password: Some("adminadmin".to_string()),
+                remote_path: Some(String::new()),
+                supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
+                preferred_domains: Vec::new(),
+                tracker_subscription_url: None,
+                trackers: Vec::new(),
+                proxy_url: None,
+                priority: 0,
+            })
+            .expect("qBittorrent settings should save");
+    }
+
     fn save_ytdlp_settings(connection: &Connection) {
         EngineSettingsService::new(connection)
             .save(EngineSettingsInput {
@@ -1924,6 +2178,37 @@ mod tests {
                 ),
             )
             .expect("download task should insert");
+    }
+
+    fn insert_qbittorrent_task(connection: &Connection, id: &str, status: DownloadStatus) {
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    engine_task_id,
+                    file_name,
+                    status,
+                    save_path
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                (
+                    id,
+                    SourceType::Magnet.as_db(),
+                    "magnet:?xt=urn:btih:abcdef123456",
+                    "qbittorrent",
+                    EngineKind::QBittorrent.as_db(),
+                    "abcdef123456",
+                    "file.bin",
+                    status.as_db(),
+                    "C:\\Downloads",
+                ),
+            )
+            .expect("qBittorrent task should insert");
     }
 
     fn local_file_task(
