@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { ChevronRight, FilePlus, FolderOpen, X } from "lucide-react";
 import { openDialog } from "@/lib/tauri";
+import { reportDisplayedError } from "@/lib/error";
 
 import {
   createDownloadTask,
@@ -260,7 +261,7 @@ export default function NewTaskDialog({
         const settings = await listEngineSettings();
         setEngineSettings(settings);
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        reportDisplayedError("create download task", nextError, setError);
       } finally {
         setIsLoading(false);
       }
@@ -372,7 +373,7 @@ export default function NewTaskDialog({
       void writeLog("info", `new task created: id=${task.id}`);
       resetAndClose();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("create download task", nextError, setError);
     } finally {
       setIsCreating(false);
     }
@@ -432,7 +433,7 @@ export default function NewTaskDialog({
       });
     } catch (nextError) {
       setRemoteDirectoryTree(null);
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("create download task", nextError, setError);
     }
   }
 

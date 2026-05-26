@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 
 import { getTaskTorrentFiles, updateTaskFileSelection } from "@/lib/api";
+import { reportError } from "@/lib/error";
 import type {
   DownloadStatus,
   DownloadTask,
@@ -188,7 +189,7 @@ export default function TaskDetailPanel({
       })
       .catch((nextError) => {
         if (!disposed) {
-          setTorrentFileError(nextError instanceof Error ? nextError.message : String(nextError));
+          setTorrentFileError(reportError("load task torrent files", nextError));
         }
       })
       .finally(() => {
@@ -215,7 +216,7 @@ export default function TaskDetailPanel({
         [...nextSelectedFileIndexes].sort((left, right) => left - right),
       );
     } catch (nextError) {
-      setTorrentFileError(nextError instanceof Error ? nextError.message : String(nextError));
+      setTorrentFileError(reportError("update task file selection", nextError));
     } finally {
       setIsSavingFileSelection(false);
     }

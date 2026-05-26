@@ -14,6 +14,7 @@ import type {
   TorrentFileEntry,
 } from "@shared/types";
 import { hasTauriRuntime, webJson, webRequest } from "@/lib/runtime";
+import { writeWebLog } from "@/lib/web-log";
 
 export interface SystemOpenRequestPayload {
   requests: OpenTaskRequest[];
@@ -138,7 +139,7 @@ export function resolveMagnetName(
 
 export function writeLog(level: LogLevel, message: string): Promise<void> {
   if (!hasTauriRuntime()) {
-    return Promise.resolve();
+    return writeWebLog(level, message);
   }
 
   return invoke("write_log", { level, message });

@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { getCurrentWindow, listen, message } from "@/lib/tauri";
+import { reportDisplayedError } from "@/lib/error";
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
 import TaskDetailPanel from "@/components/TaskDetailPanel";
@@ -374,7 +375,7 @@ function App() {
       if (isWebRuntime() && !getWebToken()) {
         setIsWebAuthorized(false);
       }
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
     } finally {
       hasLoadedTasksRef.current = true;
       if (shouldShowLoading) {
@@ -421,7 +422,7 @@ function App() {
         if (disposed) {
           return;
         }
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        reportDisplayedError("load pending open requests", nextError, setError);
       });
 
     return () => {
@@ -492,7 +493,7 @@ function App() {
         if (disposed) {
           return;
         }
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        reportDisplayedError("load pending open requests", nextError, setError);
       });
 
     return () => {
@@ -548,7 +549,7 @@ function App() {
           if (disposed) {
             return;
           }
-          setError(nextError instanceof Error ? nextError.message : String(nextError));
+          reportDisplayedError("load pending open requests", nextError, setError);
         });
     };
 
@@ -567,7 +568,7 @@ function App() {
         if (disposed) {
           return;
         }
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        reportDisplayedError("load pending open requests", nextError, setError);
       });
 
     return () => {
@@ -648,7 +649,7 @@ function App() {
       closeTaskContextMenu();
       await refreshTasks();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
       await refreshTasks();
     }
   }
@@ -677,7 +678,7 @@ function App() {
       closeTaskContextMenu();
       await refreshTasks();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
       await refreshTasks();
     }
   }
@@ -702,7 +703,7 @@ function App() {
       closeTaskContextMenu();
       await refreshTasks();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
     }
   }
 
@@ -734,7 +735,7 @@ function App() {
       closeTaskContextMenu();
       await refreshTasks();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
       await refreshTasks();
     }
   }
@@ -773,7 +774,7 @@ function App() {
       }
       await refreshTasks();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
       await refreshTasks();
     }
   }
@@ -799,7 +800,7 @@ function App() {
     try {
       await openDownloadedFile(task.id);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
     }
   }
 
@@ -842,7 +843,7 @@ function App() {
       setWebPassword("");
       await refreshTasks();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      reportDisplayedError("load pending open requests", nextError, setError);
     } finally {
       setIsWebAuthenticating(false);
     }

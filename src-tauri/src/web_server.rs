@@ -20,6 +20,7 @@ use tiny_http::{Header, Method, Request, Response, ResponseBox, Server, StatusCo
 use uuid::Uuid;
 
 use crate::{
+    logger,
     db, engine_install,
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, EngineKind, EngineSettings,
@@ -249,7 +250,7 @@ fn start_on(
                     thread::spawn(move || handle_request(request, &context));
                 }
                 Ok(None) => {}
-                Err(error) => eprintln!("web server request error: {error}"),
+                Err(error) => logger::error(format!("web server request error: {error}")),
             }
         }
     });
@@ -305,13 +306,16 @@ fn handle_request(mut request: Request, context: &WebServerContext) {
 
     let response = match result {
         Ok(response) => response,
-        Err(error) => json_response(
-            StatusCode(500),
-            &ErrorOutput {
-                error: error.to_string(),
-            },
-        )
-        .expect("failed to build error response"),
+        Err(error) => {
+            logger::error(format!("web request failed: {method} {path}: {error}"));
+            json_response(
+                StatusCode(500),
+                &ErrorOutput {
+                    error: error.to_string(),
+                },
+            )
+            .expect("failed to build error response")
+        }
     };
 
     let _ = request.respond(response);
