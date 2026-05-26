@@ -883,7 +883,7 @@ export default function EngineSettingsView() {
                   hasDirtySettings ? "bg-amber-500" : "bg-emerald-500",
                 )}
               />
-              {hasDirtySettings ? "有未保存更改" : "配置已同步"}
+              {hasDirtySettings ? "有未保存更改" : "设置已保存"}
             </div>
           </div>
         </div>
