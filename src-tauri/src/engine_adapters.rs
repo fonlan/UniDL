@@ -340,8 +340,17 @@ pub fn delete_task(
                 task.status,
                 DownloadStatus::Completed | DownloadStatus::Failed | DownloadStatus::Paused
             ) {
-                let pid = required_engine_task_id(task)?;
-                run_windows_command("taskkill", &["/PID", pid, "/T", "/F"])?;
+                // Reuse the same hardened taskkill loop as pause: a single
+                // `taskkill /T /F` is flaky in the wild on yt-dlp's process
+                // tree (exit 128 / "process not found" via TOCTOU after a
+                // child stage exits, transient access-denied during ffmpeg
+                // merge, etc.) and it would otherwise block the user's
+                // delete request entirely. `terminate_process` already
+                // retries up to 3 times, treats "process already gone" as
+                // success, and surfaces the real taskkill stderr on hard
+                // failure.
+                let pid = ytdlp_pid(task)?;
+                terminate_process(pid)?;
             }
         }
         EngineKind::QBittorrent => {
@@ -1707,7 +1716,9 @@ fn add_ytdlp_task(
     let stderr = child.stderr.take();
     let task_id = task.id.clone();
     let progress_task_id = task_id.clone();
+    let progress_pid = pid.clone();
     let progress_database_path = database_path.clone();
+    let completion_pid = pid.clone();
     thread::spawn(move || {
         let output_lines = Arc::new(Mutex::new(VecDeque::new()));
         let stdout_reader = stdout.map(|output| {
@@ -1715,6 +1726,7 @@ fn add_ytdlp_task(
                 output,
                 progress_database_path.clone(),
                 progress_task_id.clone(),
+                progress_pid.clone(),
                 Arc::clone(&output_lines),
             )
         });
@@ -1723,6 +1735,7 @@ fn add_ytdlp_task(
                 output,
                 progress_database_path,
                 progress_task_id,
+                progress_pid,
                 Arc::clone(&output_lines),
             )
         });
@@ -1760,7 +1773,13 @@ fn add_ytdlp_task(
         } else {
             logger::info(exit_message);
         }
-        let _ = update_ytdlp_completion(&database_path, &task_id, status, error_message.as_deref());
+        let _ = update_ytdlp_completion(
+            &database_path,
+            &task_id,
+            &completion_pid,
+            status,
+            error_message.as_deref(),
+        );
     });
 
     Ok(EngineTaskState::running(pid))
@@ -1770,6 +1789,7 @@ fn spawn_ytdlp_progress_reader(
     output: impl Read + Send + 'static,
     database_path: PathBuf,
     task_id: String,
+    pid: String,
     output_lines: Arc<Mutex<VecDeque<String>>>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -1787,6 +1807,7 @@ fn spawn_ytdlp_progress_reader(
                 let _ = update_ytdlp_progress(
                     &database_path,
                     &task_id,
+                    &pid,
                     progress.percent,
                     progress.speed_bytes_per_sec,
                     progress.downloaded_bytes,
@@ -1795,7 +1816,7 @@ fn spawn_ytdlp_progress_reader(
             }
             if let Some(file_name) = parse_ytdlp_destination_name(&line) {
                 if !is_ytdlp_format_temp_file_name(&file_name) {
-                    let _ = update_ytdlp_file_name(&database_path, &task_id, &file_name);
+                    let _ = update_ytdlp_file_name(&database_path, &task_id, &pid, &file_name);
                 }
             }
             remember_ytdlp_output_line(&output_lines, line);
@@ -1933,10 +1954,16 @@ pub(crate) fn is_ytdlp_format_temp_file_name(name: &str) -> bool {
 fn update_ytdlp_file_name(
     database_path: &Path,
     task_id: &str,
+    pid: &str,
     file_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
+    if !ytdlp_spawn_owns_task(&repository, task_id, pid)? {
+        // Same rationale as update_ytdlp_progress: a stale spawn thread must
+        // not rename the file of a paused / deleted / re-spawned task.
+        return Ok(());
+    }
     repository.update_file_name(task_id, file_name)?;
     Ok(())
 }
@@ -2009,43 +2036,33 @@ fn write_ytdlp_cookie_file(task: &DownloadTask) -> Result<Option<PathBuf>, Box<d
 }
 
 fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Error>> {
-    if task.status == DownloadStatus::Paused {
-        return Ok(EngineTaskState {
-            status: DownloadStatus::Paused,
-            progress: task.progress,
-            speed_bytes_per_sec: 0,
-            downloaded_bytes: task.downloaded_bytes,
-            total_bytes: task.total_bytes,
-            engine_task_id: None,
-            file_name: None,
-            error_message: task.error_message.clone(),
-        });
-    }
-
-    let pid = required_engine_task_id(task)?;
-    let pid_alive = ytdlp_pid_appears_alive(pid);
-
-    // The background thread spawned by add_ytdlp_task is the authoritative source
-    // for terminal status transitions (Completed/Failed) via update_ytdlp_completion.
-    // Periodic refresh must never downgrade a Running task to Failed based on a
-    // flaky tasklist read: tasklist can transiently miss live processes (locale
-    // quirks, contention, spawn-thread timing), and yt-dlp on YouTube spawns
-    // sub-stages (audio/video formats + ffmpeg merge) during which the parent
-    // PID stays alive but a single tasklist invocation may glitch.
-    let status = if pid_alive {
-        DownloadStatus::Running
-    } else if task.status == DownloadStatus::Running {
-        DownloadStatus::Running
-    } else if task.status == DownloadStatus::Completed {
-        DownloadStatus::Completed
+    // For yt-dlp the background thread spawned by `add_ytdlp_task` is the
+    // ONLY authoritative writer of status transitions: it owns `child.wait()`
+    // and `update_ytdlp_completion`. Refresh must therefore be a pure
+    // read-back / no-op echo for status. Any attempt here to "infer" a
+    // status from a tasklist probe creates the symmetric pair of bugs we
+    // already had to fix:
+    //   * the previous bug: `pid_alive == false` flipped Running -> Failed
+    //     (fixed in commit 12b2550 by guarding the downgrade);
+    //   * the current bug: `pid_alive == true` flipped Failed -> Running
+    //     (observed when pause's `taskkill` failed and the user's task was
+    //     marked Failed by `services::pause_tasks::mark_failed`, then
+    //     refresh saw the process still alive and revived it back to
+    //     Running, where it eventually finished as Completed -- exactly
+    //     the "Failed -> Running -> still downloading" flicker reported).
+    //
+    // The right answer in both directions is: refresh does not invent
+    // status for yt-dlp. Speed is zeroed when the row is not Running so
+    // the UI doesn't keep showing a stale rate after a terminal state.
+    let speed_bytes_per_sec = if task.status == DownloadStatus::Running {
+        task.speed_bytes_per_sec
     } else {
-        DownloadStatus::Failed
+        0
     };
-
     Ok(EngineTaskState {
-        status,
+        status: task.status,
         progress: task.progress,
-        speed_bytes_per_sec: if pid_alive { task.speed_bytes_per_sec } else { 0 },
+        speed_bytes_per_sec,
         downloaded_bytes: task.downloaded_bytes,
         total_bytes: task.total_bytes,
         engine_task_id: task.engine_task_id.clone(),
@@ -2054,6 +2071,14 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
     })
 }
 
+/// Probe `tasklist` to decide whether a yt-dlp PID is still alive.
+/// Used by `terminate_process` to short-circuit retries when the OS already
+/// reports the process as gone (e.g. taskkill returned non-zero with
+/// "process not found" because the child exited just before our retry).
+///
+/// Failure modes are deliberately conservative: any error path returns
+/// `true` (= "assume alive") so the caller errs on the side of one more
+/// retry rather than silently treating a flaky tasklist as success.
 fn ytdlp_pid_appears_alive(pid: &str) -> bool {
     let Ok(output) = Command::new("tasklist")
         .args(["/NH", "/FO", "CSV", "/FI", &format!("PID eq {pid}")])
@@ -2143,6 +2168,7 @@ fn parse_ytdlp_byte_value(value: &str) -> Option<i64> {
 fn update_ytdlp_progress(
     database_path: &Path,
     task_id: &str,
+    pid: &str,
     progress: f64,
     speed_bytes_per_sec: i64,
     downloaded_bytes: i64,
@@ -2150,6 +2176,13 @@ fn update_ytdlp_progress(
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
+    if !ytdlp_spawn_owns_task(&repository, task_id, pid)? {
+        // The spawn thread that owns `pid` no longer reflects the active session
+        // (user paused, deleted, or already resumed into a new spawn). Letting
+        // a flushed-from-pipe progress line clobber Paused/Failed/Completed
+        // back to Running is exactly the bug we're avoiding here.
+        return Ok(());
+    }
     repository.update_engine_state(
         task_id,
         DownloadStatus::Running,
@@ -2166,12 +2199,19 @@ fn update_ytdlp_progress(
 fn update_ytdlp_completion(
     database_path: &Path,
     task_id: &str,
+    pid: &str,
     status: DownloadStatus,
     error_message: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let connection = rusqlite::Connection::open(database_path)?;
     let repository = DownloadTaskRepository::new(&connection);
     let task = repository.get_by_id(task_id)?;
+    if !ytdlp_spawn_owns_task_with(&task, pid) {
+        // User-initiated pause / delete / resume into a new spawn must not be
+        // overwritten by the previous spawn's terminal status (typically a
+        // bogus Failed because pause used taskkill /F to stop the process).
+        return Ok(());
+    }
     let progress = if status == DownloadStatus::Completed {
         100.0
     } else {
@@ -2193,6 +2233,28 @@ fn update_ytdlp_completion(
         error_message,
     )?;
     Ok(())
+}
+
+/// True only if the live DB row says: (1) status is Running, AND (2) the
+/// engine_task_id (= yt-dlp PID we wrote at spawn time) still matches `pid`.
+/// Any other state — Paused (user pause), Completed/Failed (terminal),
+/// Deleted (user delete), or a different PID (a newer spawn already took
+/// over) — means the spawn thread that's calling us is stale and must NOT
+/// touch the DB.
+fn ytdlp_spawn_owns_task(
+    repository: &DownloadTaskRepository<'_>,
+    task_id: &str,
+    pid: &str,
+) -> Result<bool, Box<dyn Error>> {
+    let task = repository.get_by_id(task_id)?;
+    Ok(ytdlp_spawn_owns_task_with(&task, pid))
+}
+
+fn ytdlp_spawn_owns_task_with(task: &DownloadTask, pid: &str) -> bool {
+    if task.status != DownloadStatus::Running {
+        return false;
+    }
+    matches!(task.engine_task_id.as_deref(), Some(current) if current == pid)
 }
 
 fn append_args(command: &mut Command, args: &str) {
@@ -2258,30 +2320,63 @@ fn ytdlp_pid(task: &DownloadTask) -> Result<NonZeroU32, Box<dyn Error>> {
     Ok(pid)
 }
 
+/// Stop a running yt-dlp process tree on Windows.
+///
+/// Why this is a retry loop and not a single `taskkill`:
+/// in the wild, `taskkill /T /F` can return non-zero on a yt-dlp child
+/// while the user is pausing -- typically a transient "Access is denied"
+/// during the ffmpeg merge stage, or a TOCTOU race where one of the
+/// child PIDs in the tree exits between the kernel's enumeration and the
+/// kill attempt. Without retries the user sees their pause request
+/// surface as "failed to stop yt-dlp process N", `services::pause_tasks`
+/// then marks the task Failed, the process happily keeps downloading,
+/// and refresh later flips the row back to Running -- exactly the
+/// "Failed -> Running -> still downloading" flicker reported.
+///
+/// Strategy:
+/// 1. Run `taskkill /T /F` and capture stderr so any real error makes
+///    it into the surfaced message.
+/// 2. If `taskkill` succeeded, we're done.
+/// 3. If `taskkill` failed but the process is no longer in `tasklist`,
+///    the user's intent is satisfied -- treat as success. Covers the
+///    common "process not found" exit that taskkill emits as non-zero.
+/// 4. Otherwise sleep briefly and retry, up to a small bound.
 #[cfg(windows)]
 fn terminate_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
-    let status = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("failed to stop yt-dlp process {}", pid).into())
+    const ATTEMPTS: usize = 3;
+    const RETRY_BACKOFF: Duration = Duration::from_millis(250);
+
+    let pid_str = pid.to_string();
+    let mut last_stderr = String::new();
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            thread::sleep(RETRY_BACKOFF);
+        }
+        let output = Command::new("taskkill")
+            .args(["/PID", &pid_str, "/T", "/F"])
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        if !ytdlp_pid_appears_alive(&pid_str) {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !stderr.is_empty() {
+            last_stderr = stderr;
+        }
     }
+    let detail = if last_stderr.is_empty() {
+        "<no taskkill stderr>".to_string()
+    } else {
+        last_stderr
+    };
+    Err(format!("failed to stop yt-dlp process {} after {} attempts: {}", pid, ATTEMPTS, detail).into())
 }
 
 #[cfg(not(windows))]
 fn terminate_process(_pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
     Err("yt-dlp pause is only supported on Windows".into())
-}
-
-fn run_windows_command(program: &str, args: &[&str]) -> Result<(), Box<dyn Error>> {
-    let status = Command::new(program).args(args).status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{} failed with status {}", program, status).into())
-    }
 }
 
 #[cfg(test)]
@@ -2480,6 +2575,60 @@ mod tests {
         assert_eq!(state.status, DownloadStatus::Running);
         assert_eq!(state.progress, 11.0);
         assert_eq!(state.error_message, None);
+    }
+
+    /// Regression: when pause's `taskkill` failed,
+    /// `services::pause_tasks::mark_failed` set the row to Failed but the
+    /// underlying yt-dlp process was still alive. Refresh used to do
+    /// `if pid_alive { Running }` and revive the user-visible failure
+    /// back into Running -- producing the "Failed -> Running -> still
+    /// downloading" flicker reported in 2026-05-26's session log
+    /// (PID 38560, "failed to stop yt-dlp process 38560"). After this
+    /// fix refresh is a pure status echo.
+    #[test]
+    fn refresh_failed_ytdlp_task_does_not_revive_when_pid_alive() {
+        let mut task = aria2_task();
+        task.engine = EngineKind::YtDlp;
+        task.status = DownloadStatus::Failed;
+        // The current process's PID is guaranteed alive while the test runs,
+        // which is exactly the "taskkill failed but the process kept
+        // running" scenario from the user report.
+        task.engine_task_id = Some(std::process::id().to_string());
+        task.progress = 42.0;
+        task.speed_bytes_per_sec = 555;
+        task.error_message = Some("failed to stop yt-dlp process".to_string());
+
+        let state =
+            refresh_ytdlp_task(&task).expect("failed yt-dlp task should refresh without error");
+
+        assert_eq!(state.status, DownloadStatus::Failed);
+        assert_eq!(state.progress, 42.0);
+        assert_eq!(state.speed_bytes_per_sec, 0);
+        assert_eq!(
+            state.error_message.as_deref(),
+            Some("failed to stop yt-dlp process")
+        );
+    }
+
+    /// Regression: refresh must also leave Completed alone. Previously the
+    /// "if pid_alive -> Running" branch could re-open a finished task if a
+    /// new unrelated process happened to inherit the recycled PID before
+    /// the row's engine_task_id was cleared.
+    #[test]
+    fn refresh_completed_ytdlp_task_keeps_completed() {
+        let mut task = aria2_task();
+        task.engine = EngineKind::YtDlp;
+        task.status = DownloadStatus::Completed;
+        task.engine_task_id = Some(std::process::id().to_string());
+        task.progress = 100.0;
+        task.speed_bytes_per_sec = 0;
+
+        let state =
+            refresh_ytdlp_task(&task).expect("completed yt-dlp task should refresh without error");
+
+        assert_eq!(state.status, DownloadStatus::Completed);
+        assert_eq!(state.progress, 100.0);
+        assert_eq!(state.speed_bytes_per_sec, 0);
     }
 
     #[test]
@@ -2732,5 +2881,208 @@ mod tests {
         });
 
         (format!("http://{address}/jsonrpc"), methods, server)
+    }
+
+    /// Inserts a yt-dlp task row directly so the spawn-thread DB writers can be
+    /// exercised without actually running yt-dlp.
+    fn insert_ytdlp_task_row(
+        connection: &rusqlite::Connection,
+        id: &str,
+        engine_task_id: &str,
+        status: DownloadStatus,
+        progress: f64,
+        error_message: Option<&str>,
+    ) {
+        connection
+            .execute(
+                r#"
+                INSERT INTO download_tasks (
+                    id,
+                    source_type,
+                    source,
+                    engine_settings_id,
+                    engine,
+                    engine_task_id,
+                    file_name,
+                    status,
+                    progress,
+                    speed_bytes_per_sec,
+                    downloaded_bytes,
+                    total_bytes,
+                    save_path,
+                    error_message
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                "#,
+                rusqlite::params![
+                    id,
+                    SourceType::Http.as_db(),
+                    "http://example.test/video.mp4",
+                    "yt-dlp",
+                    EngineKind::YtDlp.as_db(),
+                    engine_task_id,
+                    "video.mp4",
+                    status.as_db(),
+                    progress,
+                    0_i64,
+                    0_i64,
+                    0_i64,
+                    "C:\\Downloads",
+                    error_message,
+                ],
+            )
+            .expect("yt-dlp task row should insert");
+    }
+
+    fn read_task_row(connection: &rusqlite::Connection, id: &str) -> DownloadTask {
+        DownloadTaskRepository::new(connection)
+            .get_by_id(id)
+            .expect("task should load")
+    }
+
+    fn temp_engine_database_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "unidl-engine-test-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    /// Regression: pausing a Running yt-dlp task triggers taskkill, which makes
+    /// the spawn thread's stdout/stderr pipes flush their last buffered progress
+    /// lines. Each of those lines used to call `update_ytdlp_progress` and
+    /// clobber the user's freshly-written `Paused` back to `Running`, producing
+    /// the "Failed -> Running -> Failed" status flicker users reported. The
+    /// guard makes those late writes a no-op when the DB no longer says
+    /// Running.
+    #[test]
+    fn update_ytdlp_progress_skips_when_task_is_paused() {
+        let database_path = temp_engine_database_path();
+        let connection = crate::db::connect_path(database_path.clone()).expect("db should migrate");
+        insert_ytdlp_task_row(
+            &connection,
+            "paused-task",
+            "1234",
+            DownloadStatus::Paused,
+            42.0,
+            None,
+        );
+        drop(connection);
+
+        update_ytdlp_progress(&database_path, "paused-task", "1234", 88.0, 999, 880, 1_000)
+            .expect("late progress write should succeed but skip");
+
+        let connection = rusqlite::Connection::open(&database_path).expect("db should open");
+        let task = read_task_row(&connection, "paused-task");
+        assert_eq!(task.status, DownloadStatus::Paused);
+        assert_eq!(task.progress, 42.0);
+        assert_eq!(task.speed_bytes_per_sec, 0);
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    /// Regression: when pause kills yt-dlp the spawn thread's `child.wait()`
+    /// reports a non-zero exit and is about to write `update_ytdlp_completion`
+    /// with status=Failed. That used to overwrite the user's Paused with
+    /// Failed (often after the DB had already settled into Paused), producing
+    /// the brief "Failed" flash. The guard ensures the late completion write
+    /// is a no-op when the user has already paused.
+    #[test]
+    fn update_ytdlp_completion_skips_when_task_is_paused() {
+        let database_path = temp_engine_database_path();
+        let connection = crate::db::connect_path(database_path.clone()).expect("db should migrate");
+        insert_ytdlp_task_row(
+            &connection,
+            "paused-task",
+            "1234",
+            DownloadStatus::Paused,
+            42.0,
+            None,
+        );
+        drop(connection);
+
+        update_ytdlp_completion(
+            &database_path,
+            "paused-task",
+            "1234",
+            DownloadStatus::Failed,
+            Some("yt-dlp exited with failure"),
+        )
+        .expect("late completion write should succeed but skip");
+
+        let connection = rusqlite::Connection::open(&database_path).expect("db should open");
+        let task = read_task_row(&connection, "paused-task");
+        assert_eq!(task.status, DownloadStatus::Paused);
+        assert_eq!(task.progress, 42.0);
+        assert_eq!(task.error_message, None);
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    /// Regression: if the user pauses then immediately resumes, a fresh spawn
+    /// will rewrite engine_task_id with the new PID. The previous spawn's
+    /// thread eventually finishes its `child.wait()` and tries to write Failed
+    /// (because the old child was killed). That stale write must NOT clobber
+    /// the new Running session.
+    #[test]
+    fn update_ytdlp_completion_skips_when_engine_task_id_changed() {
+        let database_path = temp_engine_database_path();
+        let connection = crate::db::connect_path(database_path.clone()).expect("db should migrate");
+        // Simulate the post-resume state: status=Running, engine_task_id=NEW.
+        insert_ytdlp_task_row(
+            &connection,
+            "resumed-task",
+            "5678",
+            DownloadStatus::Running,
+            42.0,
+            None,
+        );
+        drop(connection);
+
+        // The old spawn (pid=1234) finally reports its Failed exit.
+        update_ytdlp_completion(
+            &database_path,
+            "resumed-task",
+            "1234",
+            DownloadStatus::Failed,
+            Some("old spawn was killed"),
+        )
+        .expect("stale completion write should succeed but skip");
+
+        let connection = rusqlite::Connection::open(&database_path).expect("db should open");
+        let task = read_task_row(&connection, "resumed-task");
+        assert_eq!(task.status, DownloadStatus::Running);
+        assert_eq!(task.engine_task_id.as_deref(), Some("5678"));
+        assert_eq!(task.error_message, None);
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    /// Sanity: when the spawn thread is still the live one (pid matches and
+    /// status is Running), normal progress writes go through.
+    #[test]
+    fn update_ytdlp_progress_writes_when_owned_and_running() {
+        let database_path = temp_engine_database_path();
+        let connection = crate::db::connect_path(database_path.clone()).expect("db should migrate");
+        insert_ytdlp_task_row(
+            &connection,
+            "live-task",
+            "1234",
+            DownloadStatus::Running,
+            10.0,
+            None,
+        );
+        drop(connection);
+
+        update_ytdlp_progress(&database_path, "live-task", "1234", 55.5, 4096, 555, 1_000)
+            .expect("live progress should write");
+
+        let connection = rusqlite::Connection::open(&database_path).expect("db should open");
+        let task = read_task_row(&connection, "live-task");
+        assert_eq!(task.status, DownloadStatus::Running);
+        assert_eq!(task.progress, 55.5);
+        assert_eq!(task.speed_bytes_per_sec, 4096);
+        assert_eq!(task.downloaded_bytes, 555);
+        assert_eq!(task.total_bytes, 1_000);
+        drop(connection);
+        let _ = fs::remove_file(database_path);
     }
 }
