@@ -48,6 +48,8 @@ async function handleMessage(message) {
   switch (message?.type) {
     case "get-state":
       return getPopupState();
+    case "get-settings":
+      return getSettings();
     case "save-settings": {
       const settings = await mergeSettings(message.settings ?? {});
       await saveSettings(settings);
@@ -91,10 +93,14 @@ async function canDetectActiveTabVideos(settings) {
     return false;
   }
   try {
-    const result = await requestJson(settings.apiBaseUrl, "/api/extension/videos/support", {
-      method: "POST",
-      body: { source },
-    });
+    const result = await requestJson(
+      settings.apiBaseUrl,
+      "/api/extension/videos/support",
+      {
+        method: "POST",
+        body: { source },
+      },
+    );
     return Boolean(result.canDetectVideos);
   } catch {
     return false;
@@ -131,17 +137,25 @@ async function downloadVideo(video) {
   }
   const fileName = cleanFileName(video?.title) ?? parseUrlName(source) ?? "video";
   const cookies = await exportCookies(source);
-  const task = await requestJson((await getSettings()).apiBaseUrl, "/api/extension/ytdlp/tasks", {
-    method: "POST",
-    body: { source, fileName, cookies },
-  });
+  const task = await requestJson(
+    (await getSettings()).apiBaseUrl,
+    "/api/extension/ytdlp/tasks",
+    {
+      method: "POST",
+      body: { source, fileName, cookies },
+    },
+  );
   await remember(task.fileName + " sent to UniDL");
   return task;
 }
 
 async function handleDownload(download) {
   const settings = await getSettings();
-  if (!settings.interceptEnabled || !download.url || download.byExtensionId === chrome.runtime.id) {
+  if (
+    !settings.interceptEnabled ||
+    !download.url ||
+    download.byExtensionId === chrome.runtime.id
+  ) {
     return;
   }
   const task = await sendSource(download.url, settings, download.filename);
@@ -176,16 +190,33 @@ function parseSource(value, suggestedFileName) {
     throw new Error("Download source is required");
   }
   if (/^magnet:/i.test(source)) {
-    return { sourceType: "magnet", source, fileName: parseMagnetName(source) ?? "magnet" };
+    return {
+      sourceType: "magnet",
+      source,
+      fileName: parseMagnetName(source) ?? "magnet",
+    };
   }
   if (/^https?:\/\//i.test(source)) {
-    return { sourceType: "http", source, fileName: parseNetworkFileName(source, suggestedFileName) ?? "http-download" };
+    return {
+      sourceType: "http",
+      source,
+      fileName: parseNetworkFileName(source, suggestedFileName) ?? "http-download",
+    };
   }
   if (/^ftp:\/\//i.test(source)) {
-    return { sourceType: "ftp", source, fileName: parseNetworkFileName(source, suggestedFileName) ?? "ftp-download" };
+    return {
+      sourceType: "ftp",
+      source,
+      fileName: parseNetworkFileName(source, suggestedFileName) ?? "ftp-download",
+    };
   }
   if (source.toLowerCase().split(/[?#]/)[0].endsWith(".torrent")) {
-    return { sourceType: "torrent", source, fileName: cleanFileName(suggestedFileName) ?? parsePathName(source) ?? "download.torrent" };
+    return {
+      sourceType: "torrent",
+      source,
+      fileName:
+        cleanFileName(suggestedFileName) ?? parsePathName(source) ?? "download.torrent",
+    };
   }
   throw new Error("Unsupported download source");
 }
@@ -223,11 +254,17 @@ function parseNetworkFileName(source, suggestedFileName) {
 }
 
 function parsePathName(value) {
-  return cleanFileName(String(value).split(/[?#]/)[0].split(/[\\/]/).filter(Boolean).at(-1));
+  return cleanFileName(
+    String(value).split(/[?#]/)[0].split(/[\\/]/).filter(Boolean).at(-1),
+  );
 }
 
 function cleanFileName(value) {
-  const name = String(value ?? "").split(/[\\/]/).filter(Boolean).at(-1)?.trim();
+  const name = String(value ?? "")
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .at(-1)
+    ?.trim();
   if (!name) {
     return null;
   }
@@ -258,7 +295,11 @@ async function exportCookies(source) {
     const path = cookie.path || "/";
     const secure = cookie.secure ? "TRUE" : "FALSE";
     const expires = cookie.session ? "0" : String(Math.trunc(cookie.expirationDate ?? 0));
-    lines.push([domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join("\t"));
+    lines.push(
+      [domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join(
+        "\t",
+      ),
+    );
   }
   return lines.join("\n") + "\n";
 }
@@ -303,7 +344,9 @@ function normalizeHttpUrl(value) {
 
 function getActiveTab() {
   return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => resolve(tabs[0] ?? null));
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) =>
+      resolve(tabs[0] ?? null),
+    );
   });
 }
 
@@ -322,17 +365,26 @@ function getTabUrl(tabId) {
 function setBadge(tabId, count) {
   return new Promise((resolve) => {
     chrome.action.setBadgeBackgroundColor({ tabId, color: "#047857" }, () => {
-      chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : "" }, resolve);
+      chrome.action.setBadgeText(
+        { tabId, text: count > 0 ? String(count) : "" },
+        resolve,
+      );
     });
   });
 }
 
 function getSettings() {
-  return new Promise((resolve) => chrome.storage.local.get(DEFAULT_SETTINGS, (items) => resolve(normalizeSettings(items))));
+  return new Promise((resolve) =>
+    chrome.storage.local.get(DEFAULT_SETTINGS, (items) =>
+      resolve(normalizeSettings(items)),
+    ),
+  );
 }
 
 function saveSettings(settings) {
-  return new Promise((resolve) => chrome.storage.local.set(normalizeSettings(settings), resolve));
+  return new Promise((resolve) =>
+    chrome.storage.local.set(normalizeSettings(settings), resolve),
+  );
 }
 
 async function mergeSettings(settings) {
@@ -354,5 +406,7 @@ async function cancelDownload(downloadId) {
 }
 
 async function remember(message) {
-  await new Promise((resolve) => chrome.storage.local.set({ lastEvent: message }, resolve));
+  await new Promise((resolve) =>
+    chrome.storage.local.set({ lastEvent: message }, resolve),
+  );
 }

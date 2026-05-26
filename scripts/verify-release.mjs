@@ -34,6 +34,9 @@ check("extension package contains the MV3 files", () => {
     "popup.html",
     "popup.css",
     "popup.js",
+    "settings.html",
+    "settings.css",
+    "settings.js",
     "logo.png",
   ]) {
     assertIncludes(zip, file);
@@ -47,6 +50,7 @@ check("extension manifest has Chrome/Edge download hooks", () => {
   }
   assertEqual(manifest.background.service_worker, "background.js");
   assertEqual(manifest.action.default_popup, "popup.html");
+  assertEqual(manifest.options_page, "settings.html");
   assertEqual(manifest.icons["128"], "logo.png");
   assertEqual(manifest.action.default_icon["128"], "logo.png");
 });
@@ -77,8 +81,8 @@ check("torrent and magnet association chain is present", () => {
   assertEqual(tauriConfig.bundle.fileAssociations[0].ext.includes("torrent"), true);
   const systemOpen = readText("src-tauri/src/system_open.rs");
   assertIncludes(systemOpen, "register_torrent_file_association");
-  assertIncludes(systemOpen, "starts_with(\"magnet:\")");
-  assertIncludes(systemOpen, "ends_with(\".torrent\")");
+  assertIncludes(systemOpen, 'starts_with("magnet:")');
+  assertIncludes(systemOpen, 'ends_with(".torrent")');
 });
 
 check("web access auth and event endpoints are present", () => {

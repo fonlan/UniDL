@@ -3,7 +3,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = JSON.parse(readFileSync(join(root, "extension", "manifest.json"), "utf8"));
+const manifest = JSON.parse(
+  readFileSync(join(root, "extension", "manifest.json"), "utf8"),
+);
 const extensionDir = join(root, "extension");
 const outputDir = join(root, "release");
 const output = join(outputDir, `UniDL-extension-v${manifest.version}.zip`);
@@ -13,6 +15,9 @@ const files = [
   "popup.html",
   "popup.css",
   "popup.js",
+  "settings.html",
+  "settings.css",
+  "settings.js",
   "logo.png",
 ];
 const crcTable = createCrcTable();

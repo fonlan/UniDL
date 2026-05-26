@@ -1,9 +1,7 @@
 const fields = {
-  apiBaseUrl: document.querySelector("#api-base-url"),
   interceptEnabled: document.querySelector("#intercept-enabled"),
-  cancelOriginal: document.querySelector("#cancel-original"),
   detectVideos: document.querySelector("#detect-videos"),
-  lastEvent: document.querySelector("#last-event"),
+  openSettings: document.querySelector("#open-settings"),
   status: document.querySelector("#status"),
   videos: document.querySelector("#videos"),
 };
@@ -13,8 +11,12 @@ let canDetectVideos = false;
 let videoDetectionDone = false;
 let isDetecting = false;
 
-document.querySelector("#connect").addEventListener("click", () => {
-  void connect();
+fields.openSettings.addEventListener("click", () => {
+  if (chrome.runtime.openOptionsPage) {
+    chrome.runtime.openOptionsPage();
+    return;
+  }
+  chrome.tabs.create({ url: chrome.runtime.getURL("settings.html") });
 });
 
 fields.detectVideos.addEventListener("click", () => {
@@ -23,18 +25,19 @@ fields.detectVideos.addEventListener("click", () => {
   }
   isDetecting = true;
   renderVideos();
-  void run("\u68c0\u6d4b\u5b8c\u6210", () => sendMessage("detect-videos", { settings: collectSettings() }))
-    .finally(() => {
-      isDetecting = false;
-      renderVideos();
-    });
+  void run("\u68c0\u6d4b\u5b8c\u6210", () =>
+    sendMessage("detect-videos", { settings: collectSettings() }),
+  ).finally(() => {
+    isDetecting = false;
+    renderVideos();
+  });
 });
 
-for (const field of [fields.interceptEnabled, fields.cancelOriginal]) {
-  field.addEventListener("change", () => {
-    void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () => sendMessage("save-settings", { settings: collectSettings() }));
-  });
-}
+fields.interceptEnabled.addEventListener("change", () => {
+  void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () =>
+    sendMessage("save-settings", { settings: collectSettings() }),
+  );
+});
 
 fields.videos.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-video-id]");
@@ -43,7 +46,9 @@ fields.videos.addEventListener("click", (event) => {
   }
   const video = videos.find((item) => item.id === button.dataset.videoId);
   if (video) {
-    void run("\u5df2\u53d1\u9001\u5230 UniDL", () => sendMessage("download-video", { video }));
+    void run("\u5df2\u53d1\u9001\u5230 UniDL", () =>
+      sendMessage("download-video", { video }),
+    );
   }
 });
 
@@ -54,11 +59,6 @@ async function load() {
     const state = await sendMessage("get-state");
     applyState(state);
   });
-  await connect();
-}
-
-async function connect() {
-  await run("\u5df2\u8fde\u63a5 UniDL", () => sendMessage("connect", { settings: collectSettings() }));
 }
 
 async function run(successMessage, action) {
@@ -78,17 +78,12 @@ async function run(successMessage, action) {
 
 function collectSettings() {
   return {
-    apiBaseUrl: fields.apiBaseUrl.value,
     interceptEnabled: fields.interceptEnabled.checked,
-    cancelOriginal: fields.cancelOriginal.checked,
   };
 }
 
 function applyState(state) {
-  fields.apiBaseUrl.value = state.apiBaseUrl ?? "";
   fields.interceptEnabled.checked = Boolean(state.interceptEnabled);
-  fields.cancelOriginal.checked = state.cancelOriginal !== false;
-  fields.lastEvent.textContent = state.lastEvent || "\u672a\u8fde\u63a5";
   videos = Array.isArray(state.videos) ? state.videos : [];
   canDetectVideos = Boolean(state.canDetectVideos);
   videoDetectionDone = Boolean(state.videoDetectionDone);
@@ -109,20 +104,23 @@ function renderVideos() {
     spinner.className = "spinner";
     spinner.setAttribute("aria-hidden", "true");
     const text = document.createElement("span");
-    text.textContent = "\u6b63\u5728\u8c03\u7528 yt-dlp \u68c0\u6d4b\u5f53\u524d\u9875\u9762\u2026";
+    text.textContent =
+      "\u6b63\u5728\u8c03\u7528 yt-dlp \u68c0\u6d4b\u5f53\u524d\u9875\u9762\u2026";
     loading.append(spinner, text);
     fields.videos.append(loading);
     return;
   }
   if (!canDetectVideos) {
     const empty = document.createElement("p");
-    empty.textContent = "\u5f53\u524d\u9875\u9762\u4e0d\u53ef\u68c0\u6d4b\uff0c\u6216\u672a\u914d\u7f6e\u53ef\u7528 yt-dlp \u5f15\u64ce";
+    empty.textContent =
+      "\u5f53\u524d\u9875\u9762\u4e0d\u53ef\u68c0\u6d4b\uff0c\u6216\u672a\u914d\u7f6e\u53ef\u7528 yt-dlp \u5f15\u64ce";
     fields.videos.append(empty);
     return;
   }
   if (!videoDetectionDone) {
     const empty = document.createElement("p");
-    empty.textContent = "\u70b9\u51fb\u201c\u68c0\u6d4b\u5f53\u524d\u9875\u9762\u201d\u67e5\u627e\u53ef\u4e0b\u8f7d\u89c6\u9891";
+    empty.textContent =
+      "\u70b9\u51fb\u201c\u68c0\u6d4b\u5f53\u524d\u9875\u9762\u201d\u67e5\u627e\u53ef\u4e0b\u8f7d\u89c6\u9891";
     fields.videos.append(empty);
     return;
   }
