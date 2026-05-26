@@ -3,13 +3,7 @@
   "name": "UniDL",
   "version": "0.1.4",
   "description": "Send browser downloads to the local UniDL desktop service.",
-  "permissions": [
-    "contextMenus",
-    "cookies",
-    "downloads",
-    "storage",
-    "tabs"
-  ],
+  "permissions": ["contextMenus", "cookies", "downloads", "storage", "tabs"],
   "host_permissions": [
     "<all_urls>",
     "http://127.0.0.1:18080/*",

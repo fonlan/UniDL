@@ -1,40 +1,38 @@
 <!doctype html>
 <html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UniDL</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
 
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UniDL</title>
-  <link rel="stylesheet" href="popup.css" />
-</head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>UniDL</h1>
+        </div>
+        <button id="open-settings" type="button">扩展设置</button>
+      </header>
 
-<body>
-  <main>
-    <header>
-      <div>
-        <h1>UniDL</h1>
-      </div>
-      <button id="open-settings" type="button">扩展设置</button>
-    </header>
+      <section class="checks">
+        <label>
+          <input id="intercept-enabled" type="checkbox" />
+          <span>拦截浏览器下载</span>
+        </label>
+      </section>
 
-    <section class="checks">
-      <label>
-        <input id="intercept-enabled" type="checkbox" />
-        <span>拦截浏览器下载</span>
-      </label>
-    </section>
+      <section>
+        <h2>当前页面视频</h2>
+        <div class="video-actions">
+          <button id="detect-videos" type="button">检测当前页面</button>
+        </div>
+        <div id="videos" class="videos"></div>
+      </section>
 
-    <section>
-      <h2>当前页面视频</h2>
-      <div class="video-actions">
-        <button id="detect-videos" type="button">检测当前页面</button>
-      </div>
-      <div id="videos" class="videos"></div>
-    </section>
-
-    <p id="status" role="status"></p>
-  </main>
-  <script src="popup.js"></script>
-</body>
-
+      <p id="status" role="status"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
 </html>
