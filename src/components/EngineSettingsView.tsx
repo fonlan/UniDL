@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DragEvent as ReactDragEvent, ReactNode } from "react";
-import { confirm } from "@/lib/tauri";
+import { confirm, openDialog } from "@/lib/tauri";
 import {
   Check,
   ChevronDown,
   Download,
+  FolderOpen,
   Globe2,
   GripVertical,
   HardDrive,
@@ -230,6 +231,51 @@ function Field({
       />
     </label>
   );
+}
+
+function DirectoryField({
+  label,
+  value,
+  onChange,
+  onBrowse,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onBrowse: () => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+      <span className="font-medium">{label}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        />
+        <button
+          type="button"
+          title="浏览下载目录"
+          aria-label="浏览下载目录"
+          onClick={onBrowse}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+        >
+          <FolderOpen size={15} />
+        </button>
+      </div>
+    </label>
+  );
+}
+
+async function pickDownloadDirectory(currentPath: string) {
+  const selected = await openDialog({
+    directory: true,
+    multiple: false,
+    defaultPath: currentPath.trim() || undefined,
+    title: "选择下载目录",
+  });
+
+  return typeof selected === "string" ? selected : null;
 }
 
 function TextAreaField({
@@ -1174,12 +1220,24 @@ export default function EngineSettingsView() {
                                       />
                                     )}
                                     {draft.engine !== "qbittorrent" && (
-                                      <Field
+                                      <DirectoryField
                                         label="默认下载目录"
                                         value={draft.defaultDownloadDir}
                                         onChange={(value) =>
                                           updateDraft(draft.id, { defaultDownloadDir: value })
                                         }
+                                        onBrowse={() => {
+                                          void (async () => {
+                                            const selected = await pickDownloadDirectory(
+                                              draft.defaultDownloadDir,
+                                            );
+                                            if (selected) {
+                                              updateDraft(draft.id, {
+                                                defaultDownloadDir: selected,
+                                              });
+                                            }
+                                          })();
+                                        }}
                                       />
                                     )}
                                     {usesConnection && (
