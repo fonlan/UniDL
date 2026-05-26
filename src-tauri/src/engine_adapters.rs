@@ -26,8 +26,9 @@ use crate::{
 };
 
 const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
-const YTDLP_FAST_DEFAULT_ARGS: &str =
-    "--newline --no-playlist --js-runtimes node --concurrent-fragments 8";
+const YTDLP_FAST_DEFAULT_ARGS: &str = "--no-playlist --js-runtimes node --concurrent-fragments 8";
+const YTDLP_PROGRESS_PREFIX: &str = "[UniDL:progress] ";
+const YTDLP_PROGRESS_TEMPLATE: &str = r#"download:[UniDL:progress] {"status":%(progress.status|)j,"downloadedBytes":%(progress.downloaded_bytes|0)j,"totalBytes":%(progress.total_bytes|0)j,"totalBytesEstimate":%(progress.total_bytes_estimate|0)j,"speedBytesPerSec":%(progress.speed|0)j,"percent":%(progress._percent_str|)j}"#;
 const MAGNET_NAME_RESOLVE_ATTEMPTS: usize = 60;
 const COLD_ARIA2_MAGNET_RESOLVE_ATTEMPTS: usize = 180;
 const MAGNET_NAME_RESOLVE_INTERVAL: Duration = Duration::from_secs(1);
@@ -1683,6 +1684,7 @@ fn add_ytdlp_task(
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
     append_args(&mut command, &task.engine_args);
+    append_ytdlp_progress_args(&mut command);
     if force_continue {
         command.arg("--continue");
     } else {
@@ -2022,6 +2024,14 @@ pub(crate) fn apply_ytdlp_utf8_env(command: &mut Command) {
     command.env("PYTHONUTF8", "1");
 }
 
+fn append_ytdlp_progress_args(command: &mut Command) {
+    command
+        .arg("--progress")
+        .arg("--newline")
+        .arg("--progress-template")
+        .arg(YTDLP_PROGRESS_TEMPLATE);
+}
+
 fn write_ytdlp_cookie_file(task: &DownloadTask) -> Result<Option<PathBuf>, Box<dyn Error>> {
     let Some(cookies) = task.browser_cookies.as_deref() else {
         return Ok(None);
@@ -2101,6 +2111,10 @@ struct YtDlpProgress {
 }
 
 fn parse_ytdlp_progress(line: &str) -> Option<YtDlpProgress> {
+    if let Some(progress) = parse_ytdlp_progress_template(line) {
+        return Some(progress);
+    }
+
     let parts = line.split_whitespace().collect::<Vec<_>>();
     let percent = parts
         .iter()
@@ -2116,13 +2130,19 @@ fn parse_ytdlp_progress(line: &str) -> Option<YtDlpProgress> {
         })
         .unwrap_or(0);
     let total_bytes = parts
-        .windows(2)
-        .find_map(|window| {
-            if window[0] == "of" {
-                parse_ytdlp_byte_value(window[1])
-            } else {
-                None
+        .iter()
+        .enumerate()
+        .find_map(|(index, part)| {
+            if *part != "of" {
+                return None;
             }
+            let value = parts.get(index + 1)?;
+            let value = if *value == "~" {
+                parts.get(index + 2)?
+            } else {
+                value
+            };
+            parse_ytdlp_byte_value(value)
         })
         .unwrap_or(0);
     let downloaded_bytes = if total_bytes > 0 {
@@ -2137,6 +2157,78 @@ fn parse_ytdlp_progress(line: &str) -> Option<YtDlpProgress> {
         downloaded_bytes,
         total_bytes,
     })
+}
+
+fn parse_ytdlp_progress_template(line: &str) -> Option<YtDlpProgress> {
+    let payload = line.trim().strip_prefix(YTDLP_PROGRESS_PREFIX)?;
+    let value: Value = serde_json::from_str(payload).ok()?;
+    let downloaded_bytes = ytdlp_json_i64(value.get("downloadedBytes"))
+        .unwrap_or(0)
+        .max(0);
+    let total_bytes = ytdlp_json_i64(value.get("totalBytes"))
+        .filter(|total| *total > 0)
+        .or_else(|| ytdlp_json_i64(value.get("totalBytesEstimate")).filter(|total| *total > 0))
+        .unwrap_or(0);
+    let speed_bytes_per_sec = ytdlp_json_i64(value.get("speedBytesPerSec"))
+        .unwrap_or(0)
+        .max(0);
+    let percent = ytdlp_json_f64(value.get("percent"))
+        .or_else(|| {
+            value
+                .get("percent")
+                .and_then(Value::as_str)
+                .and_then(parse_ytdlp_percent_value)
+        })
+        .or_else(|| {
+            if total_bytes > 0 {
+                Some((downloaded_bytes as f64 / total_bytes as f64) * 100.0)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0.0);
+
+    Some(YtDlpProgress {
+        percent,
+        speed_bytes_per_sec,
+        downloaded_bytes,
+        total_bytes,
+    })
+}
+
+fn ytdlp_json_i64(value: Option<&Value>) -> Option<i64> {
+    match value? {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
+            .or_else(|| number.as_f64().map(|value| value.round() as i64)),
+        Value::String(value) => value
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .map(|value| value.round() as i64),
+        _ => None,
+    }
+}
+
+fn ytdlp_json_f64(value: Option<&Value>) -> Option<f64> {
+    match value? {
+        Value::Number(number) => number.as_f64(),
+        Value::String(value) => {
+            parse_ytdlp_percent_value(value).or_else(|| value.trim().parse::<f64>().ok())
+        }
+        _ => None,
+    }
+}
+
+fn parse_ytdlp_percent_value(value: &str) -> Option<f64> {
+    value
+        .trim()
+        .strip_suffix('%')
+        .unwrap_or_else(|| value.trim())
+        .trim()
+        .parse::<f64>()
+        .ok()
 }
 
 fn parse_ytdlp_speed(value: &str) -> Option<i64> {
@@ -2635,6 +2727,31 @@ mod tests {
     fn parse_ytdlp_progress_reads_percent_and_speed() {
         let progress = parse_ytdlp_progress("[download]  42.5% of 10.00MiB at 1.25MiB/s ETA 00:04")
             .expect("progress should parse");
+
+        assert_eq!(progress.percent, 42.5);
+        assert_eq!(progress.speed_bytes_per_sec, 1_310_720);
+        assert_eq!(progress.downloaded_bytes, 4_456_448);
+        assert_eq!(progress.total_bytes, 10_485_760);
+    }
+
+    #[test]
+    fn parse_ytdlp_progress_reads_json_template() {
+        let progress = parse_ytdlp_progress(
+            r#"[UniDL:progress] {"status":"downloading","downloadedBytes":1048576,"totalBytes":0,"totalBytesEstimate":2097152,"speedBytesPerSec":524288.4,"percent":" 50.0%"}"#,
+        )
+        .expect("progress template should parse");
+
+        assert_eq!(progress.percent, 50.0);
+        assert_eq!(progress.speed_bytes_per_sec, 524_288);
+        assert_eq!(progress.downloaded_bytes, 1_048_576);
+        assert_eq!(progress.total_bytes, 2_097_152);
+    }
+
+    #[test]
+    fn parse_ytdlp_progress_reads_separated_approximate_total() {
+        let progress =
+            parse_ytdlp_progress("[download]  42.5% of ~ 10.00MiB at 1.25MiB/s ETA 00:04")
+                .expect("approximate total progress should parse");
 
         assert_eq!(progress.percent, 42.5);
         assert_eq!(progress.speed_bytes_per_sec, 1_310_720);
