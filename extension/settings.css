@@ -46,7 +46,8 @@ label {
   font-weight: 600;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -58,7 +59,13 @@ input {
   padding: 8px 9px;
 }
 
-input:focus {
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
   border-color: #047857;
   box-shadow: 0 0 0 2px #d1fae5;
 }

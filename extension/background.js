@@ -5,6 +5,7 @@ const DEFAULT_SETTINGS = {
   interceptEnabled: false,
   cancelOriginal: true,
   minCaptureSizeMb: 3,
+  skipCaptureDomains: [],
   lastEvent: "",
 };
 
@@ -162,11 +163,29 @@ async function handleDownload(download) {
   if (isBelowMinCaptureSize(download, settings)) {
     return;
   }
+  if (shouldSkipCaptureByDomain(download.url, settings)) {
+    return;
+  }
   const task = await sendSource(download.url, settings, download.filename);
   if (settings.cancelOriginal) {
     await cancelDownload(download.id);
   }
   await remember(task.fileName + " sent to UniDL");
+}
+
+function shouldSkipCaptureByDomain(source, settings) {
+  if (!settings.skipCaptureDomains.length) {
+    return false;
+  }
+  let hostname;
+  try {
+    hostname = new URL(source).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return settings.skipCaptureDomains.some(
+    (domain) => hostname === domain || hostname.endsWith("." + domain),
+  );
 }
 
 function isBelowMinCaptureSize(download, settings) {
@@ -424,8 +443,42 @@ function normalizeSettings(settings) {
     Number.isFinite(minCaptureSizeMb) && minCaptureSizeMb >= 0
       ? minCaptureSizeMb
       : DEFAULT_SETTINGS.minCaptureSizeMb;
+  next.skipCaptureDomains = normalizeDomainList(next.skipCaptureDomains);
   next.lastEvent = String(next.lastEvent ?? "");
   return next;
+}
+
+function normalizeDomainList(value) {
+  const entries = Array.isArray(value) ? value : String(value ?? "").split(/[\n,]/);
+  const domains = [];
+  for (const entry of entries) {
+    const domain = normalizeDomainEntry(entry);
+    if (domain && !domains.includes(domain)) {
+      domains.push(domain);
+    }
+  }
+  return domains;
+}
+
+function normalizeDomainEntry(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) {
+    return null;
+  }
+  try {
+    const url = new URL(/^\w+:\/\//.test(text) ? text : "http://" + text);
+    return trimDomain(url.hostname);
+  } catch {
+    return trimDomain(text.split(/[/?#]/)[0]);
+  }
+}
+
+function trimDomain(value) {
+  const domain = String(value ?? "")
+    .trim()
+    .replace(/^\*\./, "")
+    .replace(/^\.+|\.+$/g, "");
+  return domain || null;
 }
 
 async function cancelDownload(downloadId) {

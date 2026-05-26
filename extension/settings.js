@@ -3,6 +3,7 @@ const fields = {
   cancelOriginal: document.querySelector("#cancel-original"),
   connect: document.querySelector("#connect"),
   minCaptureSizeMb: document.querySelector("#min-capture-size-mb"),
+  skipCaptureDomains: document.querySelector("#skip-capture-domains"),
   status: document.querySelector("#status"),
 };
 
@@ -24,6 +25,12 @@ fields.cancelOriginal.addEventListener("change", () => {
 });
 
 fields.minCaptureSizeMb.addEventListener("change", () => {
+  void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () =>
+    sendMessage("save-settings", { settings: collectSettings() }),
+  );
+});
+
+fields.skipCaptureDomains.addEventListener("change", () => {
   void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () =>
     sendMessage("save-settings", { settings: collectSettings() }),
   );
@@ -64,6 +71,7 @@ function collectSettings() {
     apiBaseUrl: fields.apiBaseUrl.value,
     cancelOriginal: fields.cancelOriginal.checked,
     minCaptureSizeMb: Number(fields.minCaptureSizeMb.value),
+    skipCaptureDomains: fields.skipCaptureDomains.value,
   };
 }
 
@@ -71,6 +79,7 @@ function applySettings(settings) {
   fields.apiBaseUrl.value = settings.apiBaseUrl ?? "";
   fields.cancelOriginal.checked = settings.cancelOriginal !== false;
   fields.minCaptureSizeMb.value = settings.minCaptureSizeMb ?? 3;
+  fields.skipCaptureDomains.value = (settings.skipCaptureDomains ?? []).join("\n");
 }
 
 function sendMessage(type, payload = {}) {
