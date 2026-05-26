@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Eye,
+  EyeOff,
   Minus,
   Pause,
   Play,
@@ -250,6 +252,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [webPassword, setWebPassword] = useState("");
+  const [isWebPasswordVisible, setIsWebPasswordVisible] = useState(false);
   const [isWebAuthenticating, setIsWebAuthenticating] = useState(false);
   const [isWebAuthorized, setIsWebAuthorized] = useState(() => !isWebRuntime() || !!getWebToken());
 
@@ -865,13 +868,24 @@ function App() {
           </div>
 
           <label className="mb-2 block text-sm font-medium text-slate-700">访问密码</label>
-          <input
-            type="password"
-            value={webPassword}
-            onChange={(event) => setWebPassword(event.target.value)}
-            className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none ring-0 transition focus:border-emerald-500"
-            autoFocus
-          />
+          <div className="relative">
+            <input
+              type={isWebPasswordVisible ? "text" : "password"}
+              value={webPassword}
+              onChange={(event) => setWebPassword(event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 pr-11 text-sm outline-none ring-0 transition focus:border-emerald-500"
+              autoFocus
+            />
+            <button
+              type="button"
+              title={isWebPasswordVisible ? "隐藏密码" : "显示密码"}
+              aria-label={isWebPasswordVisible ? "隐藏密码" : "显示密码"}
+              onClick={() => setIsWebPasswordVisible((current) => !current)}
+              className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-500 transition hover:text-slate-700"
+            >
+              {isWebPasswordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
 
           {error && (
             <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">

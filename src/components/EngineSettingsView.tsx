@@ -6,6 +6,8 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Eye,
+  EyeOff,
   FolderOpen,
   Globe2,
   GripVertical,
@@ -276,15 +278,35 @@ function Field({
   type?: "text" | "password";
   onChange: (value: string) => void;
 }) {
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const isPassword = type === "password";
+  const passwordToggleLabel = isPasswordVisible ? "隐藏密码" : "显示密码";
+
   return (
     <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
       <span className="font-medium">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-      />
+      <div className="relative">
+        <input
+          type={isPassword && isPasswordVisible ? "text" : type}
+          value={value}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          className={classNames(
+            "h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+            isPassword && "pr-10",
+          )}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            title={passwordToggleLabel}
+            aria-label={passwordToggleLabel}
+            onClick={() => setIsPasswordVisible((current) => !current)}
+            className="absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-500 transition hover:text-slate-700"
+          >
+            {isPasswordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </div>
     </label>
   );
 }
