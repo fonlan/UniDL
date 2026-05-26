@@ -385,6 +385,7 @@ fn add_aria2_task(
         &settings.default_args,
         &task.engine_args,
         task.selected_file_indexes.as_deref(),
+        engine_proxy_url(settings),
     );
     let result = match task.source_type {
         SourceType::Torrent => {
@@ -417,7 +418,14 @@ fn resolve_aria2_magnet_metadata(
 ) -> Result<MagnetMetadata, Box<dyn Error>> {
     let started = start_aria2_process(settings, save_path)?;
 
-    let options = aria2_download_options(save_path, None, &settings.default_args, "", None);
+    let options = aria2_download_options(
+        save_path,
+        None,
+        &settings.default_args,
+        "",
+        None,
+        engine_proxy_url(settings),
+    );
     let source = magnet_with_fallback_trackers(settings, source);
     let result = aria2_rpc(settings, "aria2.addUri", json!([[source], options]))?;
     let gid = result
@@ -441,7 +449,14 @@ fn resolve_aria2_magnet_files(
 ) -> Result<Option<Vec<TorrentFileEntry>>, Box<dyn Error>> {
     let started = start_aria2_process(settings, save_path)?;
 
-    let options = aria2_download_options(save_path, None, &settings.default_args, "", None);
+    let options = aria2_download_options(
+        save_path,
+        None,
+        &settings.default_args,
+        "",
+        None,
+        engine_proxy_url(settings),
+    );
     let source = magnet_with_fallback_trackers(settings, source);
     let result = aria2_rpc(settings, "aria2.addUri", json!([[source], options]))?;
     let gid = result
@@ -1064,12 +1079,22 @@ fn aria2_download_options(
     default_args: &str,
     task_args: &str,
     selected_file_indexes: Option<&[i64]>,
+    proxy_url: Option<&str>,
 ) -> Value {
     let mut options = serde_json::Map::new();
     options.insert("dir".to_string(), Value::String(save_path.to_string()));
     append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
     append_aria2_options(&mut options, default_args);
     append_aria2_options(&mut options, task_args);
+    if let Some(proxy_url) = proxy_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        options.insert(
+            "all-proxy".to_string(),
+            Value::String(proxy_url.to_string()),
+        );
+    }
     if let Some(output_file_name) = output_file_name.filter(|value| !value.is_empty()) {
         options.insert(
             "out".to_string(),
@@ -1085,6 +1110,14 @@ fn aria2_download_options(
         }
     }
     Value::Object(options)
+}
+
+fn engine_proxy_url(settings: &EngineSettings) -> Option<&str> {
+    settings
+        .proxy_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn format_select_file_indexes(indexes: &[i64]) -> String {
@@ -1645,6 +1678,9 @@ fn add_ytdlp_task(
     } else {
         command.arg("--force-overwrites");
     }
+    if let Some(proxy_url) = engine_proxy_url(settings) {
+        command.arg("--proxy").arg(proxy_url);
+    }
     if let Some(cookie_path) = &cookie_path {
         command.arg("--cookies").arg(cookie_path);
     }
@@ -2107,6 +2143,9 @@ mod tests {
             remote_path: None,
             supported_source_types: vec![SourceType::Http],
             preferred_domains: Vec::new(),
+            tracker_subscription_url: None,
+            trackers: Vec::new(),
+            proxy_url: None,
             priority: 0,
             updated_at: String::new(),
         }
@@ -2175,6 +2214,7 @@ mod tests {
             Some("renamed.bin"),
             "--continue=true --out=default.bin",
             "--split=4 --out=task.bin",
+            None,
             None,
         );
 
@@ -2315,6 +2355,9 @@ mod tests {
             remote_path: None,
             supported_source_types: vec![SourceType::Http, SourceType::Ftp],
             preferred_domains: Vec::new(),
+            tracker_subscription_url: None,
+            trackers: Vec::new(),
+            proxy_url: None,
             priority: 0,
             updated_at: String::new(),
         };

@@ -72,6 +72,7 @@ export interface EngineSettings {
   preferredDomains: string[];
   trackerSubscriptionUrl: string | null;
   trackers: string[];
+  proxyUrl: string | null;
   priority: number;
   updatedAt: string;
 }
@@ -88,6 +89,7 @@ export interface AppSettings {
   webAccessPassword: string;
   webAccessUrl: string;
   privateDownloadDomains: string[];
+  appProxyUrl: string;
 }
 
 export type AppSettingsInput = AppSettings;

@@ -10,12 +10,14 @@ import {
   Globe2,
   GripVertical,
   HardDrive,
+  Network,
   Plus,
   PlugZap,
   RotateCcw,
   Save,
   Settings2,
   Shield,
+  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 
@@ -45,7 +47,56 @@ const ERROR_AUTO_DISMISS_MS = 10_000;
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
-type SettingsGroup = "web-access" | "privacy" | "download-engines";
+type SettingsGroup = "general" | "web-access" | "privacy" | "download-engines";
+
+const proxySchemePrefixesAll = [
+  "http://",
+  "https://",
+  "socks5://",
+  "socks5h://",
+  "socks4://",
+  "socks4a://",
+];
+
+const proxySchemePrefixesHttpOnly = ["http://", "https://"];
+
+function engineProxySchemePrefixes(engine?: EngineKind): string[] {
+  if (engine === "aria2") {
+    return proxySchemePrefixesHttpOnly;
+  }
+  return proxySchemePrefixesAll;
+}
+
+function formatProxySchemeHint(prefixes: string[]): string {
+  return prefixes.map((prefix) => prefix.replace(/:\/\/$/, "")).join("、");
+}
+
+function validateProxyUrl(value: string, engine?: EngineKind): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const allowed = engineProxySchemePrefixes(engine);
+  const lower = trimmed.toLowerCase();
+  if (!allowed.some((prefix) => lower.startsWith(prefix))) {
+    if (engine === "aria2") {
+      return "aria2 仅支持 http / https 代理，不支持 SOCKS";
+    }
+    return `代理地址需以 ${formatProxySchemeHint(allowed)} 开头`;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    if (!url.hostname) {
+      return "代理地址缺少主机名";
+    }
+  } catch {
+    return "代理地址格式无效";
+  }
+
+  return null;
+}
 
 const defaultTrackerSubscriptionUrl =
   "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
@@ -111,6 +162,7 @@ function defaultEngineSettings(
     preferredDomains: [],
     trackerSubscriptionUrl: engine === "aria2" ? defaultTrackerSubscriptionUrl : null,
     trackers: [],
+    proxyUrl: null,
     priority: 0,
     updatedAt: "",
   };
@@ -154,6 +206,7 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     preferredDomains: normalizePreferredDomains(settings.preferredDomains),
     trackerSubscriptionUrl: emptyToNull(settings.trackerSubscriptionUrl ?? ""),
     trackers: normalizeTrackers(settings.trackers),
+    proxyUrl: emptyToNull(settings.proxyUrl ?? ""),
     priority: settings.priority,
   };
 }
@@ -204,6 +257,7 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     webAccessPassword: settings.webAccessPassword,
     webAccessUrl: settings.webAccessUrl,
     privateDownloadDomains: normalizePreferredDomains(settings.privateDownloadDomains),
+    appProxyUrl: settings.appProxyUrl.trim(),
   };
 }
 
@@ -441,6 +495,19 @@ export default function EngineSettingsView() {
       }),
     [draftSettings, savedById],
   );
+
+  const engineProxyErrors = useMemo(() => {
+    const errors = new Map<string, string>();
+    for (const draft of draftSettings) {
+      const error = validateProxyUrl(draft.proxyUrl ?? "", draft.engine);
+      if (error) {
+        errors.set(draft.id, error);
+      }
+    }
+    return errors;
+  }, [draftSettings]);
+
+  const hasEngineProxyErrors = engineProxyErrors.size > 0;
 
   const hasDirtySettings = appDirty || dirtySettings;
   const engineSettingsCount = draftSettings.length;
@@ -859,6 +926,34 @@ export default function EngineSettingsView() {
                   </div>
                   <button
                     type="button"
+                    onClick={() => setActiveGroup("general")}
+                    className={classNames(
+                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
+                      activeGroup === "general"
+                        ? "bg-emerald-50 text-emerald-800"
+                        : "text-slate-700 hover:bg-slate-50",
+                    )}
+                  >
+                    <SlidersHorizontal
+                      size={16}
+                      className={
+                        activeGroup === "general"
+                          ? "text-emerald-700"
+                          : "text-slate-500"
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate">常规</span>
+                    <span
+                      className={classNames(
+                        "h-1.5 w-1.5 shrink-0 rounded-full",
+                        draftAppSettings?.appProxyUrl.trim()
+                          ? "bg-emerald-500"
+                          : "bg-slate-300",
+                      )}
+                    />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveGroup("web-access")}
                     className={classNames(
                       "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
@@ -922,6 +1017,105 @@ export default function EngineSettingsView() {
             </aside>
 
             <div className="min-w-0">
+              {activeGroup === "general" && draftAppSettings && (() => {
+                const proxyError = validateProxyUrl(draftAppSettings.appProxyUrl);
+                return (
+                  <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <div className="border-b border-slate-100 px-5 py-4">
+                      <h2 className="truncate text-sm font-semibold text-slate-950">
+                        常规
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        程序自身访问外网（下载 aria2c / yt-dlp、Tracker 订阅等）时使用的代理。仅影响 UniDL 本身的请求，不影响下载引擎下载文件。
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 px-5 py-5">
+                      <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                        <span className="font-medium">应用代理地址</span>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Network size={15} className="shrink-0 text-slate-400" />
+                          <input
+                            value={draftAppSettings.appProxyUrl}
+                            placeholder="留空表示直连，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+                            onChange={(event) =>
+                              updateAppDraft({ appProxyUrl: event.currentTarget.value })
+                            }
+                            className={classNames(
+                              "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
+                              proxyError
+                                ? "border-rose-300 bg-white text-rose-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+                                : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+                            )}
+                          />
+                        </div>
+                        <span
+                          className={classNames(
+                            "text-xs",
+                            proxyError ? "text-rose-600" : "text-slate-500",
+                          )}
+                        >
+                          {proxyError ??
+                            "支持 http / https / socks4 / socks4a / socks5 / socks5h。"}
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                      <div className="min-w-0 text-xs text-slate-500">
+                        {savedApp ? (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                            <Check size={13} />
+                            已保存到本地
+                          </span>
+                        ) : appDirty ? (
+                          "修改后请记得保存"
+                        ) : draftAppSettings.appProxyUrl.trim() ? (
+                          "当前已配置应用代理"
+                        ) : (
+                          "未配置应用代理，将使用系统直连"
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={!appDirty || isSavingApp}
+                          onClick={resetAppAccess}
+                          className={classNames(
+                            "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                            (!appDirty || isSavingApp) &&
+                              "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            appDirty &&
+                              !isSavingApp &&
+                              "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          )}
+                        >
+                          <RotateCcw size={14} />
+                          撤销
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!appDirty || isSavingApp || Boolean(proxyError)}
+                          onClick={() => void saveAppAccess()}
+                          className={classNames(
+                            "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                            (!appDirty || isSavingApp || proxyError) &&
+                              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            appDirty &&
+                              !isSavingApp &&
+                              !proxyError &&
+                              "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                          )}
+                        >
+                          <Save size={14} />
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })()}
+
               {activeGroup === "web-access" && draftAppSettings && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -1139,14 +1333,24 @@ export default function EngineSettingsView() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        disabled={!dirtySettings || isSavingEngines}
+                        disabled={
+                          !dirtySettings || isSavingEngines || hasEngineProxyErrors
+                        }
                         onClick={() => void saveAllEngines()}
+                        title={
+                          hasEngineProxyErrors
+                            ? "请先修正引擎代理地址"
+                            : undefined
+                        }
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
-                          (!dirtySettings || isSavingEngines) &&
+                          (!dirtySettings ||
+                            isSavingEngines ||
+                            hasEngineProxyErrors) &&
                             "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
                             !isSavingEngines &&
+                            !hasEngineProxyErrors &&
                             "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
                         )}
                       >
@@ -1212,6 +1416,7 @@ export default function EngineSettingsView() {
                           isDeleting;
                         const isAdvancedOpen = expandedAdvanced.has(draft.id);
                         const isDragging = draggedEngineId === draft.id;
+                        const cardProxyError = engineProxyErrors.get(draft.id) ?? null;
 
                         return (
                           <div
@@ -1296,8 +1501,12 @@ export default function EngineSettingsView() {
                                   <RotateCcw size={15} />
                                 </SmallIconButton>
                                 <SmallIconButton
-                                  title="保存改动"
-                                  disabled={!dirty || isBusy}
+                                  title={
+                                    cardProxyError
+                                      ? `请先修正代理地址：${cardProxyError}`
+                                      : "保存改动"
+                                  }
+                                  disabled={!dirty || isBusy || Boolean(cardProxyError)}
                                   onClick={() => void saveEngine(draft.id)}
                                 >
                                   <Save size={15} />
@@ -1439,6 +1648,55 @@ export default function EngineSettingsView() {
                                   </div>
                                 </>
                               )}
+                              {(draft.engine === "aria2" ||
+                                draft.engine === "yt-dlp") &&
+                                (() => {
+                                  const hint =
+                                    draft.engine === "aria2"
+                                      ? "aria2 任务通过 --all-proxy 走此代理，仅支持 http / https，不支持 SOCKS。留空则不使用代理。"
+                                      : "yt-dlp 任务通过 --proxy 走此代理，支持 http / https / socks4 / socks5 等。留空则不使用代理。";
+                                  const placeholder =
+                                    draft.engine === "aria2"
+                                      ? "留空表示直连，例如 http://127.0.0.1:7890"
+                                      : "留空表示直连，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080";
+                                  return (
+                                    <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700 md:col-span-2">
+                                      <span className="font-medium">任务代理</span>
+                                      <div className="flex min-w-0 items-center gap-2">
+                                        <Network
+                                          size={15}
+                                          className="shrink-0 text-slate-400"
+                                        />
+                                        <input
+                                          value={draft.proxyUrl ?? ""}
+                                          placeholder={placeholder}
+                                          aria-invalid={Boolean(cardProxyError)}
+                                          onChange={(event) =>
+                                            updateDraft(draft.id, {
+                                              proxyUrl: event.currentTarget.value,
+                                            })
+                                          }
+                                          className={classNames(
+                                            "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
+                                            cardProxyError
+                                              ? "border-rose-400 bg-rose-50/40 text-rose-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+                                              : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+                                          )}
+                                        />
+                                      </div>
+                                      <span
+                                        className={classNames(
+                                          "text-xs",
+                                          cardProxyError
+                                            ? "text-rose-600"
+                                            : "text-slate-500",
+                                        )}
+                                      >
+                                        {cardProxyError ?? hint}
+                                      </span>
+                                    </label>
+                                  );
+                                })()}
                             </div>
 
                             <div className="border-t border-slate-100">

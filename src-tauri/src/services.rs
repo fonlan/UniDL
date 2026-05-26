@@ -3,8 +3,10 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
+use reqwest::blocking::Client;
 use rusqlite::Connection;
 use uuid::Uuid;
 
@@ -17,6 +19,70 @@ use crate::{
     },
     repositories::{AppSettingsRepository, DownloadTaskRepository, EngineSettingsRepository},
 };
+
+const APP_HTTP_USER_AGENT: &str = "UniDL";
+const APP_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub fn build_app_http_client(proxy_url: Option<&str>) -> Result<Client, Box<dyn Error>> {
+    let mut builder = Client::builder()
+        .user_agent(APP_HTTP_USER_AGENT)
+        .timeout(APP_HTTP_TIMEOUT);
+    if let Some(proxy_url) = proxy_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
+    }
+    Ok(builder.build()?)
+}
+
+pub const PROXY_SCHEMES_ALL: &[&str] = &[
+    "http://",
+    "https://",
+    "socks4://",
+    "socks4a://",
+    "socks5://",
+    "socks5h://",
+];
+pub const PROXY_SCHEMES_HTTP_ONLY: &[&str] = &["http://", "https://"];
+
+pub fn engine_proxy_allowed_schemes(engine: EngineKind) -> &'static [&'static str] {
+    match engine {
+        EngineKind::Aria2 => PROXY_SCHEMES_HTTP_ONLY,
+        EngineKind::YtDlp => PROXY_SCHEMES_ALL,
+        EngineKind::QBittorrent => PROXY_SCHEMES_ALL,
+    }
+}
+
+fn format_proxy_schemes(allowed: &[&str]) -> String {
+    allowed
+        .iter()
+        .map(|prefix| prefix.trim_end_matches("://"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn validate_proxy_url(value: &str, allowed_schemes: &[&str]) -> Result<(), Box<dyn Error>> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if !allowed_schemes
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return Err(format!(
+            "proxy url scheme must be one of: {}",
+            format_proxy_schemes(allowed_schemes)
+        )
+        .into());
+    }
+    reqwest::Proxy::all(trimmed).map_err(|error| -> Box<dyn Error> {
+        format!("invalid proxy url: {error}").into()
+    })?;
+    Ok(())
+}
 
 pub struct DownloadTaskService<'connection> {
     connection: &'connection Connection,
@@ -525,6 +591,7 @@ impl<'connection> AppSettingsService<'connection> {
                 return Err("private download domain cannot be empty".into());
             }
         }
+        validate_proxy_url(&input.app_proxy_url, PROXY_SCHEMES_ALL)?;
         Ok(())
     }
 }
@@ -591,7 +658,12 @@ impl<'connection> EngineSettingsService<'connection> {
 
     pub fn install_latest(&self, settings_id: &str) -> Result<EngineInstallResult, Box<dyn Error>> {
         let current = self.repository.get(settings_id)?;
-        let installed = engine_install::install_latest(current.engine)?;
+        let app_proxy_url = AppSettingsRepository::new(self.repository.connection())
+            .get()
+            .ok()
+            .map(|settings| settings.app_proxy_url)
+            .filter(|value| !value.trim().is_empty());
+        let installed = engine_install::install_latest(current.engine, app_proxy_url.as_deref())?;
         let next = self.save(EngineSettingsInput {
             id: current.id,
             engine: current.engine,
@@ -608,6 +680,7 @@ impl<'connection> EngineSettingsService<'connection> {
             preferred_domains: current.preferred_domains,
             tracker_subscription_url: current.tracker_subscription_url,
             trackers: current.trackers,
+            proxy_url: current.proxy_url,
             priority: current.priority,
         })?;
 
@@ -635,6 +708,7 @@ impl<'connection> EngineSettingsService<'connection> {
             preferred_domains: input.preferred_domains,
             tracker_subscription_url: input.tracker_subscription_url,
             trackers: input.trackers,
+            proxy_url: input.proxy_url,
             priority: input.priority,
             updated_at: String::new(),
         };
@@ -651,7 +725,12 @@ impl<'connection> EngineSettingsService<'connection> {
             return Err("tracker subscription is only supported for aria2".into());
         }
 
-        let trackers = fetch_trackers(subscription_url)?;
+        let app_proxy_url = AppSettingsRepository::new(self.repository.connection())
+            .get()
+            .ok()
+            .map(|settings| settings.app_proxy_url)
+            .filter(|value| !value.trim().is_empty());
+        let trackers = fetch_trackers(subscription_url, app_proxy_url.as_deref())?;
         if trackers.is_empty() {
             return Err("tracker subscription returned no trackers".into());
         }
@@ -672,6 +751,7 @@ impl<'connection> EngineSettingsService<'connection> {
             preferred_domains: current.preferred_domains,
             tracker_subscription_url: Some(subscription_url.trim().to_string()),
             trackers,
+            proxy_url: current.proxy_url,
             priority: current.priority,
         })
     }
@@ -724,6 +804,14 @@ fn normalize_engine_settings_input(
         .filter(|source_type| input.supported_source_types.contains(source_type))
         .collect();
 
+    let proxy_url = input.proxy_url.and_then(|value| {
+        let trimmed = value.trim().to_string();
+        (!trimmed.is_empty()).then_some(trimmed)
+    });
+    if let Some(proxy_url) = proxy_url.as_deref() {
+        validate_proxy_url(proxy_url, engine_proxy_allowed_schemes(input.engine))?;
+    }
+
     Ok(EngineSettingsInput {
         name,
         tracker_subscription_url: input.tracker_subscription_url.and_then(|value| {
@@ -732,17 +820,22 @@ fn normalize_engine_settings_input(
         }),
         trackers: normalize_trackers(input.trackers),
         supported_source_types,
+        proxy_url,
         ..input
     })
 }
 
-fn fetch_trackers(subscription_url: &str) -> Result<Vec<String>, Box<dyn Error>> {
+fn fetch_trackers(
+    subscription_url: &str,
+    app_proxy_url: Option<&str>,
+) -> Result<Vec<String>, Box<dyn Error>> {
     let url = subscription_url.trim();
     if url.is_empty() {
         return Err("tracker subscription url is required".into());
     }
 
-    let response = reqwest::blocking::get(url)?;
+    let client = build_app_http_client(app_proxy_url)?;
+    let response = client.get(url).send()?;
     if !response.status().is_success() {
         return Err(format!("tracker subscription failed: {}", response.status()).into());
     }
@@ -825,6 +918,9 @@ mod tests {
                 remote_path: None,
                 supported_source_types: vec![SourceType::Http, SourceType::Ftp],
                 preferred_domains: Vec::new(),
+                tracker_subscription_url: None,
+                trackers: Vec::new(),
+                proxy_url: None,
                 priority: 0,
             })
             .expect("engine settings should save");
@@ -845,6 +941,9 @@ mod tests {
                 remote_path: saved.remote_path,
                 supported_source_types: saved.supported_source_types,
                 preferred_domains: Vec::new(),
+                tracker_subscription_url: saved.tracker_subscription_url,
+                trackers: saved.trackers,
+                proxy_url: saved.proxy_url,
                 priority: saved.priority,
             })
             .expect("engine settings should rename");
@@ -959,6 +1058,7 @@ mod tests {
                 web_access_password: String::new(),
                 web_access_url: "http://127.0.0.1:18080".to_string(),
                 private_download_domains: vec!["example.test".to_string()],
+                app_proxy_url: String::new(),
             })
             .expect("app settings should save");
         insert_aria2_task(
@@ -980,6 +1080,7 @@ mod tests {
                     downloaded_bytes: 1,
                     total_bytes: 1,
                     engine_task_id: None,
+                    file_name: None,
                     error_message: None,
                 },
             )
@@ -1192,6 +1293,9 @@ mod tests {
                 remote_path: Some(String::new()),
                 supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
                 preferred_domains: Vec::new(),
+                tracker_subscription_url: None,
+                trackers: Vec::new(),
+                proxy_url: None,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -1601,6 +1705,9 @@ mod tests {
                 remote_path: Some(String::new()),
                 supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
                 preferred_domains: Vec::new(),
+                tracker_subscription_url: None,
+                trackers: Vec::new(),
+                proxy_url: None,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -1687,6 +1794,9 @@ mod tests {
                     SourceType::Torrent,
                 ],
                 preferred_domains: Vec::new(),
+                tracker_subscription_url: None,
+                trackers: Vec::new(),
+                proxy_url: None,
                 priority: 0,
             })
             .expect("aria2 settings should save");
@@ -1771,6 +1881,9 @@ mod tests {
                 remote_path: None,
                 supported_source_types: vec![SourceType::Http, SourceType::Ftp],
                 preferred_domains: Vec::new(),
+                tracker_subscription_url: None,
+                trackers: Vec::new(),
+                proxy_url: None,
                 priority: 0,
             })
             .expect("yt-dlp settings should save");

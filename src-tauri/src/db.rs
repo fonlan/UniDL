@@ -36,6 +36,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             preferred_domains TEXT NOT NULL DEFAULT '',
             tracker_subscription_url TEXT,
             trackers TEXT NOT NULL DEFAULT '',
+            proxy_url TEXT,
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -87,6 +88,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_supported_source_types(connection)?;
     migrate_engine_settings_preferred_domains(connection)?;
     migrate_engine_settings_trackers(connection)?;
+    migrate_engine_settings_proxy_url(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     migrate_download_tasks_size_fields(connection)?;
@@ -155,6 +157,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             preferred_domains TEXT NOT NULL DEFAULT '',
             tracker_subscription_url TEXT,
             trackers TEXT NOT NULL DEFAULT '',
+            proxy_url TEXT,
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -176,6 +179,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             preferred_domains,
             tracker_subscription_url,
             trackers,
+            proxy_url,
             priority,
             created_at,
             updated_at
@@ -201,6 +205,7 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             '',
             NULL,
             '',
+            NULL,
             CASE engine
                 WHEN 'aria2' THEN 0
                 WHEN 'yt-dlp' THEN 1
@@ -319,6 +324,22 @@ fn migrate_engine_settings_trackers(connection: &Connection) -> Result<(), rusql
     Ok(())
 }
 
+fn migrate_engine_settings_proxy_url(connection: &Connection) -> Result<(), rusqlite::Error> {
+    if has_column(connection, "engine_settings", "proxy_url")? {
+        return Ok(());
+    }
+
+    connection.execute(
+        r#"
+        ALTER TABLE engine_settings
+            ADD COLUMN proxy_url TEXT;
+        "#,
+        [],
+    )?;
+
+    Ok(())
+}
+
 fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), rusqlite::Error> {
     if has_column(connection, "engine_settings", "default_args")? {
         return Ok(());
@@ -399,7 +420,8 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
             ('web_access_enabled', '0'),
             ('web_access_password', ''),
             ('web_access_url', 'http://127.0.0.1:18080'),
-            ('private_download_domains', '');
+            ('private_download_domains', ''),
+            ('app_proxy_url', '');
         "#,
     )
 }

@@ -1222,6 +1222,7 @@ mod tests {
             web_access_password: password.to_string(),
             web_access_url: "http://127.0.0.1:18080".to_string(),
             private_download_domains: Vec::new(),
+            app_proxy_url: String::new(),
         }
     }
 }

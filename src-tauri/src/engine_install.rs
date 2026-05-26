@@ -4,6 +4,7 @@ use std::{
     fs::{self, File},
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use reqwest::blocking::Client;
@@ -11,6 +12,8 @@ use serde::Deserialize;
 use zip::ZipArchive;
 
 use crate::models::EngineKind;
+
+const ENGINE_INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 const YTDLP_RELEASE_URL: &str = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
 const ARIA2_RELEASE_URL: &str = "https://api.github.com/repos/aria2/aria2/releases/latest";
@@ -32,10 +35,13 @@ pub struct InstalledEngine {
     pub version: String,
 }
 
-pub fn install_latest(engine: EngineKind) -> Result<InstalledEngine, Box<dyn Error>> {
+pub fn install_latest(
+    engine: EngineKind,
+    proxy_url: Option<&str>,
+) -> Result<InstalledEngine, Box<dyn Error>> {
     match engine {
-        EngineKind::Aria2 => install_aria2(),
-        EngineKind::YtDlp => install_ytdlp(),
+        EngineKind::Aria2 => install_aria2(proxy_url),
+        EngineKind::YtDlp => install_ytdlp(proxy_url),
         EngineKind::QBittorrent => Err("qBittorrent does not have a managed executable".into()),
     }
 }
@@ -50,8 +56,8 @@ pub fn managed_executable_path(engine: EngineKind) -> Option<PathBuf> {
     executable_path.is_file().then_some(executable_path)
 }
 
-fn install_ytdlp() -> Result<InstalledEngine, Box<dyn Error>> {
-    let client = github_client()?;
+fn install_ytdlp(proxy_url: Option<&str>) -> Result<InstalledEngine, Box<dyn Error>> {
+    let client = github_client(proxy_url)?;
     let release = latest_release(&client, YTDLP_RELEASE_URL)?;
     let asset = release
         .assets
@@ -68,8 +74,8 @@ fn install_ytdlp() -> Result<InstalledEngine, Box<dyn Error>> {
     })
 }
 
-fn install_aria2() -> Result<InstalledEngine, Box<dyn Error>> {
-    let client = github_client()?;
+fn install_aria2(proxy_url: Option<&str>) -> Result<InstalledEngine, Box<dyn Error>> {
+    let client = github_client(proxy_url)?;
     let release = latest_release(&client, ARIA2_RELEASE_URL)?;
     let asset = release
         .assets
@@ -95,8 +101,17 @@ fn install_aria2() -> Result<InstalledEngine, Box<dyn Error>> {
     })
 }
 
-fn github_client() -> Result<Client, Box<dyn Error>> {
-    Ok(Client::builder().user_agent("UniDL").build()?)
+fn github_client(proxy_url: Option<&str>) -> Result<Client, Box<dyn Error>> {
+    let mut builder = Client::builder()
+        .user_agent("UniDL")
+        .timeout(ENGINE_INSTALL_TIMEOUT);
+    if let Some(proxy_url) = proxy_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
+    }
+    Ok(builder.build()?)
 }
 
 fn latest_release(client: &Client, url: &str) -> Result<GitHubRelease, Box<dyn Error>> {

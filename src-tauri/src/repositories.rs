@@ -30,6 +30,7 @@ impl<'connection> AppSettingsRepository<'connection> {
             web_access_password: self.get_value("web_access_password")?,
             web_access_url: self.get_value("web_access_url")?,
             private_download_domains: decode_domains(&self.get_value("private_download_domains")?),
+            app_proxy_url: self.get_optional_value("app_proxy_url")?.unwrap_or_default(),
         })
     }
 
@@ -44,6 +45,7 @@ impl<'connection> AppSettingsRepository<'connection> {
             "private_download_domains",
             &encode_domains(&input.private_download_domains),
         )?;
+        self.save_value("app_proxy_url", input.app_proxy_url.trim())?;
         self.get()
     }
 
@@ -58,6 +60,19 @@ impl<'connection> AppSettingsRepository<'connection> {
         }
 
         Err(format!("app setting not found: {key}").into())
+    }
+
+    fn get_optional_value(&self, key: &str) -> Result<Option<String>, Box<dyn Error>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT value FROM app_settings WHERE key = ?1")?;
+        let mut rows = statement.query([key])?;
+
+        if let Some(row) = rows.next()? {
+            return Ok(Some(row.get("value")?));
+        }
+
+        Ok(None)
     }
 
     fn save_value(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
@@ -80,6 +95,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
         Self { connection }
     }
 
+    pub fn connection(&self) -> &'connection Connection {
+        self.connection
+    }
+
     pub fn list_all(&self) -> Result<Vec<EngineSettings>, Box<dyn Error>> {
         let mut statement = self.connection.prepare(
             r#"
@@ -99,6 +118,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 preferred_domains,
                 tracker_subscription_url,
                 trackers,
+                proxy_url,
                 priority,
                 updated_at
             FROM engine_settings
@@ -137,10 +157,11 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 preferred_domains,
                 tracker_subscription_url,
                 trackers,
+                proxy_url,
                 priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -155,10 +176,11 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 preferred_domains = excluded.preferred_domains,
                 tracker_subscription_url = excluded.tracker_subscription_url,
                 trackers = excluded.trackers,
+                proxy_url = excluded.proxy_url,
                 priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
-            (
+            params![
                 input.id.as_str(),
                 input.engine.as_db(),
                 input.name.as_str(),
@@ -174,8 +196,9 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 encode_domains(&input.preferred_domains),
                 input.tracker_subscription_url.as_deref(),
                 encode_domains(&input.trackers),
+                input.proxy_url.as_deref(),
                 input.priority,
-            ),
+            ],
         )?;
 
         self.get(&input.id)
@@ -200,6 +223,7 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 preferred_domains,
                 tracker_subscription_url,
                 trackers,
+                proxy_url,
                 priority,
                 updated_at
             FROM engine_settings
@@ -300,6 +324,7 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         preferred_domains: decode_domains(&row.get::<_, String>("preferred_domains")?),
         tracker_subscription_url: row.get("tracker_subscription_url")?,
         trackers: decode_domains(&row.get::<_, String>("trackers")?),
+        proxy_url: row.get("proxy_url")?,
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })

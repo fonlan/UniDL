@@ -196,6 +196,7 @@ pub struct EngineSettings {
     pub preferred_domains: Vec<String>,
     pub tracker_subscription_url: Option<String>,
     pub trackers: Vec<String>,
+    pub proxy_url: Option<String>,
     pub priority: i64,
     pub updated_at: String,
 }
@@ -218,6 +219,7 @@ pub struct EngineSettingsInput {
     pub preferred_domains: Vec<String>,
     pub tracker_subscription_url: Option<String>,
     pub trackers: Vec<String>,
+    pub proxy_url: Option<String>,
     pub priority: i64,
 }
 
@@ -235,6 +237,7 @@ pub struct AppSettings {
     pub web_access_password: String,
     pub web_access_url: String,
     pub private_download_domains: Vec<String>,
+    pub app_proxy_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -244,6 +247,7 @@ pub struct AppSettingsInput {
     pub web_access_password: String,
     pub web_access_url: String,
     pub private_download_domains: Vec<String>,
+    pub app_proxy_url: String,
 }
 
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {
