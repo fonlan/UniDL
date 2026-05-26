@@ -4,6 +4,7 @@ const DEFAULT_SETTINGS = {
   apiBaseUrl: "http://127.0.0.1:18080",
   interceptEnabled: false,
   cancelOriginal: true,
+  minCaptureSizeMb: 3,
   lastEvent: "",
 };
 
@@ -158,11 +159,32 @@ async function handleDownload(download) {
   ) {
     return;
   }
+  if (isBelowMinCaptureSize(download, settings)) {
+    return;
+  }
   const task = await sendSource(download.url, settings, download.filename);
   if (settings.cancelOriginal) {
     await cancelDownload(download.id);
   }
   await remember(task.fileName + " sent to UniDL");
+}
+
+function isBelowMinCaptureSize(download, settings) {
+  const size = getKnownDownloadSize(download);
+  if (size === null) {
+    return false;
+  }
+  return size < settings.minCaptureSizeMb * 1024 * 1024;
+}
+
+function getKnownDownloadSize(download) {
+  for (const field of [download.fileSize, download.totalBytes]) {
+    const size = Number(field);
+    if (Number.isFinite(size) && size >= 0) {
+      return size;
+    }
+  }
+  return null;
 }
 
 function runTask(task) {
@@ -397,6 +419,11 @@ function normalizeSettings(settings) {
   next.apiBaseUrl = trimBaseUrl(next.apiBaseUrl);
   next.interceptEnabled = Boolean(next.interceptEnabled);
   next.cancelOriginal = Boolean(next.cancelOriginal);
+  const minCaptureSizeMb = Number(next.minCaptureSizeMb);
+  next.minCaptureSizeMb =
+    Number.isFinite(minCaptureSizeMb) && minCaptureSizeMb >= 0
+      ? minCaptureSizeMb
+      : DEFAULT_SETTINGS.minCaptureSizeMb;
   next.lastEvent = String(next.lastEvent ?? "");
   return next;
 }

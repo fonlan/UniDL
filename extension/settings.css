@@ -92,6 +92,12 @@ button:hover {
   accent-color: #047857;
 }
 
+.hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
 #status {
   min-height: 20px;
   margin: 0;

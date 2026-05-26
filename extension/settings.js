@@ -2,6 +2,7 @@ const fields = {
   apiBaseUrl: document.querySelector("#api-base-url"),
   cancelOriginal: document.querySelector("#cancel-original"),
   connect: document.querySelector("#connect"),
+  minCaptureSizeMb: document.querySelector("#min-capture-size-mb"),
   status: document.querySelector("#status"),
 };
 
@@ -17,6 +18,12 @@ fields.apiBaseUrl.addEventListener("keydown", (event) => {
 });
 
 fields.cancelOriginal.addEventListener("change", () => {
+  void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () =>
+    sendMessage("save-settings", { settings: collectSettings() }),
+  );
+});
+
+fields.minCaptureSizeMb.addEventListener("change", () => {
   void run("\u8bbe\u7f6e\u5df2\u4fdd\u5b58", () =>
     sendMessage("save-settings", { settings: collectSettings() }),
   );
@@ -56,12 +63,14 @@ function collectSettings() {
   return {
     apiBaseUrl: fields.apiBaseUrl.value,
     cancelOriginal: fields.cancelOriginal.checked,
+    minCaptureSizeMb: Number(fields.minCaptureSizeMb.value),
   };
 }
 
 function applySettings(settings) {
   fields.apiBaseUrl.value = settings.apiBaseUrl ?? "";
   fields.cancelOriginal.checked = settings.cancelOriginal !== false;
+  fields.minCaptureSizeMb.value = settings.minCaptureSizeMb ?? 3;
 }
 
 function sendMessage(type, payload = {}) {

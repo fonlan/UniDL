@@ -21,6 +21,14 @@
         <button id="connect" type="button">保存并重新连接</button>
       </section>
 
+      <section>
+        <label>
+          <span>最小捕获大小（MB）</span>
+          <input id="min-capture-size-mb" type="number" min="0" step="0.1" />
+        </label>
+        <p class="hint">小于该大小的浏览器下载不会发送到 UniDL；大小未知时仍会捕获。</p>
+      </section>
+
       <section class="checks">
         <label>
           <input id="cancel-original" type="checkbox" />
