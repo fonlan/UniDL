@@ -391,9 +391,9 @@ function IconField({
           className={classNames(
             "grid h-9 w-9 shrink-0 place-items-center rounded-md border transition",
             buttonDisabled &&
-              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
             !buttonDisabled &&
-              "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+            "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
           )}
         >
           {buttonLabel}
@@ -425,7 +425,7 @@ function SmallIconButton({
         "grid h-8 w-8 place-items-center rounded-md border transition",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
       )}
     >
       {children}
@@ -1084,10 +1084,10 @@ export default function EngineSettingsView() {
                           className={classNames(
                             "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                             (!appDirty || isSavingApp) &&
-                              "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                             appDirty &&
-                              !isSavingApp &&
-                              "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            !isSavingApp &&
+                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                           )}
                         >
                           <RotateCcw size={14} />
@@ -1100,11 +1100,11 @@ export default function EngineSettingsView() {
                           className={classNames(
                             "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                             (!appDirty || isSavingApp || proxyError) &&
-                              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                             appDirty &&
-                              !isSavingApp &&
-                              !proxyError &&
-                              "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            !isSavingApp &&
+                            !proxyError &&
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                           )}
                         >
                           <Save size={14} />
@@ -1207,10 +1207,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          !isSavingApp &&
+                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -1223,10 +1223,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                          !isSavingApp &&
+                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -1286,10 +1286,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          !isSavingApp &&
+                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -1302,10 +1302,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                          !isSavingApp &&
+                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -1347,11 +1347,11 @@ export default function EngineSettingsView() {
                           (!dirtySettings ||
                             isSavingEngines ||
                             hasEngineProxyErrors) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
-                            !isSavingEngines &&
-                            !hasEngineProxyErrors &&
-                            "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+                          !isSavingEngines &&
+                          !hasEngineProxyErrors &&
+                          "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
                         )}
                       >
                         <Save size={15} />
@@ -1537,13 +1537,13 @@ export default function EngineSettingsView() {
                                       onChange={(event) => {
                                         const nextSourceTypes = event.currentTarget.checked
                                           ? sourceTypes.filter(
-                                              (item) =>
-                                                item === sourceType ||
-                                                draft.supportedSourceTypes.includes(item),
-                                            )
+                                            (item) =>
+                                              item === sourceType ||
+                                              draft.supportedSourceTypes.includes(item),
+                                          )
                                           : draft.supportedSourceTypes.filter(
-                                              (item) => item !== sourceType,
-                                            );
+                                            (item) => item !== sourceType,
+                                          );
                                         updateDraft(draft.id, {
                                           supportedSourceTypes: nextSourceTypes,
                                         });
