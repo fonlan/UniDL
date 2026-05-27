@@ -292,8 +292,7 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     autoStartEnabled: settings.autoStartEnabled,
     autoStartMinimizedToTray: settings.autoStartMinimizedToTray,
     closeToTrayEnabled: settings.closeToTrayEnabled,
-    downloadCompletionNotificationEnabled:
-      settings.downloadCompletionNotificationEnabled,
+    downloadCompletionNotificationEnabled: settings.downloadCompletionNotificationEnabled,
     preventSleepWhenDownloadingEnabled: settings.preventSleepWhenDownloadingEnabled,
     preventSleepWhenWebAccessEnabled: settings.preventSleepWhenWebAccessEnabled,
   };
@@ -449,9 +448,9 @@ function IconField({
           className={classNames(
             "grid h-9 w-9 shrink-0 place-items-center rounded-md border transition",
             buttonDisabled &&
-            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
             !buttonDisabled &&
-            "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+              "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
           )}
         >
           {buttonLabel}
@@ -483,7 +482,7 @@ function SmallIconButton({
         "grid h-8 w-8 place-items-center rounded-md border transition",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
       )}
     >
       {children}
@@ -517,26 +516,31 @@ function SettingsSwitch({
         <div className="text-sm font-medium text-slate-800">{label}</div>
         <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={onToggle}
-        className={classNames(
-          "inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition",
-          checked
-            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-            : "border-slate-200 bg-white text-slate-500",
-        )}
-      >
+      <label className="shrink-0 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => onToggle()}
+          className="peer sr-only"
+        />
+        <span className="sr-only">{label}</span>
         <span
           className={classNames(
-            "h-3.5 w-3.5 rounded-full transition",
-            checked ? "bg-emerald-600" : "bg-slate-300",
+            "inline-flex h-8 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-100",
+            checked
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-slate-200 bg-white text-slate-500",
           )}
-        />
-        {checked ? "已启用" : "已关闭"}
-      </button>
+        >
+          <span
+            className={classNames(
+              "h-3.5 w-3.5 rounded-full transition",
+              checked ? "bg-emerald-600" : "bg-slate-300",
+            )}
+          />
+          {checked ? "已启用" : "已关闭"}
+        </span>
+      </label>
     </div>
   );
 }
@@ -555,7 +559,9 @@ export default function EngineSettingsView() {
   const [deletingEngineId, setDeletingEngineId] = useState<string | null>(null);
   const [installingEngineId, setInstallingEngineId] = useState<string | null>(null);
   const [testingEngineId, setTestingEngineId] = useState<string | null>(null);
-  const [updatingTrackersEngineId, setUpdatingTrackersEngineId] = useState<string | null>(null);
+  const [updatingTrackersEngineId, setUpdatingTrackersEngineId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [savedApp, setSavedApp] = useState(false);
   const [savedEngineId, setSavedEngineId] = useState<string | null>(null);
@@ -865,9 +871,7 @@ export default function EngineSettingsView() {
     }
 
     setDraftSettings((current) =>
-      sortSettings(
-        current.map((item) => (item.id === settingsId ? { ...saved } : item)),
-      ),
+      sortSettings(current.map((item) => (item.id === settingsId ? { ...saved } : item))),
     );
     setTestedEngineId(null);
   }
@@ -880,10 +884,16 @@ export default function EngineSettingsView() {
       void writeLog("info", `installing latest engine: id=${settingsId}`);
       const next = await installLatestEngine(settingsId);
       setSavedSettings((current) =>
-        sortSettings([...current.filter((item) => item.id !== next.settings.id), next.settings]),
+        sortSettings([
+          ...current.filter((item) => item.id !== next.settings.id),
+          next.settings,
+        ]),
       );
       setDraftSettings((current) =>
-        sortSettings([...current.filter((item) => item.id !== next.settings.id), next.settings]),
+        sortSettings([
+          ...current.filter((item) => item.id !== next.settings.id),
+          next.settings,
+        ]),
       );
       setSavedEngineId(next.settings.id);
       setTestedEngineId(null);
@@ -921,7 +931,8 @@ export default function EngineSettingsView() {
       return;
     }
 
-    const subscriptionUrl = draft.trackerSubscriptionUrl?.trim() || defaultTrackerSubscriptionUrl;
+    const subscriptionUrl =
+      draft.trackerSubscriptionUrl?.trim() || defaultTrackerSubscriptionUrl;
     setUpdatingTrackersEngineId(settingsId);
     setError(null);
     setSavedEngineId(null);
@@ -1036,9 +1047,7 @@ export default function EngineSettingsView() {
                     <SlidersHorizontal
                       size={16}
                       className={
-                        activeGroup === "general"
-                          ? "text-emerald-700"
-                          : "text-slate-500"
+                        activeGroup === "general" ? "text-emerald-700" : "text-slate-500"
                       }
                     />
                     <span className="min-w-0 flex-1 truncate">常规</span>
@@ -1046,8 +1055,8 @@ export default function EngineSettingsView() {
                       className={classNames(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
                         draftAppSettings?.appProxyUrl.trim() ||
-                        draftAppSettings?.autoStartEnabled ||
-                        draftAppSettings?.autoStartMinimizedToTray ||
+                          draftAppSettings?.autoStartEnabled ||
+                          draftAppSettings?.autoStartMinimizedToTray ||
                           draftAppSettings?.closeToTrayEnabled ||
                           draftAppSettings?.downloadCompletionNotificationEnabled ||
                           draftAppSettings?.preventSleepWhenDownloadingEnabled
@@ -1098,9 +1107,7 @@ export default function EngineSettingsView() {
                     <Shield
                       size={16}
                       className={
-                        activeGroup === "privacy"
-                          ? "text-emerald-700"
-                          : "text-slate-500"
+                        activeGroup === "privacy" ? "text-emerald-700" : "text-slate-500"
                       }
                     />
                     <span className="min-w-0 flex-1 truncate">隐私</span>
@@ -1122,160 +1129,166 @@ export default function EngineSettingsView() {
             </aside>
 
             <div className="min-w-0">
-              {activeGroup === "general" && draftAppSettings && (() => {
-                const proxyError = validateProxyUrl(draftAppSettings.appProxyUrl);
-                return (
-                  <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 px-5 py-4">
-                      <h2 className="truncate text-sm font-semibold text-slate-950">
-                        常规
-                      </h2>
-                      <p className="mt-1 text-xs text-slate-500">
-                        程序自身访问外网（下载 aria2c / yt-dlp、Tracker 订阅等）时使用的代理。仅影响 UniDL 本身的请求，不影响下载引擎下载文件。
-                      </p>
-                    </div>
+              {activeGroup === "general" &&
+                draftAppSettings &&
+                (() => {
+                  const proxyError = validateProxyUrl(draftAppSettings.appProxyUrl);
+                  return (
+                    <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-100 px-5 py-4">
+                        <h2 className="truncate text-sm font-semibold text-slate-950">
+                          常规
+                        </h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                          程序自身访问外网（下载 aria2c / yt-dlp、Tracker
+                          订阅等）时使用的代理。仅影响 UniDL
+                          本身的请求，不影响下载引擎下载文件。
+                        </p>
+                      </div>
 
-                    <div className="grid gap-4 px-5 py-5">
-                      <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
-                        <span className="font-medium">应用代理地址</span>
-                        <div className="flex min-w-0 items-center gap-2">
-                          <Network size={15} className="shrink-0 text-slate-400" />
-                          <input
-                            value={draftAppSettings.appProxyUrl}
-                            placeholder="留空表示直连，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
-                            onChange={(event) =>
-                              updateAppDraft({ appProxyUrl: event.currentTarget.value })
-                            }
+                      <div className="grid gap-4 px-5 py-5">
+                        <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                          <span className="font-medium">应用代理地址</span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Network size={15} className="shrink-0 text-slate-400" />
+                            <input
+                              value={draftAppSettings.appProxyUrl}
+                              placeholder="留空表示直连，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+                              onChange={(event) =>
+                                updateAppDraft({ appProxyUrl: event.currentTarget.value })
+                              }
+                              className={classNames(
+                                "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
+                                proxyError
+                                  ? "border-rose-300 bg-white text-rose-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+                                  : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+                              )}
+                            />
+                          </div>
+                          <span
                             className={classNames(
-                              "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
-                              proxyError
-                                ? "border-rose-300 bg-white text-rose-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
-                                : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+                              "text-xs",
+                              proxyError ? "text-rose-600" : "text-slate-500",
                             )}
+                          >
+                            {proxyError ??
+                              "支持 http / https / socks4 / socks4a / socks5 / socks5h。"}
+                          </span>
+                        </label>
+
+                        <div className="grid gap-3">
+                          <SettingsSwitch
+                            checked={draftAppSettings.autoStartEnabled}
+                            label="开机自启动"
+                            description="登录系统后自动启动 UniDL。"
+                            onToggle={() =>
+                              updateAppDraft({
+                                autoStartEnabled: !draftAppSettings.autoStartEnabled,
+                              })
+                            }
+                          />
+                          <SettingsSwitch
+                            checked={draftAppSettings.autoStartMinimizedToTray}
+                            label="自启动后隐藏到系统托盘"
+                            description="仅在开机自启动拉起程序时生效，避免显示主窗口。"
+                            onToggle={() =>
+                              updateAppDraft({
+                                autoStartMinimizedToTray:
+                                  !draftAppSettings.autoStartMinimizedToTray,
+                              })
+                            }
+                          />
+                          <SettingsSwitch
+                            checked={draftAppSettings.closeToTrayEnabled}
+                            label="关闭按钮隐藏到系统托盘"
+                            description="点击窗口关闭按钮时保留后台运行，仅隐藏主窗口。"
+                            onToggle={() =>
+                              updateAppDraft({
+                                closeToTrayEnabled: !draftAppSettings.closeToTrayEnabled,
+                              })
+                            }
+                          />
+                          <SettingsSwitch
+                            checked={
+                              draftAppSettings.downloadCompletionNotificationEnabled
+                            }
+                            label="下载完成时弹出系统通知"
+                            description="任务完成后通过系统通知提醒。"
+                            onToggle={() =>
+                              updateAppDraft({
+                                downloadCompletionNotificationEnabled:
+                                  !draftAppSettings.downloadCompletionNotificationEnabled,
+                              })
+                            }
+                          />
+                          <SettingsSwitch
+                            checked={draftAppSettings.preventSleepWhenDownloadingEnabled}
+                            label="有活动下载时阻止系统休眠"
+                            description="存在等待中或下载中的任务时阻止系统进入休眠。"
+                            onToggle={() =>
+                              updateAppDraft({
+                                preventSleepWhenDownloadingEnabled:
+                                  !draftAppSettings.preventSleepWhenDownloadingEnabled,
+                              })
+                            }
                           />
                         </div>
-                        <span
-                          className={classNames(
-                            "text-xs",
-                            proxyError ? "text-rose-600" : "text-slate-500",
-                          )}
-                        >
-                          {proxyError ??
-                            "支持 http / https / socks4 / socks4a / socks5 / socks5h。"}
-                        </span>
-                      </label>
+                      </div>
 
-                      <div className="grid gap-3">
-                        <SettingsSwitch
-                          checked={draftAppSettings.autoStartEnabled}
-                          label="开机自启动"
-                          description="登录系统后自动启动 UniDL。"
-                          onToggle={() =>
-                            updateAppDraft({
-                              autoStartEnabled: !draftAppSettings.autoStartEnabled,
-                            })
-                          }
-                        />
-                        <SettingsSwitch
-                          checked={draftAppSettings.autoStartMinimizedToTray}
-                          label="自启动后隐藏到系统托盘"
-                          description="仅在开机自启动拉起程序时生效，避免显示主窗口。"
-                          onToggle={() =>
-                            updateAppDraft({
-                              autoStartMinimizedToTray:
-                                !draftAppSettings.autoStartMinimizedToTray,
-                            })
-                          }
-                        />
-                        <SettingsSwitch
-                          checked={draftAppSettings.closeToTrayEnabled}
-                          label="关闭按钮隐藏到系统托盘"
-                          description="点击窗口关闭按钮时保留后台运行，仅隐藏主窗口。"
-                          onToggle={() =>
-                            updateAppDraft({
-                              closeToTrayEnabled: !draftAppSettings.closeToTrayEnabled,
-                            })
-                          }
-                        />
-                        <SettingsSwitch
-                          checked={draftAppSettings.downloadCompletionNotificationEnabled}
-                          label="下载完成时弹出系统通知"
-                          description="任务完成后通过系统通知提醒。"
-                          onToggle={() =>
-                            updateAppDraft({
-                              downloadCompletionNotificationEnabled:
-                                !draftAppSettings.downloadCompletionNotificationEnabled,
-                            })
-                          }
-                        />
-                        <SettingsSwitch
-                          checked={draftAppSettings.preventSleepWhenDownloadingEnabled}
-                          label="有活动下载时阻止系统休眠"
-                          description="存在等待中或下载中的任务时阻止系统进入休眠。"
-                          onToggle={() =>
-                            updateAppDraft({
-                              preventSleepWhenDownloadingEnabled:
-                                !draftAppSettings.preventSleepWhenDownloadingEnabled,
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
-                      <div className="min-w-0 text-xs text-slate-500">
-                        {savedApp ? (
-                          <span className="inline-flex items-center gap-1.5 text-emerald-700">
-                            <Check size={13} />
-                            已保存到本地
-                          </span>
-                        ) : appDirty ? (
-                          "修改后请记得保存"
-                        ) : draftAppSettings.appProxyUrl.trim() ? (
-                          "当前已配置应用代理"
-                        ) : (
-                          "未配置应用代理，将使用系统直连"
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={!appDirty || isSavingApp}
-                          onClick={resetAppAccess}
-                          className={classNames(
-                            "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
-                            (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
-                            appDirty &&
-                            !isSavingApp &&
-                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                      <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                        <div className="min-w-0 text-xs text-slate-500">
+                          {savedApp ? (
+                            <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                              <Check size={13} />
+                              已保存到本地
+                            </span>
+                          ) : appDirty ? (
+                            "修改后请记得保存"
+                          ) : draftAppSettings.appProxyUrl.trim() ? (
+                            "当前已配置应用代理"
+                          ) : (
+                            "未配置应用代理，将使用系统直连"
                           )}
-                        >
-                          <RotateCcw size={14} />
-                          撤销
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!appDirty || isSavingApp || Boolean(proxyError)}
-                          onClick={() => void saveAppAccess()}
-                          className={classNames(
-                            "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
-                            (!appDirty || isSavingApp || proxyError) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
-                            appDirty &&
-                            !isSavingApp &&
-                            !proxyError &&
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
-                          )}
-                        >
-                          <Save size={14} />
-                          保存
-                        </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={!appDirty || isSavingApp}
+                            onClick={resetAppAccess}
+                            className={classNames(
+                              "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                              (!appDirty || isSavingApp) &&
+                                "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                              appDirty &&
+                                !isSavingApp &&
+                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            )}
+                          >
+                            <RotateCcw size={14} />
+                            撤销
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!appDirty || isSavingApp || Boolean(proxyError)}
+                            onClick={() => void saveAppAccess()}
+                            className={classNames(
+                              "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                              (!appDirty || isSavingApp || proxyError) &&
+                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                              appDirty &&
+                                !isSavingApp &&
+                                !proxyError &&
+                                "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            )}
+                          >
+                            <Save size={14} />
+                            保存
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                );
-              })()}
+                    </article>
+                  );
+                })()}
 
               {activeGroup === "web-access" && draftAppSettings && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -1289,32 +1302,37 @@ export default function EngineSettingsView() {
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={draftAppSettings.webAccessEnabled}
-                      onClick={() =>
-                        updateAppDraft({
-                          webAccessEnabled: !draftAppSettings.webAccessEnabled,
-                        })
-                      }
-                      className={classNames(
-                        "inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition",
-                        draftAppSettings.webAccessEnabled
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "border-slate-200 bg-slate-50 text-slate-500",
-                      )}
-                    >
+                    <label className="shrink-0 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={draftAppSettings.webAccessEnabled}
+                        onChange={(event) =>
+                          updateAppDraft({
+                            webAccessEnabled: event.currentTarget.checked,
+                          })
+                        }
+                        className="peer sr-only"
+                      />
+                      <span className="sr-only">Web 访问</span>
                       <span
                         className={classNames(
-                          "h-3.5 w-3.5 rounded-full transition",
+                          "inline-flex h-8 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-100",
                           draftAppSettings.webAccessEnabled
-                            ? "bg-emerald-600"
-                            : "bg-slate-300",
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-slate-200 bg-slate-50 text-slate-500",
                         )}
-                      />
-                      {draftAppSettings.webAccessEnabled ? "已启用" : "已关闭"}
-                    </button>
+                      >
+                        <span
+                          className={classNames(
+                            "h-3.5 w-3.5 rounded-full transition",
+                            draftAppSettings.webAccessEnabled
+                              ? "bg-emerald-600"
+                              : "bg-slate-300",
+                          )}
+                        />
+                        {draftAppSettings.webAccessEnabled ? "已启用" : "已关闭"}
+                      </span>
+                    </label>
                   </div>
 
                   <div className="grid gap-4 px-5 py-5 md:grid-cols-2">
@@ -1382,10 +1400,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            !isSavingApp &&
+                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -1398,10 +1416,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            !isSavingApp &&
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -1428,7 +1446,9 @@ export default function EngineSettingsView() {
                   <div className="px-5 py-5">
                     <TextAreaField
                       label="不保留下载记录的域名（每行一个）"
-                      value={preferredDomainsText(draftAppSettings.privateDownloadDomains)}
+                      value={preferredDomainsText(
+                        draftAppSettings.privateDownloadDomains,
+                      )}
                       onChange={(value) =>
                         updateAppDraft({
                           privateDownloadDomains: parsePreferredDomains(value),
@@ -1461,10 +1481,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            !isSavingApp &&
+                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -1477,10 +1497,10 @@ export default function EngineSettingsView() {
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            !isSavingApp &&
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -1512,21 +1532,15 @@ export default function EngineSettingsView() {
                           !dirtySettings || isSavingEngines || hasEngineProxyErrors
                         }
                         onClick={() => void saveAllEngines()}
-                        title={
-                          hasEngineProxyErrors
-                            ? "请先修正引擎代理地址"
-                            : undefined
-                        }
+                        title={hasEngineProxyErrors ? "请先修正引擎代理地址" : undefined}
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
-                          (!dirtySettings ||
-                            isSavingEngines ||
-                            hasEngineProxyErrors) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          (!dirtySettings || isSavingEngines || hasEngineProxyErrors) &&
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
-                          !isSavingEngines &&
-                          !hasEngineProxyErrors &&
-                          "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+                            !isSavingEngines &&
+                            !hasEngineProxyErrors &&
+                            "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
                         )}
                       >
                         <Save size={15} />
@@ -1617,7 +1631,9 @@ export default function EngineSettingsView() {
                                 <span
                                   title="拖拽调整优先级"
                                   draggable
-                                  onDragStart={(event) => handleDragStart(event, draft.id)}
+                                  onDragStart={(event) =>
+                                    handleDragStart(event, draft.id)
+                                  }
                                   onDragEnd={() => setDraggedEngineId(null)}
                                   className="grid h-7 w-5 cursor-grab select-none place-items-center text-slate-300 hover:text-slate-500"
                                 >
@@ -1656,6 +1672,9 @@ export default function EngineSettingsView() {
                                 >
                                   <input
                                     type="checkbox"
+                                    aria-label={`${
+                                      draft.enabled ? "停用" : "启用"
+                                    } ${draft.name || engineLabels[draft.engine]}`}
                                     checked={draft.enabled}
                                     onChange={(event) =>
                                       updateDraft(draft.id, {
@@ -1710,15 +1729,16 @@ export default function EngineSettingsView() {
                                       type="checkbox"
                                       checked={checked}
                                       onChange={(event) => {
-                                        const nextSourceTypes = event.currentTarget.checked
+                                        const nextSourceTypes = event.currentTarget
+                                          .checked
                                           ? sourceTypes.filter(
-                                            (item) =>
-                                              item === sourceType ||
-                                              draft.supportedSourceTypes.includes(item),
-                                          )
+                                              (item) =>
+                                                item === sourceType ||
+                                                draft.supportedSourceTypes.includes(item),
+                                            )
                                           : draft.supportedSourceTypes.filter(
-                                            (item) => item !== sourceType,
-                                          );
+                                              (item) => item !== sourceType,
+                                            );
                                         updateDraft(draft.id, {
                                           supportedSourceTypes: nextSourceTypes,
                                         });
@@ -1818,22 +1838,22 @@ export default function EngineSettingsView() {
                                       }
                                     />
                                     <span className="text-xs text-slate-500">
-                                      qBittorrent 任务只使用远程保存路径，不使用本机默认下载目录。
+                                      qBittorrent
+                                      任务只使用远程保存路径，不使用本机默认下载目录。
                                     </span>
                                   </div>
                                 </>
                               )}
-                              {(draft.engine === "aria2" ||
-                                draft.engine === "yt-dlp") &&
+                              {(draft.engine === "aria2" || draft.engine === "yt-dlp") &&
                                 (() => {
                                   const hint =
                                     draft.engine === "aria2"
                                       ? "aria2 任务通过 --all-proxy 走此代理，仅支持 http / https，不支持 SOCKS。留空则不使用代理。"
-                                      : "yt-dlp 任务通过 --proxy 走此代理，支持 http / https / socks4 / socks5 等。留空则不使用代理。";
+                                      : "yt-dlp 任务通过 --proxy 走此代理，支持 http / https / socks4 / socks4a / socks5 / socks5h。留空则不使用代理。";
                                   const placeholder =
                                     draft.engine === "aria2"
                                       ? "留空表示直连，例如 http://127.0.0.1:7890"
-                                      : "留空表示直连，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080";
+                                      : "留空表示直连，例如 http://127.0.0.1:7890 或 socks5h://127.0.0.1:1080";
                                   return (
                                     <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700 md:col-span-2">
                                       <span className="font-medium">任务代理</span>
@@ -1845,7 +1865,6 @@ export default function EngineSettingsView() {
                                         <input
                                           value={draft.proxyUrl ?? ""}
                                           placeholder={placeholder}
-                                          aria-invalid={Boolean(cardProxyError)}
                                           onChange={(event) =>
                                             updateDraft(draft.id, {
                                               proxyUrl: event.currentTarget.value,
@@ -1882,15 +1901,9 @@ export default function EngineSettingsView() {
                               >
                                 <span className="inline-flex items-center gap-1.5 font-medium">
                                   {isAdvancedOpen ? (
-                                    <ChevronDown
-                                      size={14}
-                                      className="text-slate-400"
-                                    />
+                                    <ChevronDown size={14} className="text-slate-400" />
                                   ) : (
-                                    <ChevronRight
-                                      size={14}
-                                      className="text-slate-400"
-                                    />
+                                    <ChevronRight size={14} className="text-slate-400" />
                                   )}
                                   高级设置
                                 </span>
@@ -1917,32 +1930,32 @@ export default function EngineSettingsView() {
                                         description: string;
                                         checked: boolean;
                                       }> = [
-                                          {
-                                            key: "aria2EnableDht",
-                                            label: "启用 DHT",
-                                            description: "对应 aria2 的 enable-dht",
-                                            checked: draft.aria2EnableDht,
-                                          },
-                                          {
-                                            key: "aria2EnableDht6",
-                                            label: "启用 IPv6 DHT",
-                                            description: "对应 aria2 的 enable-dht6",
-                                            checked: draft.aria2EnableDht6,
-                                          },
-                                          {
-                                            key: "aria2EnablePeerExchange",
-                                            label: "启用 PeX 节点交换",
-                                            description:
-                                              "对应 aria2 的 enable-peer-exchange",
-                                            checked: draft.aria2EnablePeerExchange,
-                                          },
-                                          {
-                                            key: "aria2EnableLpd",
-                                            label: "启用本地端点发现",
-                                            description: "对应 aria2 的 bt-enable-lpd",
-                                            checked: draft.aria2EnableLpd,
-                                          },
-                                        ];
+                                        {
+                                          key: "aria2EnableDht",
+                                          label: "启用 DHT",
+                                          description: "对应 aria2 的 enable-dht",
+                                          checked: draft.aria2EnableDht,
+                                        },
+                                        {
+                                          key: "aria2EnableDht6",
+                                          label: "启用 IPv6 DHT",
+                                          description: "对应 aria2 的 enable-dht6",
+                                          checked: draft.aria2EnableDht6,
+                                        },
+                                        {
+                                          key: "aria2EnablePeerExchange",
+                                          label: "启用 PeX 节点交换",
+                                          description:
+                                            "对应 aria2 的 enable-peer-exchange",
+                                          checked: draft.aria2EnablePeerExchange,
+                                        },
+                                        {
+                                          key: "aria2EnableLpd",
+                                          label: "启用本地端点发现",
+                                          description: "对应 aria2 的 bt-enable-lpd",
+                                          checked: draft.aria2EnableLpd,
+                                        },
+                                      ];
 
                                       return (
                                         <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
@@ -1951,7 +1964,9 @@ export default function EngineSettingsView() {
                                               BT/磁链发现
                                             </div>
                                             <div className="mt-1 text-xs text-slate-500">
-                                              仅提供 aria2 支持的 DHT、IPv6 DHT、PeX 和本地端点发现开关；uTP、UPnP/NAT-PMP 不受 aria2 官方开关支持。
+                                              仅提供 aria2 支持的 DHT、IPv6 DHT、PeX
+                                              和本地端点发现开关；uTP、UPnP/NAT-PMP 不受
+                                              aria2 官方开关支持。
                                             </div>
                                           </div>
                                           <div className="grid gap-2 sm:grid-cols-2">
@@ -1997,7 +2012,8 @@ export default function EngineSettingsView() {
                                             Tracker 订阅
                                           </div>
                                           <div className="mt-1 text-xs text-slate-500">
-                                            已保存 {draft.trackers.length} 个 tracker，磁链任务会自动追加。
+                                            已保存 {draft.trackers.length} 个
+                                            tracker，磁链任务会自动追加。
                                           </div>
                                         </div>
                                         <button
@@ -2034,7 +2050,8 @@ export default function EngineSettingsView() {
                                         }
                                       />
                                       <div className="text-xs text-slate-500">
-                                        内建推荐源：ngosang/trackerslist，可改成 XIU2/TrackersListCollection 等 GitHub raw 地址。
+                                        内建推荐源：ngosang/trackerslist，可改成
+                                        XIU2/TrackersListCollection 等 GitHub raw 地址。
                                       </div>
                                     </div>
                                   )}
