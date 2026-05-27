@@ -93,6 +93,12 @@ struct DeleteTasksInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ClearDownloadRecordsInput {
+    older_than_days: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TorrentFilesInput {
     source: String,
     source_type: SourceType,
@@ -702,6 +708,15 @@ fn handle_authorized_request(
             with_task_service(context, |service| {
                 service.delete_tasks(&input.ids, input.delete_completed_files)?;
                 empty_json_response()
+            })
+        }
+        (&Method::Post, "/api/tasks/clear-records") => {
+            let input: ClearDownloadRecordsInput = read_json(request)?;
+            with_task_service(context, |service| {
+                json_response(
+                    StatusCode(200),
+                    &service.clear_download_records(input.older_than_days)?,
+                )
             })
         }
         (&Method::Post, "/api/tasks/pause-all") => with_task_service(context, |service| {

@@ -268,6 +268,20 @@ pub fn delete_download_tasks(
 }
 
 #[tauri::command]
+pub fn clear_download_records(
+    older_than_days: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    logger::info(format!(
+        "clearing download records: older_than_days={older_than_days:?}"
+    ));
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .clear_download_records(older_than_days)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn pause_all_unfinished_download_tasks(state: State<'_, AppState>) -> Result<(), String> {
     logger::info("pausing all unfinished download tasks");
     let connection = state.lock_connection()?;

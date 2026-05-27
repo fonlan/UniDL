@@ -1181,7 +1181,7 @@ function App() {
         )}
 
         {view === "settings" ? (
-          <EngineSettingsView />
+          <EngineSettingsView onDownloadRecordsCleared={replaceTasks} />
         ) : (
           <section className="min-h-0 flex-1 overflow-auto">
             <table

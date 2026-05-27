@@ -806,6 +806,41 @@ impl<'connection> DownloadTaskRepository<'connection> {
         }
         Ok(())
     }
+
+    pub fn clear_download_records(
+        &self,
+        older_than_days: Option<i64>,
+    ) -> Result<usize, rusqlite::Error> {
+        match older_than_days {
+            Some(days) => {
+                let cutoff = format!("-{days} days");
+                self.connection.execute(
+                    r#"
+                    DELETE FROM download_tasks
+                    WHERE status IN (?1, ?2, ?3)
+                      AND datetime(COALESCE(completed_at, created_at)) < datetime('now', ?4)
+                    "#,
+                    params![
+                        DownloadStatus::Completed.as_db(),
+                        DownloadStatus::Failed.as_db(),
+                        DownloadStatus::Deleted.as_db(),
+                        cutoff,
+                    ],
+                )
+            }
+            None => self.connection.execute(
+                r#"
+                DELETE FROM download_tasks
+                WHERE status IN (?1, ?2, ?3)
+                "#,
+                params![
+                    DownloadStatus::Completed.as_db(),
+                    DownloadStatus::Failed.as_db(),
+                    DownloadStatus::Deleted.as_db(),
+                ],
+            ),
+        }
+    }
 }
 
 fn encode_selected_file_indexes(indexes: Option<&[i64]>) -> Option<String> {

@@ -336,6 +336,14 @@ export function deleteDownloadTasks(
   return invoke("delete_download_tasks", { ids, deleteCompletedFiles });
 }
 
+export function clearDownloadRecords(olderThanDays: number | null): Promise<number> {
+  if (!hasTauriRuntime()) {
+    return webJson("/api/tasks/clear-records", jsonRequest("POST", { olderThanDays }));
+  }
+
+  return invoke("clear_download_records", { olderThanDays });
+}
+
 export function pauseAllUnfinishedDownloadTasks(): Promise<void> {
   if (!hasTauriRuntime()) {
     return webRequest("/api/tasks/pause-all", { method: "POST" }).then(() => undefined);

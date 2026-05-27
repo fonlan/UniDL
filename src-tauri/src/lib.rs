@@ -420,6 +420,7 @@ pub fn run() {
             commands::open_downloaded_file,
             commands::open_download_directory,
             commands::delete_download_tasks,
+            commands::clear_download_records,
             commands::pause_all_unfinished_download_tasks,
             commands::resume_all_paused_download_tasks,
             commands::get_app_settings,

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Database,
   Download,
   Eye,
   EyeOff,
@@ -24,12 +25,14 @@ import {
 } from "lucide-react";
 
 import {
+  clearDownloadRecords,
   deleteEngineSettings,
   getAppSettings,
   getManagedEngineExecutablePath,
   getSystemDownloadDir,
   installLatestEngine,
   listEngineSettings,
+  refreshDownloadTasks,
   saveAppSettings,
   saveEngineSettings,
   testEngineConnection,
@@ -39,6 +42,7 @@ import {
 import type {
   AppSettings,
   AppSettingsInput,
+  DownloadTask,
   EngineKind,
   EngineSettings,
   EngineSettingsInput,
@@ -49,12 +53,18 @@ const ERROR_AUTO_DISMISS_MS = 10_000;
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
-type SettingsGroup = "general" | "web-access" | "privacy" | "download-engines";
+type SettingsGroup = "general" | "web-access" | "privacy" | "data" | "download-engines";
 type Aria2BtToggleKey =
   | "aria2EnableDht"
   | "aria2EnableDht6"
   | "aria2EnablePeerExchange"
   | "aria2EnableLpd";
+
+type DownloadRecordCleanupOption = {
+  id: string;
+  label: string;
+  olderThanDays: number | null;
+};
 
 const proxySchemePrefixesAll = [
   "http://",
@@ -120,6 +130,15 @@ const sourceLabels: Record<SourceType, string> = {
   magnet: "Magnet",
   torrent: "Torrent",
 };
+
+const downloadRecordCleanupOptions: DownloadRecordCleanupOption[] = [
+  { id: "day", label: "1 天前", olderThanDays: 1 },
+  { id: "week", label: "1 周前", olderThanDays: 7 },
+  { id: "month", label: "1 月前", olderThanDays: 30 },
+  { id: "quarter", label: "3 月前", olderThanDays: 90 },
+  { id: "year", label: "1 年前", olderThanDays: 365 },
+  { id: "all", label: "全部记录", olderThanDays: null },
+];
 
 function classNames(...names: Array<string | false | null | undefined>) {
   return names.filter(Boolean).join(" ");
@@ -545,7 +564,13 @@ function SettingsSwitch({
   );
 }
 
-export default function EngineSettingsView() {
+type EngineSettingsViewProps = {
+  onDownloadRecordsCleared?: (tasks: DownloadTask[]) => void;
+};
+
+export default function EngineSettingsView({
+  onDownloadRecordsCleared,
+}: EngineSettingsViewProps) {
   const [activeGroup, setActiveGroup] = useState<SettingsGroup>("download-engines");
   const [savedAppSettings, setSavedAppSettings] = useState<AppSettings | null>(null);
   const [draftAppSettings, setDraftAppSettings] = useState<AppSettings | null>(null);
@@ -568,6 +593,10 @@ export default function EngineSettingsView() {
   const [testedEngineId, setTestedEngineId] = useState<string | null>(null);
   const [draggedEngineId, setDraggedEngineId] = useState<string | null>(null);
   const [expandedAdvanced, setExpandedAdvanced] = useState<Set<string>>(new Set());
+  const [clearingRecordsOptionId, setClearingRecordsOptionId] = useState<string | null>(
+    null,
+  );
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
 
   function toggleAdvanced(settingsId: string) {
     setExpandedAdvanced((current) => {
@@ -955,6 +984,46 @@ export default function EngineSettingsView() {
     }
   }
 
+  async function cleanupDownloadRecords(option: DownloadRecordCleanupOption) {
+    const scope =
+      option.olderThanDays === null
+        ? "全部已结束下载记录"
+        : `${option.label}的已结束下载记录`;
+    const confirmed = await confirm(
+      `确定要清除${scope}？\n\n此操作只删除下载列表记录，不会删除已下载文件；等待中、下载中和暂停中的任务会保留。`,
+      {
+        title: "清理下载记录",
+        kind: "warning",
+        okLabel: "清除",
+        cancelLabel: "取消",
+      },
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setClearingRecordsOptionId(option.id);
+    setCleanupResult(null);
+    setError(null);
+
+    try {
+      void writeLog(
+        "info",
+        `clearing download records: olderThanDays=${option.olderThanDays ?? "all"}`,
+      );
+      const deletedCount = await clearDownloadRecords(option.olderThanDays);
+      const nextTasks = await refreshDownloadTasks();
+      onDownloadRecordsCleared?.(nextTasks);
+      setCleanupResult(
+        deletedCount > 0 ? `已清除 ${deletedCount} 条下载记录` : "没有符合条件的下载记录",
+      );
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setClearingRecordsOptionId(null);
+    }
+  }
+
   return (
     <section className="min-h-0 flex-1 overflow-auto bg-surface">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6">
@@ -1062,6 +1131,30 @@ export default function EngineSettingsView() {
                           draftAppSettings?.preventSleepWhenDownloadingEnabled
                           ? "bg-emerald-500"
                           : "bg-slate-300",
+                      )}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveGroup("data")}
+                    className={classNames(
+                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
+                      activeGroup === "data"
+                        ? "bg-emerald-50 text-emerald-800"
+                        : "text-slate-700 hover:bg-slate-50",
+                    )}
+                  >
+                    <Database
+                      size={16}
+                      className={
+                        activeGroup === "data" ? "text-emerald-700" : "text-slate-500"
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate">数据</span>
+                    <span
+                      className={classNames(
+                        "h-1.5 w-1.5 shrink-0 rounded-full",
+                        cleanupResult ? "bg-emerald-500" : "bg-slate-300",
                       )}
                     />
                   </button>
@@ -1426,6 +1519,72 @@ export default function EngineSettingsView() {
                         保存
                       </button>
                     </div>
+                  </div>
+                </article>
+              )}
+
+              {activeGroup === "data" && (
+                <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-slate-950">
+                        数据
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        清理下载列表中的历史记录，保留仍在进行的任务。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="px-5 py-5">
+                    <div className="flex items-start gap-3">
+                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-rose-100 bg-rose-50 text-rose-700">
+                        <Trash2 size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-800">
+                          下载列表清理
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-slate-500">
+                          只删除列表记录，不删除磁盘文件；等待中、下载中和暂停中的任务不会被清理。
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {downloadRecordCleanupOptions.map((option) => {
+                        const isAll = option.olderThanDays === null;
+                        const isCurrent = clearingRecordsOptionId === option.id;
+                        const isClearing = clearingRecordsOptionId !== null;
+
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            disabled={isClearing}
+                            onClick={() => void cleanupDownloadRecords(option)}
+                            className={classNames(
+                              "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                              isClearing &&
+                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                              !isClearing &&
+                                !isAll &&
+                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                              !isClearing &&
+                                isAll &&
+                                "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
+                            )}
+                          >
+                            <Trash2 size={14} />
+                            {isCurrent ? "清理中" : `清除${option.label}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-3 text-xs text-slate-500">
+                    {cleanupResult ?? "清理前会再次确认，操作完成后会刷新下载列表。"}
                   </div>
                 </article>
               )}

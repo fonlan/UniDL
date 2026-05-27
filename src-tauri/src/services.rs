@@ -392,6 +392,17 @@ impl<'connection> DownloadTaskService<'connection> {
         Ok(())
     }
 
+    pub fn clear_download_records(
+        &self,
+        older_than_days: Option<i64>,
+    ) -> Result<usize, Box<dyn Error>> {
+        if matches!(older_than_days, Some(days) if days <= 0) {
+            return Err("older_than_days must be greater than 0".into());
+        }
+
+        Ok(self.repository.clear_download_records(older_than_days)?)
+    }
+
     pub fn pause_all_unfinished(&self) -> Result<(), Box<dyn Error>> {
         let ids = self
             .repository
@@ -1953,6 +1964,98 @@ mod tests {
             .list_created_desc()
             .expect("task list should load")
             .is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn clear_download_records_removes_only_finished_records_by_age() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+
+        let insert_task =
+            |id: &str, status: DownloadStatus, created_at: &str, completed_at: Option<&str>| {
+                connection
+                    .execute(
+                        r#"
+                    INSERT INTO download_tasks (
+                        id,
+                        source_type,
+                        source,
+                        engine_settings_id,
+                        engine,
+                        engine_task_id,
+                        file_name,
+                        status,
+                        save_path,
+                        created_at,
+                        completed_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    "#,
+                        (
+                            id,
+                            SourceType::Http.as_db(),
+                            "http://example.test/file.bin",
+                            "aria2",
+                            EngineKind::Aria2.as_db(),
+                            "gid",
+                            "file.bin",
+                            status.as_db(),
+                            "C:\\Downloads",
+                            created_at,
+                            completed_at,
+                        ),
+                    )
+                    .expect("download task should insert");
+            };
+
+        insert_task(
+            "old-completed",
+            DownloadStatus::Completed,
+            "2000-01-01 00:00:00",
+            Some("2000-01-01 00:00:00"),
+        );
+        insert_task(
+            "old-failed",
+            DownloadStatus::Failed,
+            "2000-01-01 00:00:00",
+            None,
+        );
+        insert_task(
+            "old-deleted",
+            DownloadStatus::Deleted,
+            "2000-01-01 00:00:00",
+            None,
+        );
+        insert_task(
+            "old-running",
+            DownloadStatus::Running,
+            "2000-01-01 00:00:00",
+            None,
+        );
+        insert_task(
+            "recent-completed",
+            DownloadStatus::Completed,
+            "2000-01-01 00:00:00",
+            Some("2999-01-01 00:00:00"),
+        );
+
+        let service = DownloadTaskService::new(&connection, database_path.clone());
+        let deleted = service
+            .clear_download_records(Some(7))
+            .expect("old records should clear");
+        assert_eq!(deleted, 3);
+
+        let remaining_ids = service
+            .list_created_desc()
+            .expect("task list should load")
+            .into_iter()
+            .map(|task| task.id)
+            .collect::<Vec<_>>();
+        assert_eq!(remaining_ids.len(), 2);
+        assert!(remaining_ids.contains(&"recent-completed".to_string()));
+        assert!(remaining_ids.contains(&"old-running".to_string()));
 
         drop(connection);
         let _ = fs::remove_file(database_path);
