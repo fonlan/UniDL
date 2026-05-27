@@ -1301,6 +1301,12 @@ mod tests {
                 web_access_url: "http://127.0.0.1:18080".to_string(),
                 private_download_domains: vec!["example.test".to_string()],
                 app_proxy_url: String::new(),
+                auto_start_enabled: false,
+                auto_start_minimized_to_tray: false,
+                close_to_tray_enabled: false,
+                download_completion_notification_enabled: false,
+                prevent_sleep_when_downloading_enabled: false,
+                prevent_sleep_when_web_access_enabled: false,
             })
             .expect("app settings should save");
         insert_aria2_task(

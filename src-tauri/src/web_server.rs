@@ -794,11 +794,14 @@ fn handle_authorized_request(
             drop(connection);
             if let Some(app_handle) = &context.app_handle {
                 let state = app_handle.state::<crate::AppState>();
+                let current = state
+                    .app_settings()
+                    .map_err(|error| -> Box<dyn Error> { error.into() })?;
                 state
                     .set_app_settings(next.clone())
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
                 state
-                    .apply_web_settings(app_handle.clone(), &next)
+                    .apply_web_settings_if_changed(app_handle.clone(), &current, &next)
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
                 state
                     .refresh_sleep_prevention()
@@ -1304,6 +1307,12 @@ mod tests {
             web_access_url: "http://127.0.0.1:18080".to_string(),
             private_download_domains: Vec::new(),
             app_proxy_url: String::new(),
+            auto_start_enabled: false,
+            auto_start_minimized_to_tray: false,
+            close_to_tray_enabled: false,
+            download_completion_notification_enabled: false,
+            prevent_sleep_when_downloading_enabled: false,
+            prevent_sleep_when_web_access_enabled: false,
         }
     }
 }

@@ -165,6 +165,18 @@ impl AppState {
         Ok(())
     }
 
+    fn apply_web_settings_if_changed(
+        &self,
+        app_handle: tauri::AppHandle,
+        current: &models::AppSettings,
+        next: &models::AppSettings,
+    ) -> Result<(), String> {
+        if web_settings_changed(current, next) {
+            self.apply_web_settings(app_handle, next)?;
+        }
+        Ok(())
+    }
+
     fn refresh_sleep_prevention(&self) -> Result<(), String> {
         let settings = self.app_settings()?;
         let has_active_downloads = {
@@ -219,6 +231,12 @@ impl AppState {
         }
         Ok(())
     }
+}
+
+fn web_settings_changed(current: &models::AppSettings, next: &models::AppSettings) -> bool {
+    current.web_access_enabled != next.web_access_enabled
+        || current.web_access_password != next.web_access_password
+        || current.web_access_url != next.web_access_url
 }
 
 fn show_main_window(app_handle: &tauri::AppHandle) {
@@ -418,4 +436,54 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run UniDL");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_settings() -> models::AppSettings {
+        models::AppSettings {
+            web_access_enabled: false,
+            web_access_password: String::new(),
+            web_access_url: "http://127.0.0.1:18080".to_string(),
+            private_download_domains: Vec::new(),
+            app_proxy_url: String::new(),
+            auto_start_enabled: false,
+            auto_start_minimized_to_tray: false,
+            close_to_tray_enabled: false,
+            download_completion_notification_enabled: false,
+            prevent_sleep_when_downloading_enabled: false,
+            prevent_sleep_when_web_access_enabled: false,
+        }
+    }
+
+    #[test]
+    fn notification_and_sleep_settings_do_not_restart_web_server() {
+        let current = app_settings();
+        let mut next = current.clone();
+        next.download_completion_notification_enabled = true;
+        next.prevent_sleep_when_downloading_enabled = true;
+
+        assert!(!web_settings_changed(&current, &next));
+    }
+
+    #[test]
+    fn web_access_settings_restart_web_server() {
+        let current = app_settings();
+        let mut next = current.clone();
+        next.web_access_enabled = true;
+
+        assert!(web_settings_changed(&current, &next));
+
+        let mut next = current.clone();
+        next.web_access_password = "secret".to_string();
+
+        assert!(web_settings_changed(&current, &next));
+
+        let mut next = current.clone();
+        next.web_access_url = "http://127.0.0.1:18081".to_string();
+
+        assert!(web_settings_changed(&current, &next));
+    }
 }
