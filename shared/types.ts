@@ -2,6 +2,8 @@ export type EngineKind = "aria2" | "yt-dlp" | "qbittorrent";
 
 export type SourceType = "http" | "ftp" | "magnet" | "torrent";
 
+export type FileConflictAction = "prompt" | "overwrite" | "rename";
+
 export type DownloadStatus =
   | "queued"
   | "running"
@@ -42,6 +44,12 @@ export interface CreateDownloadTaskInput {
   engineArgs: string;
   selectedFileIndexes?: number[] | null;
   browserCookies?: string | null;
+  fileConflictAction?: FileConflictAction | null;
+}
+
+export interface DownloadFileConflict {
+  fileName: string;
+  path: string;
 }
 
 export interface TorrentFileEntry {

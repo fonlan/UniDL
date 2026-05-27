@@ -14,8 +14,9 @@ use crate::{
     engine_adapters, engine_install, logger,
     models::{
         engine_supports_source_type, supported_source_types, AppSettings, AppSettingsInput,
-        CreateDownloadTaskInput, DownloadStatus, DownloadTask, EngineInstallResult, EngineKind,
-        EngineSettings, EngineSettingsInput, NewDownloadTask, SourceType,
+        CreateDownloadTaskInput, DownloadFileConflict, DownloadStatus, DownloadTask,
+        EngineInstallResult, EngineKind, EngineSettings, EngineSettingsInput, FileConflictAction,
+        NewDownloadTask, SourceType,
     },
     repositories::{AppSettingsRepository, DownloadTaskRepository, EngineSettingsRepository},
 };
@@ -99,7 +100,10 @@ impl<'connection> DownloadTaskService<'connection> {
         self.repository.list_created_desc()
     }
 
-    pub fn create(&self, input: CreateDownloadTaskInput) -> Result<DownloadTask, Box<dyn Error>> {
+    pub fn download_file_conflict(
+        &self,
+        input: CreateDownloadTaskInput,
+    ) -> Result<Option<DownloadFileConflict>, Box<dyn Error>> {
         validate_create_task_input(&input)?;
 
         let engine_settings = self.resolve_engine_settings(&input)?;
@@ -116,6 +120,48 @@ impl<'connection> DownloadTaskService<'connection> {
                 input.source_type.as_db()
             )
             .into());
+        }
+
+        local_download_file_conflict(&input, &engine_settings)
+    }
+
+    pub fn create(
+        &self,
+        mut input: CreateDownloadTaskInput,
+    ) -> Result<DownloadTask, Box<dyn Error>> {
+        validate_create_task_input(&input)?;
+
+        let engine_settings = self.resolve_engine_settings(&input)?;
+        if !engine_settings.enabled {
+            return Err(format!("{} is disabled", engine_settings.id).into());
+        }
+        if !engine_settings
+            .supported_source_types
+            .contains(&input.source_type)
+        {
+            return Err(format!(
+                "{} does not support {} tasks",
+                engine_settings.id,
+                input.source_type.as_db()
+            )
+            .into());
+        }
+
+        let conflict_action = input
+            .file_conflict_action
+            .unwrap_or(FileConflictAction::Prompt);
+        if let Some(conflict) = local_download_file_conflict(&input, &engine_settings)? {
+            match conflict_action {
+                FileConflictAction::Prompt => {
+                    return Err(download_file_conflict_message(&conflict).into());
+                }
+                FileConflictAction::Overwrite => {
+                    remove_conflicting_download_file(Path::new(&conflict.path))?;
+                }
+                FileConflictAction::Rename => {
+                    input.file_name = available_download_file_name(&input, &engine_settings)?;
+                }
+            }
         }
 
         let id = Uuid::new_v4().to_string();
@@ -471,6 +517,121 @@ fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
         }
     }
     remove_downloaded_entry(&path)
+}
+
+fn local_download_file_conflict(
+    input: &CreateDownloadTaskInput,
+    settings: &EngineSettings,
+) -> Result<Option<DownloadFileConflict>, Box<dyn Error>> {
+    if matches!(settings.engine, EngineKind::QBittorrent) {
+        return Ok(None);
+    }
+
+    match input.source_type {
+        SourceType::Http | SourceType::Ftp => local_single_file_conflict(input, settings),
+        SourceType::Magnet | SourceType::Torrent => Ok(None),
+    }
+}
+
+fn local_single_file_conflict(
+    input: &CreateDownloadTaskInput,
+    settings: &EngineSettings,
+) -> Result<Option<DownloadFileConflict>, Box<dyn Error>> {
+    let save_path = Path::new(input.save_path.trim());
+    let file_name = local_single_file_name(input, settings);
+    let path = save_path.join(&file_name);
+    if path.exists() {
+        return Ok(Some(download_file_conflict(file_name, path)));
+    }
+
+    if settings.engine == EngineKind::YtDlp && Path::new(&file_name).extension().is_none() {
+        if let Some(path) = resolve_ytdlp_downloaded_entry_path(save_path, &file_name) {
+            return Ok(Some(download_file_conflict(
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or(file_name),
+                path,
+            )));
+        }
+    }
+
+    Ok(None)
+}
+
+fn local_single_file_name(input: &CreateDownloadTaskInput, settings: &EngineSettings) -> String {
+    if settings.engine == EngineKind::YtDlp {
+        engine_adapters::sanitize_ytdlp_output_name(input.file_name.trim())
+    } else {
+        input.file_name.trim().to_string()
+    }
+}
+
+fn download_file_conflict(file_name: String, path: PathBuf) -> DownloadFileConflict {
+    DownloadFileConflict {
+        file_name,
+        path: path.to_string_lossy().into_owned(),
+    }
+}
+
+fn download_file_conflict_message(conflict: &DownloadFileConflict) -> String {
+    format!("download file already exists: {}", conflict.path)
+}
+
+fn remove_conflicting_download_file(path: &Path) -> Result<(), Box<dyn Error>> {
+    remove_conflicting_file(path)?;
+    remove_conflicting_file(&downloaded_partial_entry_path(path))?;
+    let mut aria2_control_path = path.as_os_str().to_os_string();
+    aria2_control_path.push(".aria2");
+    remove_conflicting_file(&PathBuf::from(aria2_control_path))
+}
+
+fn remove_conflicting_file(path: &Path) -> Result<(), Box<dyn Error>> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound
+                    | io::ErrorKind::InvalidInput
+                    | io::ErrorKind::InvalidFilename
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn available_download_file_name(
+    input: &CreateDownloadTaskInput,
+    settings: &EngineSettings,
+) -> Result<String, Box<dyn Error>> {
+    if !matches!(input.source_type, SourceType::Http | SourceType::Ftp) {
+        return Err("auto rename is only available for single-file downloads".into());
+    }
+
+    let original = input.file_name.trim();
+    let path = Path::new(original);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(original);
+    let extension = path.extension().and_then(|value| value.to_str());
+
+    for index in 1..10_000 {
+        let candidate = match extension {
+            Some(extension) if !extension.is_empty() => format!("{stem} ({index}).{extension}"),
+            _ => format!("{stem} ({index})"),
+        };
+        let mut next_input = input.clone();
+        next_input.file_name = candidate.clone();
+        if local_download_file_conflict(&next_input, settings)?.is_none() {
+            return Ok(candidate);
+        }
+    }
+
+    Err("no available download file name".into())
 }
 
 fn remove_downloaded_entry(path: &Path) -> Result<(), Box<dyn Error>> {

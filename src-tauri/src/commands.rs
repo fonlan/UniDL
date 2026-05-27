@@ -3,8 +3,9 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     engine_adapters, engine_install, logger,
     models::{
-        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadTask, EngineInstallResult,
-        EngineKind, EngineSettings, EngineSettingsInput, RemoteDirectoryEntry, SourceType,
+        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadFileConflict, DownloadTask,
+        EngineInstallResult, EngineKind, EngineSettings, EngineSettingsInput, RemoteDirectoryEntry,
+        SourceType,
     },
     services::{AppSettingsService, DownloadTaskService, EngineSettingsService},
     AppState,
@@ -199,6 +200,17 @@ pub fn create_download_task(
     let connection = state.lock_connection()?;
     DownloadTaskService::new(&connection, state.database_path())
         .create(input)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn check_download_file_conflict(
+    input: CreateDownloadTaskInput,
+    state: State<'_, AppState>,
+) -> Result<Option<DownloadFileConflict>, String> {
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .download_file_conflict(input)
         .map_err(|error| error.to_string())
 }
 

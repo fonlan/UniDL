@@ -86,6 +86,14 @@ impl SourceType {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum FileConflictAction {
+    Prompt,
+    Overwrite,
+    Rename,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum DownloadStatus {
     Queued,
     Running,
@@ -156,6 +164,14 @@ pub struct CreateDownloadTaskInput {
     pub engine_args: String,
     pub selected_file_indexes: Option<Vec<i64>>,
     pub browser_cookies: Option<String>,
+    pub file_conflict_action: Option<FileConflictAction>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadFileConflict {
+    pub file_name: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone)]

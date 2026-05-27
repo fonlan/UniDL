@@ -674,6 +674,12 @@ fn handle_authorized_request(
                 json_response(StatusCode(200), &service.create(input)?)
             })
         }
+        (&Method::Post, "/api/tasks/conflict") => {
+            let input: CreateDownloadTaskInput = read_json(request)?;
+            with_task_service(context, |service| {
+                json_response(StatusCode(200), &service.download_file_conflict(input)?)
+            })
+        }
         (&Method::Post, "/api/tasks/refresh") => with_task_service(context, |service| {
             json_response(StatusCode(200), &service.refresh_all()?)
         }),

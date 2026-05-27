@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AppSettingsInput,
   CreateDownloadTaskInput,
+  DownloadFileConflict,
   DownloadTask,
   EngineInstallResult,
   EngineKind,
@@ -151,6 +152,16 @@ export function createDownloadTask(input: CreateDownloadTaskInput): Promise<Down
   }
 
   return invoke("create_download_task", { input });
+}
+
+export function checkDownloadFileConflict(
+  input: CreateDownloadTaskInput,
+): Promise<DownloadFileConflict | null> {
+  if (!hasTauriRuntime()) {
+    return webJson("/api/tasks/conflict", jsonRequest("POST", input));
+  }
+
+  return invoke("check_download_file_conflict", { input });
 }
 
 export function listEngineSettings(): Promise<EngineSettings[]> {
