@@ -487,7 +487,10 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
             ('app_proxy_url', ''),
             ('auto_start_enabled', '0'),
             ('auto_start_minimized_to_tray', '0'),
-            ('close_to_tray_enabled', '0');
+            ('close_to_tray_enabled', '0'),
+            ('download_completion_notification_enabled', '0'),
+            ('prevent_sleep_when_downloading_enabled', '0'),
+            ('prevent_sleep_when_web_access_enabled', '0');
         "#,
     )
 }

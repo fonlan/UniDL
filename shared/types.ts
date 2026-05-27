@@ -97,6 +97,9 @@ export interface AppSettings {
   autoStartEnabled: boolean;
   autoStartMinimizedToTray: boolean;
   closeToTrayEnabled: boolean;
+  downloadCompletionNotificationEnabled: boolean;
+  preventSleepWhenDownloadingEnabled: boolean;
+  preventSleepWhenWebAccessEnabled: boolean;
 }
 
 export type AppSettingsInput = AppSettings;

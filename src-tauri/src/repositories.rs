@@ -36,6 +36,15 @@ impl<'connection> AppSettingsRepository<'connection> {
             auto_start_enabled: self.get_value("auto_start_enabled")? == "1",
             auto_start_minimized_to_tray: self.get_value("auto_start_minimized_to_tray")? == "1",
             close_to_tray_enabled: self.get_value("close_to_tray_enabled")? == "1",
+            download_completion_notification_enabled: self
+                .get_value("download_completion_notification_enabled")?
+                == "1",
+            prevent_sleep_when_downloading_enabled: self
+                .get_value("prevent_sleep_when_downloading_enabled")?
+                == "1",
+            prevent_sleep_when_web_access_enabled: self
+                .get_value("prevent_sleep_when_web_access_enabled")?
+                == "1",
         })
     }
 
@@ -66,6 +75,30 @@ impl<'connection> AppSettingsRepository<'connection> {
         self.save_value(
             "close_to_tray_enabled",
             if input.close_to_tray_enabled {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
+        self.save_value(
+            "download_completion_notification_enabled",
+            if input.download_completion_notification_enabled {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
+        self.save_value(
+            "prevent_sleep_when_downloading_enabled",
+            if input.prevent_sleep_when_downloading_enabled {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
+        self.save_value(
+            "prevent_sleep_when_web_access_enabled",
+            if input.prevent_sleep_when_web_access_enabled {
                 "1"
             } else {
                 "0"
@@ -470,6 +503,19 @@ impl<'connection> DownloadTaskRepository<'connection> {
             tasks.push(read_download_task(row)?);
         }
         Ok(tasks)
+    }
+
+    pub fn has_active_downloads(&self) -> Result<bool, rusqlite::Error> {
+        let count: i64 = self.connection.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM download_tasks
+            WHERE status IN ('queued', 'running')
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
     }
 
     pub fn list_paused(&self) -> Result<Vec<DownloadTask>, Box<dyn Error>> {

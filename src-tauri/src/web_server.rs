@@ -787,9 +787,15 @@ fn handle_authorized_request(
             let next = crate::services::AppSettingsService::new(&connection).save(input)?;
             drop(connection);
             if let Some(app_handle) = &context.app_handle {
-                app_handle
-                    .state::<crate::AppState>()
+                let state = app_handle.state::<crate::AppState>();
+                state
+                    .set_app_settings(next.clone())
+                    .map_err(|error| -> Box<dyn Error> { error.into() })?;
+                state
                     .apply_web_settings(app_handle.clone(), &next)
+                    .map_err(|error| -> Box<dyn Error> { error.into() })?;
+                state
+                    .refresh_sleep_prevention()
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
             }
             json_response(StatusCode(200), &next)

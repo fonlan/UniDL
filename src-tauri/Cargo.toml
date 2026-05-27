@@ -36,9 +36,11 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tiny_http = "0.12"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-notification = "2.3.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-registry = "0.6"
+windows-sys = { version = "0.61.2", features = ["Win32_System_Power"] }
 
 [profile.release]
 codegen-units = 1 # 最大化优化，牺牲编译速度

@@ -292,6 +292,10 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     autoStartEnabled: settings.autoStartEnabled,
     autoStartMinimizedToTray: settings.autoStartMinimizedToTray,
     closeToTrayEnabled: settings.closeToTrayEnabled,
+    downloadCompletionNotificationEnabled:
+      settings.downloadCompletionNotificationEnabled,
+    preventSleepWhenDownloadingEnabled: settings.preventSleepWhenDownloadingEnabled,
+    preventSleepWhenWebAccessEnabled: settings.preventSleepWhenWebAccessEnabled,
   };
 }
 
@@ -1042,9 +1046,11 @@ export default function EngineSettingsView() {
                       className={classNames(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
                         draftAppSettings?.appProxyUrl.trim() ||
-                          draftAppSettings?.autoStartEnabled ||
-                          draftAppSettings?.autoStartMinimizedToTray ||
-                          draftAppSettings?.closeToTrayEnabled
+                        draftAppSettings?.autoStartEnabled ||
+                        draftAppSettings?.autoStartMinimizedToTray ||
+                          draftAppSettings?.closeToTrayEnabled ||
+                          draftAppSettings?.downloadCompletionNotificationEnabled ||
+                          draftAppSettings?.preventSleepWhenDownloadingEnabled
                           ? "bg-emerald-500"
                           : "bg-slate-300",
                       )}
@@ -1072,7 +1078,8 @@ export default function EngineSettingsView() {
                     <span
                       className={classNames(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
-                        draftAppSettings?.webAccessEnabled
+                        draftAppSettings?.webAccessEnabled ||
+                          draftAppSettings?.preventSleepWhenWebAccessEnabled
                           ? "bg-emerald-500"
                           : "bg-slate-300",
                       )}
@@ -1187,6 +1194,28 @@ export default function EngineSettingsView() {
                           onToggle={() =>
                             updateAppDraft({
                               closeToTrayEnabled: !draftAppSettings.closeToTrayEnabled,
+                            })
+                          }
+                        />
+                        <SettingsSwitch
+                          checked={draftAppSettings.downloadCompletionNotificationEnabled}
+                          label="下载完成时弹出系统通知"
+                          description="任务完成后通过系统通知提醒。"
+                          onToggle={() =>
+                            updateAppDraft({
+                              downloadCompletionNotificationEnabled:
+                                !draftAppSettings.downloadCompletionNotificationEnabled,
+                            })
+                          }
+                        />
+                        <SettingsSwitch
+                          checked={draftAppSettings.preventSleepWhenDownloadingEnabled}
+                          label="有活动下载时阻止系统休眠"
+                          description="存在等待中或下载中的任务时阻止系统进入休眠。"
+                          onToggle={() =>
+                            updateAppDraft({
+                              preventSleepWhenDownloadingEnabled:
+                                !draftAppSettings.preventSleepWhenDownloadingEnabled,
                             })
                           }
                         />
@@ -1315,6 +1344,20 @@ export default function EngineSettingsView() {
                       type="password"
                       value={draftAppSettings.webAccessPassword}
                       onChange={(value) => updateAppDraft({ webAccessPassword: value })}
+                    />
+                  </div>
+
+                  <div className="border-t border-slate-100 px-5 py-5">
+                    <SettingsSwitch
+                      checked={draftAppSettings.preventSleepWhenWebAccessEnabled}
+                      label="启用 Web 访问时阻止系统休眠"
+                      description="Web 访问开启期间保持系统唤醒，便于持续远程访问。"
+                      onToggle={() =>
+                        updateAppDraft({
+                          preventSleepWhenWebAccessEnabled:
+                            !draftAppSettings.preventSleepWhenWebAccessEnabled,
+                        })
+                      }
                     />
                   </div>
 

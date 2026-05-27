@@ -174,11 +174,17 @@ pub fn list_remote_directories(
 }
 
 #[tauri::command]
-pub fn refresh_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
+pub fn refresh_download_tasks(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<DownloadTask>, String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection, state.database_path())
+    let tasks = DownloadTaskService::new(&connection, state.database_path())
         .refresh_all()
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    drop(connection);
+    state.handle_refreshed_tasks(&app_handle, &tasks)?;
+    Ok(tasks)
 }
 
 #[tauri::command]
@@ -291,6 +297,7 @@ pub fn save_app_settings(
     }
     state.set_app_settings(next.clone())?;
     state.apply_web_settings(app_handle, &next)?;
+    state.refresh_sleep_prevention()?;
 
     Ok(next)
 }

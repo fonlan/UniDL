@@ -7,12 +7,13 @@ mod models;
 mod repositories;
 mod services;
 mod system_open;
+mod system_sleep;
 mod task_events;
 mod torrent_metadata;
 mod web_server;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -26,6 +27,7 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 #[cfg(any(windows, target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_notification::NotificationExt;
 
 pub struct AppState {
     connection: Mutex<Connection>,
@@ -34,6 +36,8 @@ pub struct AppState {
     pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
     magnet_file_cache: Arc<Mutex<HashMap<String, Vec<torrent_metadata::TorrentFileEntry>>>>,
     web_server: Mutex<Option<web_server::WebServerHandle>>,
+    sleep_state: Mutex<system_sleep::SleepState>,
+    notified_completed_task_ids: Mutex<HashSet<String>>,
 }
 
 impl AppState {
@@ -42,8 +46,16 @@ impl AppState {
         database_path: PathBuf,
         app_settings: models::AppSettings,
         pending_open_sources: Vec<String>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        let notified_completed_task_ids = repositories::DownloadTaskRepository::new(&connection)
+            .list_created_desc()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|task| task.status == models::DownloadStatus::Completed)
+            .map(|task| task.id)
+            .collect();
+
+        Ok(Self {
             connection: Mutex::new(connection),
             database_path,
             app_settings: Mutex::new(app_settings),
@@ -52,7 +64,9 @@ impl AppState {
             ))),
             magnet_file_cache: Arc::new(Mutex::new(HashMap::new())),
             web_server: Mutex::new(None),
-        }
+            sleep_state: Mutex::new(system_sleep::SleepState::new()),
+            notified_completed_task_ids: Mutex::new(notified_completed_task_ids),
+        })
     }
 
     fn lock_connection(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
@@ -148,6 +162,61 @@ impl AppState {
         .map_err(|error| error.to_string())?;
         *web_server = Some(next);
 
+        Ok(())
+    }
+
+    fn refresh_sleep_prevention(&self) -> Result<(), String> {
+        let settings = self.app_settings()?;
+        let has_active_downloads = {
+            let connection = self.lock_connection()?;
+            repositories::DownloadTaskRepository::new(&connection)
+                .has_active_downloads()
+                .map_err(|error| error.to_string())?
+        };
+        let prevent_sleep = (settings.prevent_sleep_when_downloading_enabled
+            && has_active_downloads)
+            || (settings.prevent_sleep_when_web_access_enabled && settings.web_access_enabled);
+        self.sleep_state
+            .lock()
+            .map_err(|_| "sleep state lock was poisoned".to_string())?
+            .set_prevent_sleep(prevent_sleep)
+    }
+
+    fn handle_refreshed_tasks(
+        &self,
+        app_handle: &tauri::AppHandle,
+        tasks: &[models::DownloadTask],
+    ) -> Result<(), String> {
+        self.refresh_sleep_prevention()?;
+        let settings = self.app_settings()?;
+
+        let mut notified = self
+            .notified_completed_task_ids
+            .lock()
+            .map_err(|_| "completed notification lock was poisoned".to_string())?;
+        for task in tasks
+            .iter()
+            .filter(|task| task.status == models::DownloadStatus::Completed)
+        {
+            if !notified.insert(task.id.clone()) {
+                continue;
+            }
+            if !settings.download_completion_notification_enabled {
+                continue;
+            }
+            if let Err(error) = app_handle
+                .notification()
+                .builder()
+                .title("下载完成")
+                .body(format!("{} 已下载完成", task.file_name))
+                .show()
+            {
+                logger::error(format!(
+                    "failed to show completion notification: task_id={}, error={error}",
+                    task.id
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -257,6 +326,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let sources = system_open::parse_open_sources(argv);
@@ -290,17 +360,23 @@ pub fn run() {
             let connection = db::connect_path(database_path.clone())?;
             logger::info(format!("database connected: {}", database_path.display()));
             let app_settings = services::AppSettingsService::new(&connection).get()?;
-            app.manage(AppState::new(
-                connection,
-                database_path.clone(),
-                app_settings.clone(),
-                pending_open_sources,
-            ));
+            app.manage(
+                AppState::new(
+                    connection,
+                    database_path.clone(),
+                    app_settings.clone(),
+                    pending_open_sources,
+                )
+                .map_err(std::io::Error::other)?,
+            );
             setup_tray(app)?;
             setup_close_to_tray(app);
             apply_autostart_settings(app.handle(), &app_settings).map_err(std::io::Error::other)?;
             app.state::<AppState>()
                 .apply_web_settings(app.handle().clone(), &app_settings)
+                .map_err(std::io::Error::other)?;
+            app.state::<AppState>()
+                .refresh_sleep_prevention()
                 .map_err(std::io::Error::other)?;
             hide_main_window_if_needed(app, &app_settings);
             task_events::spawn_download_task_refresh_worker(

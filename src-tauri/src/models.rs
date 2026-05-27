@@ -249,6 +249,9 @@ pub struct AppSettings {
     pub auto_start_enabled: bool,
     pub auto_start_minimized_to_tray: bool,
     pub close_to_tray_enabled: bool,
+    pub download_completion_notification_enabled: bool,
+    pub prevent_sleep_when_downloading_enabled: bool,
+    pub prevent_sleep_when_web_access_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -262,6 +265,9 @@ pub struct AppSettingsInput {
     pub auto_start_enabled: bool,
     pub auto_start_minimized_to_tray: bool,
     pub close_to_tray_enabled: bool,
+    pub download_completion_notification_enabled: bool,
+    pub prevent_sleep_when_downloading_enabled: bool,
+    pub prevent_sleep_when_web_access_enabled: bool,
 }
 
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {
