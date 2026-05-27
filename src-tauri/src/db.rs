@@ -37,6 +37,10 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             tracker_subscription_url TEXT,
             trackers TEXT NOT NULL DEFAULT '',
             proxy_url TEXT,
+            aria2_enable_dht INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht IN (0, 1)),
+            aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1)),
+            aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1)),
+            aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1)),
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -89,6 +93,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_preferred_domains(connection)?;
     migrate_engine_settings_trackers(connection)?;
     migrate_engine_settings_proxy_url(connection)?;
+    migrate_engine_settings_aria2_bt_options(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
     migrate_download_tasks_size_fields(connection)?;
@@ -158,6 +163,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             tracker_subscription_url TEXT,
             trackers TEXT NOT NULL DEFAULT '',
             proxy_url TEXT,
+            aria2_enable_dht INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht IN (0, 1)),
+            aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1)),
+            aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1)),
+            aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1)),
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -180,6 +189,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             tracker_subscription_url,
             trackers,
             proxy_url,
+            aria2_enable_dht,
+            aria2_enable_dht6,
+            aria2_enable_peer_exchange,
+            aria2_enable_lpd,
             priority,
             created_at,
             updated_at
@@ -206,6 +219,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             NULL,
             '',
             NULL,
+            1,
+            1,
+            1,
+            1,
             CASE engine
                 WHEN 'aria2' THEN 0
                 WHEN 'yt-dlp' THEN 1
@@ -340,6 +357,52 @@ fn migrate_engine_settings_proxy_url(connection: &Connection) -> Result<(), rusq
     Ok(())
 }
 
+fn migrate_engine_settings_aria2_bt_options(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
+    if !has_column(connection, "engine_settings", "aria2_enable_dht")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_enable_dht INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht IN (0, 1));
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_enable_dht6")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1));
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_enable_peer_exchange")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1));
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_enable_lpd")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1));
+            "#,
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
 fn migrate_engine_settings_default_args(connection: &Connection) -> Result<(), rusqlite::Error> {
     if has_column(connection, "engine_settings", "default_args")? {
         return Ok(());
@@ -421,7 +484,10 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
             ('web_access_password', ''),
             ('web_access_url', 'http://127.0.0.1:18080'),
             ('private_download_domains', ''),
-            ('app_proxy_url', '');
+            ('app_proxy_url', ''),
+            ('auto_start_enabled', '0'),
+            ('auto_start_minimized_to_tray', '0'),
+            ('close_to_tray_enabled', '0');
         "#,
     )
 }

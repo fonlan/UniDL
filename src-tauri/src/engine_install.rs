@@ -105,10 +105,7 @@ fn github_client(proxy_url: Option<&str>) -> Result<Client, Box<dyn Error>> {
     let mut builder = Client::builder()
         .user_agent("UniDL")
         .timeout(ENGINE_INSTALL_TIMEOUT);
-    if let Some(proxy_url) = proxy_url
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(proxy_url) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
         builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
     }
     Ok(builder.build()?)

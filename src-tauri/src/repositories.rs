@@ -33,6 +33,9 @@ impl<'connection> AppSettingsRepository<'connection> {
             app_proxy_url: self
                 .get_optional_value("app_proxy_url")?
                 .unwrap_or_default(),
+            auto_start_enabled: self.get_value("auto_start_enabled")? == "1",
+            auto_start_minimized_to_tray: self.get_value("auto_start_minimized_to_tray")? == "1",
+            close_to_tray_enabled: self.get_value("close_to_tray_enabled")? == "1",
         })
     }
 
@@ -48,6 +51,26 @@ impl<'connection> AppSettingsRepository<'connection> {
             &encode_domains(&input.private_download_domains),
         )?;
         self.save_value("app_proxy_url", input.app_proxy_url.trim())?;
+        self.save_value(
+            "auto_start_enabled",
+            if input.auto_start_enabled { "1" } else { "0" },
+        )?;
+        self.save_value(
+            "auto_start_minimized_to_tray",
+            if input.auto_start_minimized_to_tray {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
+        self.save_value(
+            "close_to_tray_enabled",
+            if input.close_to_tray_enabled {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
         self.get()
     }
 
@@ -121,6 +144,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 tracker_subscription_url,
                 trackers,
                 proxy_url,
+                aria2_enable_dht,
+                aria2_enable_dht6,
+                aria2_enable_peer_exchange,
+                aria2_enable_lpd,
                 priority,
                 updated_at
             FROM engine_settings
@@ -160,10 +187,14 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 tracker_subscription_url,
                 trackers,
                 proxy_url,
+                aria2_enable_dht,
+                aria2_enable_dht6,
+                aria2_enable_peer_exchange,
+                aria2_enable_lpd,
                 priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -179,6 +210,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 tracker_subscription_url = excluded.tracker_subscription_url,
                 trackers = excluded.trackers,
                 proxy_url = excluded.proxy_url,
+                aria2_enable_dht = excluded.aria2_enable_dht,
+                aria2_enable_dht6 = excluded.aria2_enable_dht6,
+                aria2_enable_peer_exchange = excluded.aria2_enable_peer_exchange,
+                aria2_enable_lpd = excluded.aria2_enable_lpd,
                 priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
@@ -199,6 +234,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 input.tracker_subscription_url.as_deref(),
                 encode_domains(&input.trackers),
                 input.proxy_url.as_deref(),
+                if input.aria2_enable_dht { 1_i64 } else { 0_i64 },
+                if input.aria2_enable_dht6 { 1_i64 } else { 0_i64 },
+                if input.aria2_enable_peer_exchange { 1_i64 } else { 0_i64 },
+                if input.aria2_enable_lpd { 1_i64 } else { 0_i64 },
                 input.priority,
             ],
         )?;
@@ -226,6 +265,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 tracker_subscription_url,
                 trackers,
                 proxy_url,
+                aria2_enable_dht,
+                aria2_enable_dht6,
+                aria2_enable_peer_exchange,
+                aria2_enable_lpd,
                 priority,
                 updated_at
             FROM engine_settings
@@ -306,6 +349,10 @@ fn decode_source_types(value: &str) -> Result<Vec<SourceType>, Box<dyn Error>> {
 fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<dyn Error>> {
     let engine_value: String = row.get("engine")?;
     let enabled: i64 = row.get("enabled")?;
+    let aria2_enable_dht: i64 = row.get("aria2_enable_dht")?;
+    let aria2_enable_dht6: i64 = row.get("aria2_enable_dht6")?;
+    let aria2_enable_peer_exchange: i64 = row.get("aria2_enable_peer_exchange")?;
+    let aria2_enable_lpd: i64 = row.get("aria2_enable_lpd")?;
     let engine = EngineKind::from_db(&engine_value)?;
 
     Ok(EngineSettings {
@@ -327,6 +374,10 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         tracker_subscription_url: row.get("tracker_subscription_url")?,
         trackers: decode_domains(&row.get::<_, String>("trackers")?),
         proxy_url: row.get("proxy_url")?,
+        aria2_enable_dht: aria2_enable_dht == 1,
+        aria2_enable_dht6: aria2_enable_dht6 == 1,
+        aria2_enable_peer_exchange: aria2_enable_peer_exchange == 1,
+        aria2_enable_lpd: aria2_enable_lpd == 1,
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })

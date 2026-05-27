@@ -21,8 +21,7 @@ use tiny_http::{Header, Method, Request, Response, ResponseBox, Server, StatusCo
 use uuid::Uuid;
 
 use crate::{
-    logger,
-    db, engine_install,
+    db, engine_install, logger,
     models::{
         AppSettings, AppSettingsInput, CreateDownloadTaskInput, EngineKind, EngineSettings,
         SourceType,
@@ -497,9 +496,7 @@ fn extract_extension_videos(
     let output = command.output()?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr)
-            .trim()
-            .to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stderr_summary = if stderr.is_empty() {
             "(no stderr output)".to_string()
         } else {
@@ -509,11 +506,7 @@ fn extract_extension_videos(
             "yt-dlp video detection failed: source={source}, status={}, stderr={stderr}",
             output.status
         ));
-        return Err(format!(
-            "yt-dlp 检测失败 (exit {}): {stderr_summary}",
-            output.status
-        )
-        .into());
+        return Err(format!("yt-dlp 检测失败 (exit {}): {stderr_summary}", output.status).into());
     }
 
     let value: Value = serde_json::from_slice(&output.stdout)?;
@@ -553,8 +546,8 @@ fn write_detection_cookie_file(cookies: Option<&str>) -> Result<Option<PathBuf>,
     if cookies.trim().is_empty() {
         return Ok(None);
     }
-    let cookie_path = std::env::temp_dir()
-        .join(format!("unidl-detect-{}.cookies.txt", Uuid::new_v4()));
+    let cookie_path =
+        std::env::temp_dir().join(format!("unidl-detect-{}.cookies.txt", Uuid::new_v4()));
     fs::write(&cookie_path, cookies)?;
     Ok(Some(cookie_path))
 }

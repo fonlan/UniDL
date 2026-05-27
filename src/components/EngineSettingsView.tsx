@@ -50,6 +50,11 @@ const ERROR_AUTO_DISMISS_MS = 10_000;
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
 type SettingsGroup = "general" | "web-access" | "privacy" | "download-engines";
+type Aria2BtToggleKey =
+  | "aria2EnableDht"
+  | "aria2EnableDht6"
+  | "aria2EnablePeerExchange"
+  | "aria2EnableLpd";
 
 const proxySchemePrefixesAll = [
   "http://",
@@ -165,6 +170,10 @@ function defaultEngineSettings(
     trackerSubscriptionUrl: engine === "aria2" ? defaultTrackerSubscriptionUrl : null,
     trackers: [],
     proxyUrl: null,
+    aria2EnableDht: true,
+    aria2EnableDht6: true,
+    aria2EnablePeerExchange: true,
+    aria2EnableLpd: true,
     priority: 0,
     updatedAt: "",
   };
@@ -209,8 +218,28 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     trackerSubscriptionUrl: emptyToNull(settings.trackerSubscriptionUrl ?? ""),
     trackers: normalizeTrackers(settings.trackers),
     proxyUrl: emptyToNull(settings.proxyUrl ?? ""),
+    aria2EnableDht: settings.aria2EnableDht,
+    aria2EnableDht6: settings.aria2EnableDht6,
+    aria2EnablePeerExchange: settings.aria2EnablePeerExchange,
+    aria2EnableLpd: settings.aria2EnableLpd,
     priority: settings.priority,
   };
+}
+
+function aria2BtTogglePatch(
+  key: Aria2BtToggleKey,
+  checked: boolean,
+): Partial<EngineSettings> {
+  switch (key) {
+    case "aria2EnableDht":
+      return { aria2EnableDht: checked };
+    case "aria2EnableDht6":
+      return { aria2EnableDht6: checked };
+    case "aria2EnablePeerExchange":
+      return { aria2EnablePeerExchange: checked };
+    case "aria2EnableLpd":
+      return { aria2EnableLpd: checked };
+  }
 }
 
 function normalizePreferredDomains(domains: string[]) {
@@ -260,6 +289,9 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     webAccessUrl: settings.webAccessUrl,
     privateDownloadDomains: normalizePreferredDomains(settings.privateDownloadDomains),
     appProxyUrl: settings.appProxyUrl.trim(),
+    autoStartEnabled: settings.autoStartEnabled,
+    autoStartMinimizedToTray: settings.autoStartMinimizedToTray,
+    closeToTrayEnabled: settings.closeToTrayEnabled,
   };
 }
 
@@ -461,6 +493,47 @@ function InstalledBadge({ label }: { label: string }) {
       <Check size={13} />
       {label}
     </span>
+  );
+}
+
+function SettingsSwitch({
+  checked,
+  label,
+  description,
+  onToggle,
+}: {
+  checked: boolean;
+  label: string;
+  description: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-slate-800">{label}</div>
+        <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={onToggle}
+        className={classNames(
+          "inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-2.5 text-xs font-medium transition",
+          checked
+            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+            : "border-slate-200 bg-white text-slate-500",
+        )}
+      >
+        <span
+          className={classNames(
+            "h-3.5 w-3.5 rounded-full transition",
+            checked ? "bg-emerald-600" : "bg-slate-300",
+          )}
+        />
+        {checked ? "已启用" : "已关闭"}
+      </button>
+    </div>
   );
 }
 
@@ -968,7 +1041,10 @@ export default function EngineSettingsView() {
                     <span
                       className={classNames(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
-                        draftAppSettings?.appProxyUrl.trim()
+                        draftAppSettings?.appProxyUrl.trim() ||
+                          draftAppSettings?.autoStartEnabled ||
+                          draftAppSettings?.autoStartMinimizedToTray ||
+                          draftAppSettings?.closeToTrayEnabled
                           ? "bg-emerald-500"
                           : "bg-slate-300",
                       )}
@@ -1081,6 +1157,40 @@ export default function EngineSettingsView() {
                             "支持 http / https / socks4 / socks4a / socks5 / socks5h。"}
                         </span>
                       </label>
+
+                      <div className="grid gap-3">
+                        <SettingsSwitch
+                          checked={draftAppSettings.autoStartEnabled}
+                          label="开机自启动"
+                          description="登录系统后自动启动 UniDL。"
+                          onToggle={() =>
+                            updateAppDraft({
+                              autoStartEnabled: !draftAppSettings.autoStartEnabled,
+                            })
+                          }
+                        />
+                        <SettingsSwitch
+                          checked={draftAppSettings.autoStartMinimizedToTray}
+                          label="自启动后隐藏到系统托盘"
+                          description="仅在开机自启动拉起程序时生效，避免显示主窗口。"
+                          onToggle={() =>
+                            updateAppDraft({
+                              autoStartMinimizedToTray:
+                                !draftAppSettings.autoStartMinimizedToTray,
+                            })
+                          }
+                        />
+                        <SettingsSwitch
+                          checked={draftAppSettings.closeToTrayEnabled}
+                          label="关闭按钮隐藏到系统托盘"
+                          description="点击窗口关闭按钮时保留后台运行，仅隐藏主窗口。"
+                          onToggle={() =>
+                            updateAppDraft({
+                              closeToTrayEnabled: !draftAppSettings.closeToTrayEnabled,
+                            })
+                          }
+                        />
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
@@ -1743,6 +1853,7 @@ export default function EngineSettingsView() {
                                 </span>
                                 <span className="truncate text-xs text-slate-400">
                                   {[
+                                    draft.engine === "aria2" ? "BT 发现" : null,
                                     draft.engine === "aria2" ? "Tracker 订阅" : null,
                                     "偏好域名",
                                     "默认参数",
@@ -1755,6 +1866,86 @@ export default function EngineSettingsView() {
 
                               {isAdvancedOpen && (
                                 <div className="flex flex-col gap-4 border-t border-slate-100 bg-slate-50/40 px-4 py-4">
+                                  {draft.engine === "aria2" &&
+                                    (() => {
+                                      const options: Array<{
+                                        key: Aria2BtToggleKey;
+                                        label: string;
+                                        description: string;
+                                        checked: boolean;
+                                      }> = [
+                                          {
+                                            key: "aria2EnableDht",
+                                            label: "启用 DHT",
+                                            description: "对应 aria2 的 enable-dht",
+                                            checked: draft.aria2EnableDht,
+                                          },
+                                          {
+                                            key: "aria2EnableDht6",
+                                            label: "启用 IPv6 DHT",
+                                            description: "对应 aria2 的 enable-dht6",
+                                            checked: draft.aria2EnableDht6,
+                                          },
+                                          {
+                                            key: "aria2EnablePeerExchange",
+                                            label: "启用 PeX 节点交换",
+                                            description:
+                                              "对应 aria2 的 enable-peer-exchange",
+                                            checked: draft.aria2EnablePeerExchange,
+                                          },
+                                          {
+                                            key: "aria2EnableLpd",
+                                            label: "启用本地端点发现",
+                                            description: "对应 aria2 的 bt-enable-lpd",
+                                            checked: draft.aria2EnableLpd,
+                                          },
+                                        ];
+
+                                      return (
+                                        <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                          <div>
+                                            <div className="text-sm font-medium text-slate-800">
+                                              BT/磁链发现
+                                            </div>
+                                            <div className="mt-1 text-xs text-slate-500">
+                                              仅提供 aria2 支持的 DHT、IPv6 DHT、PeX 和本地端点发现开关；uTP、UPnP/NAT-PMP 不受 aria2 官方开关支持。
+                                            </div>
+                                          </div>
+                                          <div className="grid gap-2 sm:grid-cols-2">
+                                            {options.map((option) => (
+                                              <label
+                                                key={option.key}
+                                                className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={option.checked}
+                                                  onChange={(event) =>
+                                                    updateDraft(
+                                                      draft.id,
+                                                      aria2BtTogglePatch(
+                                                        option.key,
+                                                        event.currentTarget.checked,
+                                                      ),
+                                                    )
+                                                  }
+                                                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-100"
+                                                />
+                                                <span className="min-w-0">
+                                                  <span className="block font-medium text-slate-800">
+                                                    {option.label}
+                                                  </span>
+                                                  <span className="mt-0.5 block text-xs text-slate-500">
+                                                    {option.description}
+                                                  </span>
+                                                </span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+
                                   {draft.engine === "aria2" && (
                                     <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
                                       <div className="flex flex-wrap items-center justify-between gap-2">

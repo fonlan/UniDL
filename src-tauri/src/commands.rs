@@ -273,10 +273,11 @@ pub fn save_app_settings(
     state: State<'_, AppState>,
 ) -> Result<AppSettings, String> {
     logger::info(format!(
-        "saving app settings: web_access_enabled={}",
-        settings.web_access_enabled
+        "saving app settings: web_access_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}",
+        settings.web_access_enabled, settings.auto_start_enabled, settings.close_to_tray_enabled
     ));
     AppSettingsService::validate_input(&settings).map_err(|error| error.to_string())?;
+    let requested_autostart = settings.auto_start_enabled;
 
     let connection = state.lock_connection()?;
     let next = AppSettingsService::new(&connection)
@@ -284,6 +285,11 @@ pub fn save_app_settings(
         .map_err(|error| error.to_string())?;
     drop(connection);
 
+    crate::apply_autostart_settings(&app_handle, &next)?;
+    if next.auto_start_enabled != requested_autostart {
+        return Err("saved app settings do not match requested autostart state".to_string());
+    }
+    state.set_app_settings(next.clone())?;
     state.apply_web_settings(app_handle, &next)?;
 
     Ok(next)

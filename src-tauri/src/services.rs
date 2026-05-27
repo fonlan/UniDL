@@ -741,6 +741,10 @@ impl<'connection> EngineSettingsService<'connection> {
             tracker_subscription_url: current.tracker_subscription_url,
             trackers: current.trackers,
             proxy_url: current.proxy_url,
+            aria2_enable_dht: current.aria2_enable_dht,
+            aria2_enable_dht6: current.aria2_enable_dht6,
+            aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
+            aria2_enable_lpd: current.aria2_enable_lpd,
             priority: current.priority,
         })?;
 
@@ -769,6 +773,10 @@ impl<'connection> EngineSettingsService<'connection> {
             tracker_subscription_url: input.tracker_subscription_url,
             trackers: input.trackers,
             proxy_url: input.proxy_url,
+            aria2_enable_dht: input.aria2_enable_dht,
+            aria2_enable_dht6: input.aria2_enable_dht6,
+            aria2_enable_peer_exchange: input.aria2_enable_peer_exchange,
+            aria2_enable_lpd: input.aria2_enable_lpd,
             priority: input.priority,
             updated_at: String::new(),
         };
@@ -812,6 +820,10 @@ impl<'connection> EngineSettingsService<'connection> {
             tracker_subscription_url: Some(subscription_url.trim().to_string()),
             trackers,
             proxy_url: current.proxy_url,
+            aria2_enable_dht: current.aria2_enable_dht,
+            aria2_enable_dht6: current.aria2_enable_dht6,
+            aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
+            aria2_enable_lpd: current.aria2_enable_lpd,
             priority: current.priority,
         })
     }
@@ -982,6 +994,10 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                aria2_enable_dht: true,
+                aria2_enable_dht6: true,
+                aria2_enable_peer_exchange: true,
+                aria2_enable_lpd: true,
                 priority: 0,
             })
             .expect("engine settings should save");
@@ -1005,6 +1021,10 @@ mod tests {
                 tracker_subscription_url: saved.tracker_subscription_url,
                 trackers: saved.trackers,
                 proxy_url: saved.proxy_url,
+                aria2_enable_dht: saved.aria2_enable_dht,
+                aria2_enable_dht6: saved.aria2_enable_dht6,
+                aria2_enable_peer_exchange: saved.aria2_enable_peer_exchange,
+                aria2_enable_lpd: saved.aria2_enable_lpd,
                 priority: saved.priority,
             })
             .expect("engine settings should rename");

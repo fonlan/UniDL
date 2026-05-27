@@ -197,6 +197,10 @@ pub struct EngineSettings {
     pub tracker_subscription_url: Option<String>,
     pub trackers: Vec<String>,
     pub proxy_url: Option<String>,
+    pub aria2_enable_dht: bool,
+    pub aria2_enable_dht6: bool,
+    pub aria2_enable_peer_exchange: bool,
+    pub aria2_enable_lpd: bool,
     pub priority: i64,
     pub updated_at: String,
 }
@@ -220,6 +224,10 @@ pub struct EngineSettingsInput {
     pub tracker_subscription_url: Option<String>,
     pub trackers: Vec<String>,
     pub proxy_url: Option<String>,
+    pub aria2_enable_dht: bool,
+    pub aria2_enable_dht6: bool,
+    pub aria2_enable_peer_exchange: bool,
+    pub aria2_enable_lpd: bool,
     pub priority: i64,
 }
 
@@ -238,6 +246,9 @@ pub struct AppSettings {
     pub web_access_url: String,
     pub private_download_domains: Vec<String>,
     pub app_proxy_url: String,
+    pub auto_start_enabled: bool,
+    pub auto_start_minimized_to_tray: bool,
+    pub close_to_tray_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -248,6 +259,9 @@ pub struct AppSettingsInput {
     pub web_access_url: String,
     pub private_download_domains: Vec<String>,
     pub app_proxy_url: String,
+    pub auto_start_enabled: bool,
+    pub auto_start_minimized_to_tray: bool,
+    pub close_to_tray_enabled: bool,
 }
 
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {

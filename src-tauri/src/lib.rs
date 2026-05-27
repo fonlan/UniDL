@@ -18,13 +18,19 @@ use std::{
 };
 
 use rusqlite::Connection;
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WindowEvent,
+};
+use tauri_plugin_autostart::ManagerExt;
 #[cfg(any(windows, target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
 
 pub struct AppState {
     connection: Mutex<Connection>,
     database_path: PathBuf,
+    app_settings: Mutex<models::AppSettings>,
     pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
     magnet_file_cache: Arc<Mutex<HashMap<String, Vec<torrent_metadata::TorrentFileEntry>>>>,
     web_server: Mutex<Option<web_server::WebServerHandle>>,
@@ -34,11 +40,13 @@ impl AppState {
     fn new(
         connection: Connection,
         database_path: PathBuf,
+        app_settings: models::AppSettings,
         pending_open_sources: Vec<String>,
     ) -> Self {
         Self {
             connection: Mutex::new(connection),
             database_path,
+            app_settings: Mutex::new(app_settings),
             pending_open_sources: Arc::new(Mutex::new(system_open::source_requests(
                 pending_open_sources,
             ))),
@@ -55,6 +63,22 @@ impl AppState {
 
     fn database_path(&self) -> PathBuf {
         self.database_path.clone()
+    }
+
+    fn app_settings(&self) -> Result<models::AppSettings, String> {
+        self.app_settings
+            .lock()
+            .map(|settings| settings.clone())
+            .map_err(|_| "app settings lock was poisoned".to_string())
+    }
+
+    fn set_app_settings(&self, settings: models::AppSettings) -> Result<(), String> {
+        let mut current = self
+            .app_settings
+            .lock()
+            .map_err(|_| "app settings lock was poisoned".to_string())?;
+        *current = settings;
+        Ok(())
     }
 
     fn push_open_requests(
@@ -128,12 +152,111 @@ impl AppState {
     }
 }
 
+fn show_main_window(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show-main-window", "显示主窗口", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出 UniDL", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+    let icon = app
+        .default_window_icon()
+        .expect("default window icon is required for tray")
+        .clone();
+
+    TrayIconBuilder::with_id("main")
+        .tooltip("UniDL")
+        .icon(icon)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app_handle, event| match event.id.as_ref() {
+            "show-main-window" => show_main_window(app_handle),
+            "quit" => app_handle.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+fn setup_close_to_tray(app: &tauri::App) {
+    let app_handle = app.handle().clone();
+    if let Some(window) = app.get_webview_window("main") {
+        window.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let settings = match app_handle.state::<AppState>().app_settings() {
+                    Ok(settings) => settings,
+                    Err(error) => {
+                        logger::error(format!("failed to read app settings on close: {error}"));
+                        return;
+                    }
+                };
+
+                if settings.close_to_tray_enabled {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+            }
+        });
+    }
+}
+
+fn apply_autostart_settings(
+    app_handle: &tauri::AppHandle,
+    settings: &models::AppSettings,
+) -> Result<(), String> {
+    let autostart = app_handle.autolaunch();
+    let is_enabled = autostart.is_enabled().map_err(|error| error.to_string())?;
+
+    if settings.auto_start_enabled && !is_enabled {
+        autostart.enable().map_err(|error| error.to_string())?;
+    }
+    if !settings.auto_start_enabled && is_enabled {
+        autostart.disable().map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn launched_by_autostart() -> bool {
+    std::env::args().any(|arg| arg == "--autostart")
+}
+
+fn hide_main_window_if_needed(app: &tauri::App, settings: &models::AppSettings) {
+    if settings.auto_start_minimized_to_tray && launched_by_autostart() {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    }
+}
+
 pub fn run() {
     logger::init().expect("failed to initialize UniDL logger");
     logger::info("UniDL starting");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let sources = system_open::parse_open_sources(argv);
@@ -151,6 +274,7 @@ pub fn run() {
             }
 
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -169,11 +293,16 @@ pub fn run() {
             app.manage(AppState::new(
                 connection,
                 database_path.clone(),
+                app_settings.clone(),
                 pending_open_sources,
             ));
+            setup_tray(app)?;
+            setup_close_to_tray(app);
+            apply_autostart_settings(app.handle(), &app_settings).map_err(std::io::Error::other)?;
             app.state::<AppState>()
                 .apply_web_settings(app.handle().clone(), &app_settings)
                 .map_err(std::io::Error::other)?;
+            hide_main_window_if_needed(app, &app_settings);
             task_events::spawn_download_task_refresh_worker(
                 app.handle().clone(),
                 database_path.clone(),

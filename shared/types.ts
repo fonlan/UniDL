@@ -73,6 +73,10 @@ export interface EngineSettings {
   trackerSubscriptionUrl: string | null;
   trackers: string[];
   proxyUrl: string | null;
+  aria2EnableDht: boolean;
+  aria2EnableDht6: boolean;
+  aria2EnablePeerExchange: boolean;
+  aria2EnableLpd: boolean;
   priority: number;
   updatedAt: string;
 }
@@ -90,6 +94,9 @@ export interface AppSettings {
   webAccessUrl: string;
   privateDownloadDomains: string[];
   appProxyUrl: string;
+  autoStartEnabled: boolean;
+  autoStartMinimizedToTray: boolean;
+  closeToTrayEnabled: boolean;
 }
 
 export type AppSettingsInput = AppSettings;

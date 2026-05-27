@@ -318,6 +318,10 @@ mod tests {
             tracker_subscription_url: None,
             trackers: Vec::new(),
             proxy_url: None,
+            aria2_enable_dht: true,
+            aria2_enable_dht6: true,
+            aria2_enable_peer_exchange: true,
+            aria2_enable_lpd: true,
             priority: 0,
             updated_at: String::new(),
         }
@@ -388,11 +392,48 @@ mod tests {
             "--split=4 --out=task.bin",
             None,
             None,
+            true,
+            true,
+            true,
+            true,
         );
 
         assert_eq!(
             options.get("out").and_then(Value::as_str),
             Some("renamed.bin")
+        );
+    }
+
+    #[test]
+    fn aria2_download_options_uses_bt_discovery_toggles() {
+        let options = aria2_download_options(
+            "C:\\Downloads",
+            None,
+            "--enable-dht=true --enable-peer-exchange=true",
+            "--bt-enable-lpd=false",
+            None,
+            None,
+            false,
+            true,
+            false,
+            true,
+        );
+
+        assert_eq!(
+            options.get("enable-dht").and_then(Value::as_str),
+            Some("false")
+        );
+        assert_eq!(
+            options.get("enable-dht6").and_then(Value::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            options.get("enable-peer-exchange").and_then(Value::as_str),
+            Some("false")
+        );
+        assert_eq!(
+            options.get("bt-enable-lpd").and_then(Value::as_str),
+            Some("true")
         );
     }
 
@@ -681,6 +722,10 @@ mod tests {
             tracker_subscription_url: None,
             trackers: Vec::new(),
             proxy_url: None,
+            aria2_enable_dht: true,
+            aria2_enable_dht6: true,
+            aria2_enable_peer_exchange: true,
+            aria2_enable_lpd: true,
             priority: 0,
             updated_at: String::new(),
         };

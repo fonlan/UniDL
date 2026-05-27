@@ -17,7 +17,7 @@ use crate::{
 };
 
 use super::{
-    append_args, engine_proxy_url, log_command, parse_i64, required_engine_task_id,
+    append_args, bool_param, engine_proxy_url, log_command, parse_i64, required_engine_task_id,
     EngineTaskState, MagnetMetadata,
 };
 
@@ -190,6 +190,10 @@ fn add_aria2_task(
         &task.engine_args,
         task.selected_file_indexes.as_deref(),
         engine_proxy_url(settings),
+        settings.aria2_enable_dht,
+        settings.aria2_enable_dht6,
+        settings.aria2_enable_peer_exchange,
+        settings.aria2_enable_lpd,
     );
     let result = match task.source_type {
         SourceType::Torrent => {
@@ -229,6 +233,10 @@ fn resolve_aria2_magnet_metadata(
         "",
         None,
         engine_proxy_url(settings),
+        settings.aria2_enable_dht,
+        settings.aria2_enable_dht6,
+        settings.aria2_enable_peer_exchange,
+        settings.aria2_enable_lpd,
     );
     let source = magnet_with_fallback_trackers(settings, source);
     let result = aria2_rpc(settings, "aria2.addUri", json!([[source], options]))?;
@@ -260,6 +268,10 @@ fn resolve_aria2_magnet_files(
         "",
         None,
         engine_proxy_url(settings),
+        settings.aria2_enable_dht,
+        settings.aria2_enable_dht6,
+        settings.aria2_enable_peer_exchange,
+        settings.aria2_enable_lpd,
     );
     let source = magnet_with_fallback_trackers(settings, source);
     let result = aria2_rpc(settings, "aria2.addUri", json!([[source], options]))?;
@@ -685,11 +697,28 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
         .arg("--enable-rpc=true")
         .arg("--rpc-listen-all=false")
         .arg("--rpc-listen-port=6800")
-        .args(ARIA2_FAST_DEFAULT_ARGS.split_whitespace())
+        .args(ARIA2_FAST_DEFAULT_ARGS.split_whitespace());
+    append_args(&mut command, &settings.default_args);
+    command
+        .arg(format!(
+            "--enable-dht={}",
+            bool_param(settings.aria2_enable_dht)
+        ))
+        .arg(format!(
+            "--enable-dht6={}",
+            bool_param(settings.aria2_enable_dht6)
+        ))
+        .arg(format!(
+            "--enable-peer-exchange={}",
+            bool_param(settings.aria2_enable_peer_exchange)
+        ))
+        .arg(format!(
+            "--bt-enable-lpd={}",
+            bool_param(settings.aria2_enable_lpd)
+        ))
         .arg(format!("--dir={}", save_path))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    append_args(&mut command, &settings.default_args);
     log_command("starting aria2", &command);
     command.spawn().map_err(|error| {
         logger::error(format!("aria2 spawn failed: {error}"));
@@ -887,12 +916,24 @@ pub(super) fn aria2_download_options(
     task_args: &str,
     selected_file_indexes: Option<&[i64]>,
     proxy_url: Option<&str>,
+    aria2_enable_dht: bool,
+    aria2_enable_dht6: bool,
+    aria2_enable_peer_exchange: bool,
+    aria2_enable_lpd: bool,
 ) -> Value {
     let mut options = serde_json::Map::new();
     options.insert("dir".to_string(), Value::String(save_path.to_string()));
     append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
     append_aria2_options(&mut options, default_args);
     append_aria2_options(&mut options, task_args);
+    insert_bool_option(&mut options, "enable-dht", aria2_enable_dht);
+    insert_bool_option(&mut options, "enable-dht6", aria2_enable_dht6);
+    insert_bool_option(
+        &mut options,
+        "enable-peer-exchange",
+        aria2_enable_peer_exchange,
+    );
+    insert_bool_option(&mut options, "bt-enable-lpd", aria2_enable_lpd);
     if let Some(proxy_url) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
         options.insert(
             "all-proxy".to_string(),
@@ -914,6 +955,13 @@ pub(super) fn aria2_download_options(
         }
     }
     Value::Object(options)
+}
+
+fn insert_bool_option(options: &mut serde_json::Map<String, Value>, key: &str, value: bool) {
+    options.insert(
+        key.to_string(),
+        Value::String(bool_param(value).to_string()),
+    );
 }
 
 fn format_select_file_indexes(indexes: &[i64]) -> String {
