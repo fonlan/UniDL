@@ -45,6 +45,12 @@ impl<'connection> AppSettingsRepository<'connection> {
             prevent_sleep_when_web_access_enabled: self
                 .get_value("prevent_sleep_when_web_access_enabled")?
                 == "1",
+            auto_clean_download_tasks_enabled: self
+                .get_value("auto_clean_download_tasks_enabled")?
+                == "1",
+            auto_clean_download_tasks_days: self
+                .get_value("auto_clean_download_tasks_days")?
+                .parse()?,
         })
     }
 
@@ -103,6 +109,18 @@ impl<'connection> AppSettingsRepository<'connection> {
             } else {
                 "0"
             },
+        )?;
+        self.save_value(
+            "auto_clean_download_tasks_enabled",
+            if input.auto_clean_download_tasks_enabled {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
+        self.save_value(
+            "auto_clean_download_tasks_days",
+            &input.auto_clean_download_tasks_days.to_string(),
         )?;
         self.get()
     }

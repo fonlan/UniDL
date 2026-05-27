@@ -840,6 +840,9 @@ impl<'connection> AppSettingsService<'connection> {
             }
         }
         validate_proxy_url(&input.app_proxy_url, PROXY_SCHEMES_ALL)?;
+        if input.auto_clean_download_tasks_days <= 0 {
+            return Err("auto cleanup days must be greater than 0".into());
+        }
         Ok(())
     }
 }
@@ -1334,6 +1337,8 @@ mod tests {
                 download_completion_notification_enabled: false,
                 prevent_sleep_when_downloading_enabled: false,
                 prevent_sleep_when_web_access_enabled: false,
+                auto_clean_download_tasks_enabled: false,
+                auto_clean_download_tasks_days: 365,
             })
             .expect("app settings should save");
         insert_aria2_task(

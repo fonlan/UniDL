@@ -833,6 +833,9 @@ fn handle_authorized_request(
                 state
                     .refresh_sleep_prevention()
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
+                state
+                    .apply_auto_download_task_cleanup_for_settings(app_handle, &next)
+                    .map_err(|error| -> Box<dyn Error> { error.into() })?;
             }
             json_response(StatusCode(200), &next)
         }
@@ -1340,6 +1343,8 @@ mod tests {
             download_completion_notification_enabled: false,
             prevent_sleep_when_downloading_enabled: false,
             prevent_sleep_when_web_access_enabled: false,
+            auto_clean_download_tasks_enabled: false,
+            auto_clean_download_tasks_days: 365,
         }
     }
 }

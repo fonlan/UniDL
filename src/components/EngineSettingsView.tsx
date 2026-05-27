@@ -50,6 +50,7 @@ import type {
 } from "@shared/types";
 
 const ERROR_AUTO_DISMISS_MS = 10_000;
+const DEFAULT_AUTO_CLEAN_DOWNLOAD_TASK_DAYS = 365;
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
@@ -297,6 +298,13 @@ function parseTrackers(value: string) {
   return normalizeTrackers(value.split(/[\s,;]+/));
 }
 
+function normalizeAutoCleanDownloadTaskDays(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_AUTO_CLEAN_DOWNLOAD_TASK_DAYS;
+  }
+  return Math.max(1, Math.trunc(value));
+}
+
 function isDirty(saved: EngineSettings, draft: EngineSettings) {
   return JSON.stringify(toInput(saved)) !== JSON.stringify(toInput(draft));
 }
@@ -314,6 +322,10 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     downloadCompletionNotificationEnabled: settings.downloadCompletionNotificationEnabled,
     preventSleepWhenDownloadingEnabled: settings.preventSleepWhenDownloadingEnabled,
     preventSleepWhenWebAccessEnabled: settings.preventSleepWhenWebAccessEnabled,
+    autoCleanDownloadTasksEnabled: settings.autoCleanDownloadTasksEnabled,
+    autoCleanDownloadTasksDays: normalizeAutoCleanDownloadTaskDays(
+      settings.autoCleanDownloadTasksDays,
+    ),
   };
 }
 
@@ -1154,7 +1166,9 @@ export default function EngineSettingsView({
                     <span
                       className={classNames(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
-                        cleanupResult ? "bg-emerald-500" : "bg-slate-300",
+                        draftAppSettings?.autoCleanDownloadTasksEnabled || cleanupResult
+                          ? "bg-emerald-500"
+                          : "bg-slate-300",
                       )}
                     />
                   </button>
@@ -1523,7 +1537,7 @@ export default function EngineSettingsView({
                 </article>
               )}
 
-              {activeGroup === "data" && (
+              {activeGroup === "data" && draftAppSettings && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
                     <div className="min-w-0">
@@ -1536,55 +1550,154 @@ export default function EngineSettingsView({
                     </div>
                   </div>
 
-                  <div className="px-5 py-5">
-                    <div className="flex items-start gap-3">
-                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-rose-100 bg-rose-50 text-rose-700">
-                        <Trash2 size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-slate-800">
-                          下载列表清理
+                  <div className="grid gap-5 px-5 py-5">
+                    <div className="grid gap-3">
+                      <SettingsSwitch
+                        checked={draftAppSettings.autoCleanDownloadTasksEnabled}
+                        label="自动清理下载任务"
+                        description="开启后会在启动、保存设置和后台检查时清理过期的已结束任务记录。"
+                        onToggle={() =>
+                          updateAppDraft({
+                            autoCleanDownloadTasksEnabled:
+                              !draftAppSettings.autoCleanDownloadTasksEnabled,
+                          })
+                        }
+                      />
+
+                      <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                        <span className="font-medium">清理范围</span>
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            inputMode="numeric"
+                            disabled={!draftAppSettings.autoCleanDownloadTasksEnabled}
+                            value={draftAppSettings.autoCleanDownloadTasksDays}
+                            onChange={(event) =>
+                              updateAppDraft({
+                                autoCleanDownloadTasksDays:
+                                  normalizeAutoCleanDownloadTaskDays(
+                                    Number.parseInt(event.currentTarget.value, 10),
+                                  ),
+                              })
+                            }
+                            className={classNames(
+                              "h-9 w-32 rounded-md border px-3 text-sm outline-none transition",
+                              draftAppSettings.autoCleanDownloadTasksEnabled
+                                ? "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                                : "border-slate-200 bg-slate-50 text-slate-400",
+                            )}
+                          />
+                          <span className="text-sm text-slate-600">
+                            天前的已结束任务记录
+                          </span>
                         </div>
-                        <div className="mt-1 text-xs leading-5 text-slate-500">
-                          只删除列表记录，不删除磁盘文件；等待中、下载中和暂停中的任务不会被清理。
-                        </div>
-                      </div>
+                        <span className="text-xs text-slate-500">
+                          默认 365 天；只删除列表记录，不删除磁盘文件。
+                        </span>
+                      </label>
                     </div>
 
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      {downloadRecordCleanupOptions.map((option) => {
-                        const isAll = option.olderThanDays === null;
-                        const isCurrent = clearingRecordsOptionId === option.id;
-                        const isClearing = clearingRecordsOptionId !== null;
+                    <div className="border-t border-slate-100 pt-5">
+                      <div className="flex items-start gap-3">
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-rose-100 bg-rose-50 text-rose-700">
+                          <Trash2 size={16} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-800">
+                            下载任务清理
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                            只删除列表记录，不删除磁盘文件；等待中、下载中和暂停中的任务不会被清理。
+                          </div>
+                        </div>
+                      </div>
 
-                        return (
-                          <button
-                            key={option.id}
-                            type="button"
-                            disabled={isClearing}
-                            onClick={() => void cleanupDownloadRecords(option)}
-                            className={classNames(
-                              "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
-                              isClearing &&
-                              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
-                              !isClearing &&
-                              !isAll &&
-                              "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
-                              !isClearing &&
-                              isAll &&
-                              "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
-                            )}
-                          >
-                            <Trash2 size={14} />
-                            {isCurrent ? "清理中" : `清除${option.label}`}
-                          </button>
-                        );
-                      })}
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {downloadRecordCleanupOptions.map((option) => {
+                          const isAll = option.olderThanDays === null;
+                          const isCurrent = clearingRecordsOptionId === option.id;
+                          const isClearing = clearingRecordsOptionId !== null;
+
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              disabled={isClearing}
+                              onClick={() => void cleanupDownloadRecords(option)}
+                              className={classNames(
+                                "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                                isClearing &&
+                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                                !isClearing &&
+                                !isAll &&
+                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                                !isClearing &&
+                                isAll &&
+                                "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
+                              )}
+                            >
+                              <Trash2 size={14} />
+                              {isCurrent ? "清理中" : `清除${option.label}`}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-3 text-xs text-slate-500">
-                    {cleanupResult ?? "清理前会再次确认，操作完成后会刷新下载列表。"}
+                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                    <div className="min-w-0 text-xs text-slate-500">
+                      {savedApp ? (
+                        <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                          <Check size={13} />
+                          已保存到本地
+                        </span>
+                      ) : appDirty ? (
+                        "修改后请记得保存"
+                      ) : cleanupResult ? (
+                        cleanupResult
+                      ) : draftAppSettings.autoCleanDownloadTasksEnabled ? (
+                        `将自动清理 ${draftAppSettings.autoCleanDownloadTasksDays} 天前的已结束任务记录`
+                      ) : (
+                        "自动清理已关闭；手动清理前会再次确认。"
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!appDirty || isSavingApp}
+                        onClick={resetAppAccess}
+                        className={classNames(
+                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                          (!appDirty || isSavingApp) &&
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          appDirty &&
+                          !isSavingApp &&
+                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                        )}
+                      >
+                        <RotateCcw size={14} />
+                        撤销
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!appDirty || isSavingApp}
+                        onClick={() => void saveAppAccess()}
+                        className={classNames(
+                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                          (!appDirty || isSavingApp) &&
+                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          appDirty &&
+                          !isSavingApp &&
+                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                        )}
+                      >
+                        <Save size={14} />
+                        保存
+                      </button>
+                    </div>
                   </div>
                 </article>
               )}

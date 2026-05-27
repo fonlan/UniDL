@@ -194,6 +194,41 @@ impl AppState {
             .set_prevent_sleep(prevent_sleep)
     }
 
+    fn apply_auto_download_task_cleanup(
+        &self,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<usize, String> {
+        let settings = self.app_settings()?;
+        self.apply_auto_download_task_cleanup_for_settings(app_handle, &settings)
+    }
+
+    fn apply_auto_download_task_cleanup_for_settings(
+        &self,
+        app_handle: &tauri::AppHandle,
+        settings: &models::AppSettings,
+    ) -> Result<usize, String> {
+        if !settings.auto_clean_download_tasks_enabled {
+            return Ok(0);
+        }
+
+        let connection = self.lock_connection()?;
+        let deleted_count = services::DownloadTaskService::new(&connection, self.database_path())
+            .clear_download_records(Some(settings.auto_clean_download_tasks_days))
+            .map_err(|error| error.to_string())?;
+        drop(connection);
+
+        if deleted_count > 0 {
+            logger::info(format!(
+                "auto-cleaned download records: older_than_days={}, deleted_count={deleted_count}",
+                settings.auto_clean_download_tasks_days
+            ));
+            task_events::emit_download_tasks_updated(app_handle)
+                .map_err(|error| error.to_string())?;
+        }
+
+        Ok(deleted_count)
+    }
+
     fn handle_refreshed_tasks(
         &self,
         app_handle: &tauri::AppHandle,
@@ -396,11 +431,15 @@ pub fn run() {
             app.state::<AppState>()
                 .refresh_sleep_prevention()
                 .map_err(std::io::Error::other)?;
+            app.state::<AppState>()
+                .apply_auto_download_task_cleanup_for_settings(app.handle(), &app_settings)
+                .map_err(std::io::Error::other)?;
             hide_main_window_if_needed(app, &app_settings);
             task_events::spawn_download_task_refresh_worker(
                 app.handle().clone(),
                 database_path.clone(),
             );
+            task_events::spawn_download_task_auto_cleanup_worker(app.handle().clone());
             logger::info("Tauri setup completed");
             Ok(())
         })
@@ -457,6 +496,8 @@ mod tests {
             download_completion_notification_enabled: false,
             prevent_sleep_when_downloading_enabled: false,
             prevent_sleep_when_web_access_enabled: false,
+            auto_clean_download_tasks_enabled: false,
+            auto_clean_download_tasks_days: 365,
         }
     }
 
@@ -466,6 +507,8 @@ mod tests {
         let mut next = current.clone();
         next.download_completion_notification_enabled = true;
         next.prevent_sleep_when_downloading_enabled = true;
+        next.auto_clean_download_tasks_enabled = true;
+        next.auto_clean_download_tasks_days = 30;
 
         assert!(!web_settings_changed(&current, &next));
     }

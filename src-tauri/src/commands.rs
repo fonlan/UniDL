@@ -314,8 +314,12 @@ pub fn save_app_settings(
     state: State<'_, AppState>,
 ) -> Result<AppSettings, String> {
     logger::info(format!(
-        "saving app settings: web_access_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}",
-        settings.web_access_enabled, settings.auto_start_enabled, settings.close_to_tray_enabled
+        "saving app settings: web_access_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}, auto_clean_download_tasks_enabled={}, auto_clean_download_tasks_days={}",
+        settings.web_access_enabled,
+        settings.auto_start_enabled,
+        settings.close_to_tray_enabled,
+        settings.auto_clean_download_tasks_enabled,
+        settings.auto_clean_download_tasks_days
     ));
     AppSettingsService::validate_input(&settings).map_err(|error| error.to_string())?;
     let requested_autostart = settings.auto_start_enabled;
@@ -332,8 +336,9 @@ pub fn save_app_settings(
         return Err("saved app settings do not match requested autostart state".to_string());
     }
     state.set_app_settings(next.clone())?;
-    state.apply_web_settings_if_changed(app_handle, &current, &next)?;
+    state.apply_web_settings_if_changed(app_handle.clone(), &current, &next)?;
     state.refresh_sleep_prevention()?;
+    state.apply_auto_download_task_cleanup_for_settings(&app_handle, &next)?;
 
     Ok(next)
 }

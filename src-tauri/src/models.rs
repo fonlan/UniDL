@@ -268,6 +268,8 @@ pub struct AppSettings {
     pub download_completion_notification_enabled: bool,
     pub prevent_sleep_when_downloading_enabled: bool,
     pub prevent_sleep_when_web_access_enabled: bool,
+    pub auto_clean_download_tasks_enabled: bool,
+    pub auto_clean_download_tasks_days: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -284,6 +286,8 @@ pub struct AppSettingsInput {
     pub download_completion_notification_enabled: bool,
     pub prevent_sleep_when_downloading_enabled: bool,
     pub prevent_sleep_when_web_access_enabled: bool,
+    pub auto_clean_download_tasks_enabled: bool,
+    pub auto_clean_download_tasks_days: i64,
 }
 
 pub fn supported_source_types(engine: EngineKind) -> Vec<SourceType> {

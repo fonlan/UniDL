@@ -108,6 +108,8 @@ export interface AppSettings {
   downloadCompletionNotificationEnabled: boolean;
   preventSleepWhenDownloadingEnabled: boolean;
   preventSleepWhenWebAccessEnabled: boolean;
+  autoCleanDownloadTasksEnabled: boolean;
+  autoCleanDownloadTasksDays: number;
 }
 
 export type AppSettingsInput = AppSettings;

@@ -490,7 +490,9 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
             ('close_to_tray_enabled', '0'),
             ('download_completion_notification_enabled', '0'),
             ('prevent_sleep_when_downloading_enabled', '0'),
-            ('prevent_sleep_when_web_access_enabled', '0');
+            ('prevent_sleep_when_web_access_enabled', '0'),
+            ('auto_clean_download_tasks_enabled', '0'),
+            ('auto_clean_download_tasks_days', '365');
         "#,
     )
 }
