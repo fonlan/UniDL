@@ -6,6 +6,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FolderOpen,
   Minus,
   Pause,
   Play,
@@ -25,6 +26,7 @@ import logoUrl from "../logo.png";
 import {
   createDownloadTask,
   deleteDownloadTasks,
+  openDownloadDirectory,
   openDownloadedFile,
   pauseAllUnfinishedDownloadTasks,
   pauseDownloadTasks,
@@ -202,14 +204,14 @@ function IconButton({
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-          tone === "neutral" &&
-          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-500",
+        tone === "neutral" &&
+        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-500",
         !disabled &&
-          tone === "primary" &&
-          "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:outline-emerald-500",
+        tone === "primary" &&
+        "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:outline-emerald-500",
         !disabled &&
-          tone === "danger" &&
-          "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:outline-rose-500",
+        tone === "danger" &&
+        "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:outline-rose-500",
       )}
     >
       {children}
@@ -243,18 +245,26 @@ function App() {
   const [view, setView] = useState<"tasks" | "settings">("tasks");
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   const [newTaskInitialSource, setNewTaskInitialSource] = useState<string | null>(null);
-  const [newTaskInitialFileName, setNewTaskInitialFileName] = useState<string | null>(null);
-  const [newTaskInitialBrowserCookies, setNewTaskInitialBrowserCookies] = useState<string | null>(null);
+  const [newTaskInitialFileName, setNewTaskInitialFileName] = useState<string | null>(
+    null,
+  );
+  const [newTaskInitialBrowserCookies, setNewTaskInitialBrowserCookies] = useState<
+    string | null
+  >(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(null);
+  const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [webPassword, setWebPassword] = useState("");
   const [isWebPasswordVisible, setIsWebPasswordVisible] = useState(false);
   const [isWebAuthenticating, setIsWebAuthenticating] = useState(false);
-  const [isWebAuthorized, setIsWebAuthorized] = useState(() => !isWebRuntime() || !!getWebToken());
+  const [isWebAuthorized, setIsWebAuthorized] = useState(
+    () => !isWebRuntime() || !!getWebToken(),
+  );
 
   useEffect(() => {
     if (!error) {
@@ -272,11 +282,11 @@ function App() {
 
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
-  const [taskColumnWidths, setTaskColumnWidths] = useState<Record<TaskColumnKey, number>>(() =>
-    Object.fromEntries(taskTableColumns.map((column) => [column.key, column.width])) as Record<
-      TaskColumnKey,
-      number
-    >,
+  const [taskColumnWidths, setTaskColumnWidths] = useState<Record<TaskColumnKey, number>>(
+    () =>
+      Object.fromEntries(
+        taskTableColumns.map((column) => [column.key, column.width]),
+      ) as Record<TaskColumnKey, number>,
   );
   const hasLoadedTasksRef = useRef(false);
   const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
@@ -328,7 +338,10 @@ function App() {
     document.body.style.userSelect = "none";
 
     function handlePointerMove(pointerEvent: PointerEvent) {
-      const nextWidth = Math.max(column.minWidth, startWidth + pointerEvent.clientX - startX);
+      const nextWidth = Math.max(
+        column.minWidth,
+        startWidth + pointerEvent.clientX - startX,
+      );
       setTaskColumnWidths((current) => ({ ...current, [column.key]: nextWidth }));
     }
 
@@ -532,7 +545,10 @@ function App() {
       if (!request) {
         return;
       }
-      void writeLog("info", `opening task dialog from system source: count=${requests.length}`);
+      void writeLog(
+        "info",
+        `opening task dialog from system source: count=${requests.length}`,
+      );
       setView("tasks");
       setNewTaskInitialSource(request.source);
       setNewTaskInitialFileName(request.fileName ?? null);
@@ -597,7 +613,9 @@ function App() {
   }
 
   function toggleAllSelected() {
-    setSelectedIds(allVisibleSelected ? new Set() : new Set(tasks.map((task) => task.id)));
+    setSelectedIds(
+      allVisibleSelected ? new Set() : new Set(tasks.map((task) => task.id)),
+    );
   }
 
   function toggleTaskSelected(taskId: string) {
@@ -636,7 +654,7 @@ function App() {
       setError(
         nextError instanceof Error
           ? `复制${label}失败：${nextError.message}`
-          : `复制${label}失败：${String(nextError)}`
+          : `复制${label}失败：${String(nextError)}`,
       );
     }
   }
@@ -692,8 +710,12 @@ function App() {
       return;
     }
 
-    const hasLocalDownloadTasks = tasksToDelete.some((task) => isLocalDownloadEngine(task.engine));
-    const deleteCompletedFiles = hasLocalDownloadTasks ? await confirmDeleteCompletedFiles() : false;
+    const hasLocalDownloadTasks = tasksToDelete.some((task) =>
+      isLocalDownloadEngine(task.engine),
+    );
+    const deleteCompletedFiles = hasLocalDownloadTasks
+      ? await confirmDeleteCompletedFiles()
+      : false;
 
     if (deleteCompletedFiles === null) {
       return;
@@ -702,7 +724,9 @@ function App() {
     setError(null);
     try {
       await deleteDownloadTasks(ids, deleteCompletedFiles);
-      setSelectedIds((current) => new Set([...current].filter((id) => !ids.includes(id))));
+      setSelectedIds(
+        (current) => new Set([...current].filter((id) => !ids.includes(id))),
+      );
       closeTaskContextMenu();
       await refreshTasks();
     } catch (nextError) {
@@ -743,6 +767,20 @@ function App() {
     }
   }
 
+  async function openTaskDownloadDirectory(task: DownloadTask) {
+    if (!isLocalDownloadEngine(task.engine)) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await openDownloadDirectory(task.id);
+      closeTaskContextMenu();
+    } catch (nextError) {
+      reportDisplayedError("open download directory", nextError, setError);
+    }
+  }
+
   async function togglePaused() {
     if (toggleDisabled) {
       return;
@@ -759,10 +797,10 @@ function App() {
         (task) => task.status === "failed" && !isResumableTask(task),
       );
       if (shouldResume && restartTasks.length > 0) {
-        await message(
-          `${restartTasks.length} 个失败任务不支持续传，将从头开始下载。`,
-          { title: "需要重新下载", kind: "warning" },
-        );
+        await message(`${restartTasks.length} 个失败任务不支持续传，将从头开始下载。`, {
+          title: "需要重新下载",
+          kind: "warning",
+        });
       }
       if (ids.length > 0) {
         if (shouldResume) {
@@ -867,7 +905,9 @@ function App() {
             </div>
           </div>
 
-          <label className="mb-2 block text-sm font-medium text-slate-700">访问密码</label>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            访问密码
+          </label>
           <div className="relative">
             <input
               type={isWebPasswordVisible ? "text" : "password"}
@@ -921,11 +961,7 @@ function App() {
         <div className="flex items-center gap-2">
           {view === "tasks" ? (
             <>
-              <IconButton
-                title="新建"
-                tone="primary"
-                onClick={() => openNewTaskDialog()}
-              >
+              <IconButton title="新建" tone="primary" onClick={() => openNewTaskDialog()}>
                 <Plus size={18} />
               </IconButton>
               <IconButton
@@ -984,7 +1020,11 @@ function App() {
               onClick={() => void toggleWindowMaximized()}
               className="grid h-12 w-12 place-items-center text-slate-600 hover:bg-slate-100"
             >
-              {isWindowMaximized ? <Copy size={15} className="-scale-x-100" /> : <Square size={14} />}
+              {isWindowMaximized ? (
+                <Copy size={15} className="-scale-x-100" />
+              ) : (
+                <Square size={14} />
+              )}
             </button>
             <button
               type="button"
@@ -1000,7 +1040,6 @@ function App() {
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col">
-
         {view === "tasks" && error && (
           <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
             {error}
@@ -1017,7 +1056,10 @@ function App() {
             >
               <colgroup>
                 {taskTableColumns.map((column) => (
-                  <col key={column.key} style={{ width: `${taskColumnWidths[column.key]}px` }} />
+                  <col
+                    key={column.key}
+                    style={{ width: `${taskColumnWidths[column.key]}px` }}
+                  />
                 ))}
               </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-normal text-slate-600">
@@ -1028,7 +1070,9 @@ function App() {
                       className={classNames(
                         "relative border-b border-slate-200 py-3",
                         column.key === "selected" ? "px-4" : "px-3",
-                        centeredTaskColumnKeys.has(column.key) ? "text-center" : "text-left",
+                        centeredTaskColumnKeys.has(column.key)
+                          ? "text-center"
+                          : "text-left",
                       )}
                     >
                       {column.key === "selected" ? (
@@ -1049,7 +1093,9 @@ function App() {
                           type="button"
                           title={`调整${column.label}列宽`}
                           aria-label={`调整${column.label}列宽`}
-                          onPointerDown={(event) => handleColumnResizeStart(event, column)}
+                          onPointerDown={(event) =>
+                            handleColumnResizeStart(event, column)
+                          }
                           className="absolute inset-y-0 right-0 w-2 cursor-col-resize touch-none rounded-sm hover:bg-emerald-500/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
                         />
                       )}
@@ -1057,93 +1103,99 @@ function App() {
                   ))}
                 </tr>
               </thead>
-            <tbody>
-              {tasks.map((task) => {
-                const isSelected = selectedIds.has(task.id);
+              <tbody>
+                {tasks.map((task) => {
+                  const isSelected = selectedIds.has(task.id);
 
-                return (
-                  <tr
-                    key={task.id}
-                    onClick={() => openTaskDetails(task)}
-                    onDoubleClick={() => handleTaskDoubleClick(task)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      openTaskContextMenu(task, event.clientX, event.clientY);
-                    }}
-                    className={classNames(
-                      "cursor-pointer bg-white hover:bg-slate-50",
-                      detailTaskId === task.id && "bg-sky-50 hover:bg-sky-50",
-                      isSelected && "bg-emerald-50 hover:bg-emerald-50",
-                    )}
-                  >
-                    <td className="border-b border-slate-100 px-4 py-3">
-                      <button
-                        type="button"
-                        title="选择任务"
-                        aria-label="选择任务"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleTaskSelected(task.id);
-                        }}
-                        className={classNames(
-                          "grid h-5 w-5 place-items-center rounded border bg-white",
-                          isSelected
-                            ? "border-emerald-700 text-emerald-700"
-                            : "border-slate-300 text-transparent",
-                        )}
-                      >
-                        <Check size={14} strokeWidth={3} />
-                      </button>
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3">
-                      <div className="truncate font-medium text-slate-900" title={task.fileName}>
-                        {task.fileName}
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {sourceLabels[task.sourceType]}
-                      </div>
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-center text-slate-700">
-                      {engineLabels[task.engine]}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-center">
-                      <StatusBadge status={task.status} />
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3">
-                      <div className="space-y-1.5">
-                        <div className="text-center text-xs tabular-nums text-slate-600">
-                          {task.progress.toFixed(1)}%
+                  return (
+                    <tr
+                      key={task.id}
+                      onClick={() => openTaskDetails(task)}
+                      onDoubleClick={() => handleTaskDoubleClick(task)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openTaskContextMenu(task, event.clientX, event.clientY);
+                      }}
+                      className={classNames(
+                        "cursor-pointer bg-white hover:bg-slate-50",
+                        detailTaskId === task.id && "bg-sky-50 hover:bg-sky-50",
+                        isSelected && "bg-emerald-50 hover:bg-emerald-50",
+                      )}
+                    >
+                      <td className="border-b border-slate-100 px-4 py-3">
+                        <button
+                          type="button"
+                          title="选择任务"
+                          aria-label="选择任务"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTaskSelected(task.id);
+                          }}
+                          className={classNames(
+                            "grid h-5 w-5 place-items-center rounded border bg-white",
+                            isSelected
+                              ? "border-emerald-700 text-emerald-700"
+                              : "border-slate-300 text-transparent",
+                          )}
+                        >
+                          <Check size={14} strokeWidth={3} />
+                        </button>
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3">
+                        <div
+                          className="truncate font-medium text-slate-900"
+                          title={task.fileName}
+                        >
+                          {task.fileName}
                         </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                          <div
-                            className="h-full rounded-full bg-emerald-700"
-                            style={{ width: `${Math.min(100, Math.max(0, task.progress))}%` }}
-                          />
+                        <div className="mt-1 text-xs text-slate-500">
+                          {sourceLabels[task.sourceType]}
                         </div>
-                      </div>
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
-                      {formatBytes(task.downloadedBytes)} / {formatBytes(task.totalBytes)}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
-                      {formatSpeed(task.speedBytesPerSec)}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3">
-                      <div className="truncate text-slate-700" title={task.savePath}>
-                        {task.savePath}
-                      </div>
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3 tabular-nums text-slate-600">
-                      {formatDate(task.createdAt)}
-                    </td>
-                    <td className="border-b border-slate-100 px-3 py-3 tabular-nums text-slate-600">
-                      {formatDate(task.completedAt)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3 text-center text-slate-700">
+                        {engineLabels[task.engine]}
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3 text-center">
+                        <StatusBadge status={task.status} />
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3">
+                        <div className="space-y-1.5">
+                          <div className="text-center text-xs tabular-nums text-slate-600">
+                            {task.progress.toFixed(1)}%
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-full rounded-full bg-emerald-700"
+                              style={{
+                                width: `${Math.min(100, Math.max(0, task.progress))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
+                        {formatBytes(task.downloadedBytes)} /{" "}
+                        {formatBytes(task.totalBytes)}
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
+                        {formatSpeed(task.speedBytesPerSec)}
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3">
+                        <div className="truncate text-slate-700" title={task.savePath}>
+                          {task.savePath}
+                        </div>
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3 tabular-nums text-slate-600">
+                        {formatDate(task.createdAt)}
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3 tabular-nums text-slate-600">
+                        {formatDate(task.completedAt)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
             </table>
 
             {!isLoading && tasks.length === 0 && (
@@ -1160,7 +1212,10 @@ function App() {
       </main>
 
       {taskContextMenu && contextMenuTask && (
-        <div className="fixed inset-0 z-30" onContextMenu={(event) => event.preventDefault()}>
+        <div
+          className="fixed inset-0 z-30"
+          onContextMenu={(event) => event.preventDefault()}
+        >
           <div
             className="fixed z-50 min-w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
             style={{ left: taskContextMenu.x, top: taskContextMenu.y }}
@@ -1172,7 +1227,9 @@ function App() {
               onClick={() =>
                 void pauseTasksByIds(
                   contextMenuActionTasks
-                    .filter((task) => !isFinished(task.status) && task.status !== "paused")
+                    .filter(
+                      (task) => !isFinished(task.status) && task.status !== "paused",
+                    )
                     .map((task) => task.id),
                 )
               }
@@ -1217,6 +1274,16 @@ function App() {
               删除任务
             </button>
             <div className="my-1 border-t border-slate-100" />
+            {isLocalDownloadEngine(contextMenuTask.engine) && (
+              <button
+                type="button"
+                onClick={() => void openTaskDownloadDirectory(contextMenuTask)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <FolderOpen size={15} />
+                打开下载目录
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void copyTaskText(contextMenuTask.source, "下载链接")}

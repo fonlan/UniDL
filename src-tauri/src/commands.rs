@@ -242,6 +242,15 @@ pub fn open_downloaded_file(id: String, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
+pub fn open_download_directory(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    logger::info(format!("opening download directory: task_id={id}"));
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .open_download_directory(&id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn delete_download_tasks(
     ids: Vec<String>,
     delete_completed_files: bool,

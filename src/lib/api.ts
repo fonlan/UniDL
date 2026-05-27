@@ -146,7 +146,9 @@ export function writeLog(level: LogLevel, message: string): Promise<void> {
   return invoke("write_log", { level, message });
 }
 
-export function createDownloadTask(input: CreateDownloadTaskInput): Promise<DownloadTask> {
+export function createDownloadTask(
+  input: CreateDownloadTaskInput,
+): Promise<DownloadTask> {
   if (!hasTauriRuntime()) {
     return webJson("/api/tasks", jsonRequest("POST", input));
   }
@@ -280,7 +282,9 @@ export function validateEngineSourceType(
 
 export function pauseDownloadTasks(ids: string[]): Promise<void> {
   if (!hasTauriRuntime()) {
-    return webRequest("/api/tasks/pause", jsonRequest("POST", { ids })).then(() => undefined);
+    return webRequest("/api/tasks/pause", jsonRequest("POST", { ids })).then(
+      () => undefined,
+    );
   }
 
   return invoke("pause_download_tasks", { ids });
@@ -288,7 +292,9 @@ export function pauseDownloadTasks(ids: string[]): Promise<void> {
 
 export function resumeDownloadTasks(ids: string[]): Promise<void> {
   if (!hasTauriRuntime()) {
-    return webRequest("/api/tasks/resume", jsonRequest("POST", { ids })).then(() => undefined);
+    return webRequest("/api/tasks/resume", jsonRequest("POST", { ids })).then(
+      () => undefined,
+    );
   }
 
   return invoke("resume_download_tasks", { ids });
@@ -303,6 +309,17 @@ export function openDownloadedFile(id: string): Promise<void> {
   }
 
   return invoke("open_downloaded_file", { id });
+}
+
+export function openDownloadDirectory(id: string): Promise<void> {
+  if (!hasTauriRuntime()) {
+    return webRequest(
+      `/api/tasks/${encodeURIComponent(id)}/open-directory`,
+      jsonRequest("POST"),
+    ).then(() => undefined);
+  }
+
+  return invoke("open_download_directory", { id });
 }
 
 export function deleteDownloadTasks(

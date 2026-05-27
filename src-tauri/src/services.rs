@@ -323,6 +323,22 @@ impl<'connection> DownloadTaskService<'connection> {
         Err("download task does not use a local download file managed by UniDL".into())
     }
 
+    pub fn open_download_directory(&self, id: &str) -> Result<(), Box<dyn Error>> {
+        let task = self.repository.get_by_id(id)?;
+        if task.engine != EngineKind::Aria2 && task.engine != EngineKind::YtDlp {
+            return Err(
+                "download task does not use a local download directory managed by UniDL".into(),
+            );
+        }
+
+        let path = Path::new(&task.save_path);
+        if !fs::metadata(path)?.is_dir() {
+            return Err("download path is not a directory".into());
+        }
+
+        open_path(path)
+    }
+
     pub fn delete_tasks(
         &self,
         ids: &[String],
@@ -1544,6 +1560,10 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                aria2_enable_dht: false,
+                aria2_enable_dht6: false,
+                aria2_enable_peer_exchange: false,
+                aria2_enable_lpd: false,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -1879,6 +1899,7 @@ mod tests {
             engine_args: String::new(),
             selected_file_indexes: None,
             browser_cookies: None,
+            file_conflict_action: None,
         });
 
         assert!(result.is_err());
@@ -1961,6 +1982,10 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                aria2_enable_dht: false,
+                aria2_enable_dht6: false,
+                aria2_enable_peer_exchange: false,
+                aria2_enable_lpd: false,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -1977,6 +2002,7 @@ mod tests {
                 engine_args: String::new(),
                 selected_file_indexes: None,
                 browser_cookies: None,
+                file_conflict_action: None,
             })
             .expect("task should be added through qBittorrent");
         assert_eq!(task.status, DownloadStatus::Running);
@@ -2161,6 +2187,10 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                aria2_enable_dht: false,
+                aria2_enable_dht6: false,
+                aria2_enable_peer_exchange: false,
+                aria2_enable_lpd: false,
                 priority: 0,
             })
             .expect("aria2 settings should save");
@@ -2301,6 +2331,10 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                aria2_enable_dht: false,
+                aria2_enable_dht6: false,
+                aria2_enable_peer_exchange: false,
+                aria2_enable_lpd: false,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -2325,6 +2359,10 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                aria2_enable_dht: false,
+                aria2_enable_dht6: false,
+                aria2_enable_peer_exchange: false,
+                aria2_enable_lpd: false,
                 priority: 0,
             })
             .expect("yt-dlp settings should save");

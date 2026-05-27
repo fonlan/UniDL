@@ -780,6 +780,18 @@ fn handle_authorized_request(
                 empty_json_response()
             })
         }
+        (&Method::Post, path)
+            if path.starts_with("/api/tasks/") && path.ends_with("/open-directory") =>
+        {
+            let id = path
+                .trim_start_matches("/api/tasks/")
+                .trim_end_matches("/open-directory")
+                .trim_end_matches('/');
+            with_task_service(context, |service| {
+                service.open_download_directory(id)?;
+                empty_json_response()
+            })
+        }
         (&Method::Get, "/api/app-settings") => {
             let connection = db::connect_path(context.database_path.clone())?;
             json_response(

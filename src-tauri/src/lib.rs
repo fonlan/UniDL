@@ -418,6 +418,7 @@ pub fn run() {
             commands::pause_download_tasks,
             commands::resume_download_tasks,
             commands::open_downloaded_file,
+            commands::open_download_directory,
             commands::delete_download_tasks,
             commands::pause_all_unfinished_download_tasks,
             commands::resume_all_paused_download_tasks,
