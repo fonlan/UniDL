@@ -972,7 +972,7 @@ export default function EngineSettingsView({
       return;
     }
 
-    const subscriptionUrl =
+    const subscriptionUrls =
       draft.trackerSubscriptionUrl?.trim() || defaultTrackerSubscriptionUrl;
     setUpdatingTrackersEngineId(settingsId);
     setError(null);
@@ -980,7 +980,7 @@ export default function EngineSettingsView({
 
     try {
       void writeLog("info", `updating engine trackers: id=${settingsId}`);
-      const next = await updateEngineTrackers(settingsId, subscriptionUrl);
+      const next = await updateEngineTrackers(settingsId, subscriptionUrls);
       setSavedSettings((current) =>
         sortSettings([...current.filter((item) => item.id !== next.id), next]),
       );
@@ -2302,8 +2302,8 @@ export default function EngineSettingsView({
                                           {isUpdatingTrackers ? "更新中" : "自动更新"}
                                         </button>
                                       </div>
-                                      <Field
-                                        label="订阅地址"
+                                      <TextAreaField
+                                        label="订阅地址（每行一个）"
                                         value={draft.trackerSubscriptionUrl ?? ""}
                                         onChange={(value) =>
                                           updateDraft(draft.id, {
@@ -2321,8 +2321,8 @@ export default function EngineSettingsView({
                                         }
                                       />
                                       <div className="text-xs text-slate-500">
-                                        内建推荐源：ngosang/trackerslist，可改成
-                                        XIU2/TrackersListCollection 等 GitHub raw 地址。
+                                        可添加多个 GitHub raw
+                                        或纯文本订阅源，更新时会合并并自动去重。
                                       </div>
                                     </div>
                                   )}

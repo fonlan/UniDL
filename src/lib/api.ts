@@ -233,16 +233,19 @@ export function deleteEngineSettings(settingsId: string): Promise<void> {
 
 export function updateEngineTrackers(
   settingsId: string,
-  subscriptionUrl: string,
+  subscriptionUrls: string,
 ): Promise<EngineSettings> {
   if (!hasTauriRuntime()) {
     return webJson(
       `/api/engine-settings/${encodeURIComponent(settingsId)}/trackers`,
-      jsonRequest("POST", { subscriptionUrl }),
+      jsonRequest("POST", { subscriptionUrl: subscriptionUrls }),
     );
   }
 
-  return invoke("update_engine_trackers", { settingsId, subscriptionUrl });
+  return invoke("update_engine_trackers", {
+    settingsId,
+    subscriptionUrl: subscriptionUrls,
+  });
 }
 
 export function installLatestEngine(settingsId: string): Promise<EngineInstallResult> {

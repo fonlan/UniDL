@@ -977,11 +977,16 @@ impl<'connection> EngineSettingsService<'connection> {
     pub fn update_tracker_subscription(
         &self,
         settings_id: &str,
-        subscription_url: &str,
+        subscription_urls: &str,
     ) -> Result<EngineSettings, Box<dyn Error>> {
         let current = self.repository.get(settings_id)?;
         if current.engine != EngineKind::Aria2 {
             return Err("tracker subscription is only supported for aria2".into());
+        }
+
+        let subscription_urls = parse_tracker_subscription_urls(subscription_urls);
+        if subscription_urls.is_empty() {
+            return Err("tracker subscription url is required".into());
         }
 
         let app_proxy_url = AppSettingsRepository::new(self.repository.connection())
@@ -989,7 +994,7 @@ impl<'connection> EngineSettingsService<'connection> {
             .ok()
             .map(|settings| settings.app_proxy_url)
             .filter(|value| !value.trim().is_empty());
-        let trackers = fetch_trackers(subscription_url, app_proxy_url.as_deref())?;
+        let trackers = fetch_trackers(&subscription_urls, app_proxy_url.as_deref())?;
         if trackers.is_empty() {
             return Err("tracker subscription returned no trackers".into());
         }
@@ -1008,7 +1013,7 @@ impl<'connection> EngineSettingsService<'connection> {
             remote_path: current.remote_path,
             supported_source_types: current.supported_source_types,
             preferred_domains: current.preferred_domains,
-            tracker_subscription_url: Some(subscription_url.trim().to_string()),
+            tracker_subscription_url: Some(subscription_urls.join("\n")),
             trackers,
             proxy_url: current.proxy_url,
             aria2_enable_dht: current.aria2_enable_dht,
@@ -1078,8 +1083,10 @@ fn normalize_engine_settings_input(
     Ok(EngineSettingsInput {
         name,
         tracker_subscription_url: input.tracker_subscription_url.and_then(|value| {
-            let trimmed = value.trim().to_string();
-            (!trimmed.is_empty()).then_some(trimmed)
+            match parse_tracker_subscription_urls(&value) {
+                urls if urls.is_empty() => None,
+                urls => Some(urls.join("\n")),
+            }
         }),
         trackers: normalize_trackers(input.trackers),
         supported_source_types,
@@ -1089,21 +1096,40 @@ fn normalize_engine_settings_input(
 }
 
 fn fetch_trackers(
-    subscription_url: &str,
+    subscription_urls: &[String],
     app_proxy_url: Option<&str>,
 ) -> Result<Vec<String>, Box<dyn Error>> {
-    let url = subscription_url.trim();
-    if url.is_empty() {
+    if subscription_urls.is_empty() {
         return Err("tracker subscription url is required".into());
     }
 
     let client = build_app_http_client(app_proxy_url)?;
-    let response = client.get(url).send()?;
-    if !response.status().is_success() {
-        return Err(format!("tracker subscription failed: {}", response.status()).into());
+    let mut trackers = Vec::new();
+    for url in subscription_urls {
+        let response = client.get(url).send()?;
+        if !response.status().is_success() {
+            return Err(
+                format!("tracker subscription failed: {url}: {}", response.status()).into(),
+            );
+        }
+        trackers.extend(parse_trackers(&response.text()?));
     }
 
-    Ok(normalize_trackers(parse_trackers(&response.text()?)))
+    Ok(normalize_trackers(trackers))
+}
+
+fn parse_tracker_subscription_urls(value: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for url in value
+        .split(|character: char| character.is_whitespace() || character == ',' || character == ';')
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        if !urls.iter().any(|item: &String| item == url) {
+            urls.push(url.to_string());
+        }
+    }
+    urls
 }
 
 fn parse_trackers(value: &str) -> Vec<String> {
@@ -1263,6 +1289,54 @@ mod tests {
             .expect("engine settings should list")
             .is_empty());
 
+        drop(connection);
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn tracker_subscription_urls_are_split_and_deduplicated() {
+        let urls = parse_tracker_subscription_urls(
+            " https://one.example/trackers.txt\nhttps://two.example/list.txt;https://one.example/trackers.txt, ",
+        );
+
+        assert_eq!(
+            urls,
+            vec![
+                "https://one.example/trackers.txt".to_string(),
+                "https://two.example/list.txt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn tracker_update_merges_multiple_subscriptions_and_deduplicates_trackers() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        save_unreachable_aria2_settings(&connection);
+        let (subscription_urls, server) = start_fake_tracker_subscriptions(vec![
+            "udp://tracker.one:80/announce\nudp://tracker.two:80/announce\n",
+            "UDP://TRACKER.ONE:80/announce\nhttps://tracker.three/announce\n",
+        ]);
+
+        let service = EngineSettingsService::new(&connection);
+        let saved = service
+            .update_tracker_subscription("aria2", &subscription_urls.join("\n"))
+            .expect("trackers should update");
+
+        assert_eq!(
+            saved.tracker_subscription_url,
+            Some(subscription_urls.join("\n"))
+        );
+        assert_eq!(
+            saved.trackers,
+            vec![
+                "udp://tracker.one:80/announce".to_string(),
+                "udp://tracker.two:80/announce".to_string(),
+                "https://tracker.three/announce".to_string(),
+            ]
+        );
+
+        server.join().expect("fake tracker server should finish");
         drop(connection);
         let _ = fs::remove_file(database_path);
     }
@@ -2639,6 +2713,35 @@ mod tests {
         });
 
         (format!("http://{address}"), requests, server)
+    }
+
+    fn start_fake_tracker_subscriptions(
+        bodies: Vec<&'static str>,
+    ) -> (Vec<String>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake server should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake server should have address");
+        let urls = (0..bodies.len())
+            .map(|index| format!("http://{address}/trackers-{index}.txt"))
+            .collect();
+        let server = thread::spawn(move || {
+            for (body, stream) in bodies.into_iter().zip(listener.incoming()) {
+                let mut stream = stream.expect("fake server stream should open");
+                let mut buffer = [0_u8; 4096];
+                let _ = stream.read(&mut buffer).expect("request should read");
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("response should write");
+            }
+        });
+
+        (urls, server)
     }
 
     fn temp_database_path() -> PathBuf {
