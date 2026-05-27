@@ -29,3 +29,28 @@ body {
 button {
   font: inherit;
 }
+
+.task-progress {
+  width: 100%;
+  height: 0.5rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  appearance: none;
+}
+
+.task-progress::-webkit-progress-bar {
+  border-radius: 9999px;
+  background: #e2e8f0;
+}
+
+.task-progress::-webkit-progress-value {
+  border-radius: 9999px;
+  background: #047857;
+}
+
+.task-progress::-moz-progress-bar {
+  border-radius: 9999px;
+  background: #047857;
+}

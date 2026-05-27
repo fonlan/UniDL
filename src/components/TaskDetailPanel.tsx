@@ -146,6 +146,8 @@ export default function TaskDetailPanel({
     () => new Set(task.selectedFileIndexes ?? []),
   );
   const [isSavingFileSelection, setIsSavingFileSelection] = useState(false);
+  const taskSelectedFileIndexes = task.selectedFileIndexes;
+  const hasTaskSelectedFileIndexes = (taskSelectedFileIndexes?.length ?? 0) > 0;
   const trackers = parseMagnetTrackers(task.source);
   const selectedTorrentFileCount = useMemo(
     () => torrentFiles.filter((file) => selectedFileIndexes.has(file.index)).length,
@@ -162,10 +164,10 @@ export default function TaskDetailPanel({
   );
 
   useEffect(() => {
-    if (task.selectedFileIndexes && task.selectedFileIndexes.length > 0) {
-      setSelectedFileIndexes(new Set(task.selectedFileIndexes));
+    if (hasTaskSelectedFileIndexes && taskSelectedFileIndexes) {
+      setSelectedFileIndexes(new Set(taskSelectedFileIndexes));
     }
-  }, [task.id, task.selectedFileIndexes]);
+  }, [hasTaskSelectedFileIndexes, task.id, taskSelectedFileIndexes]);
 
   useEffect(() => {
     let disposed = false;
@@ -182,7 +184,7 @@ export default function TaskDetailPanel({
       .then((files) => {
         if (!disposed) {
           setTorrentFiles(files);
-          if (!task.selectedFileIndexes || task.selectedFileIndexes.length === 0) {
+          if (!hasTaskSelectedFileIndexes) {
             setSelectedFileIndexes(new Set(files.map((file) => file.index)));
           }
         }
@@ -201,7 +203,7 @@ export default function TaskDetailPanel({
     return () => {
       disposed = true;
     };
-  }, [task.id, task.sourceType]);
+  }, [hasTaskSelectedFileIndexes, task.id, task.sourceType]);
 
   async function saveFileSelection(nextSelectedFileIndexes: Set<number>) {
     if (nextSelectedFileIndexes.size === 0) {
@@ -390,6 +392,8 @@ export default function TaskDetailPanel({
                         <td className="border-b border-slate-100 px-3 py-2">
                           <input
                             type="checkbox"
+                            title={`选择 ${file.path}`}
+                            aria-label={`选择 ${file.path}`}
                             checked={selectedFileIndexes.has(file.index)}
                             disabled={isSavingFileSelection || (selectedFileIndexes.size === 1 && selectedFileIndexes.has(file.index))}
                             onChange={(event) => {

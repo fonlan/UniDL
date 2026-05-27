@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   ArrowLeft,
@@ -12,6 +19,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Search,
   Settings,
   Square,
   Trash2,
@@ -204,14 +212,14 @@ function IconButton({
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-        tone === "neutral" &&
-        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-500",
+          tone === "neutral" &&
+          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-500",
         !disabled &&
-        tone === "primary" &&
-        "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:outline-emerald-500",
+          tone === "primary" &&
+          "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:outline-emerald-500",
         !disabled &&
-        tone === "danger" &&
-        "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:outline-rose-500",
+          tone === "danger" &&
+          "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:outline-rose-500",
       )}
     >
       {children}
@@ -254,6 +262,8 @@ function App() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenuState | null>(
     null,
   );
@@ -289,11 +299,30 @@ function App() {
       ) as Record<TaskColumnKey, number>,
   );
   const hasLoadedTasksRef = useRef(false);
+  const taskTableRef = useRef<HTMLTableElement | null>(null);
+  const taskContextMenuPanelRef = useRef<HTMLDivElement | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
 
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const visibleTasks = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return tasks;
+    }
+
+    return tasks.filter((task) => {
+      const fileName = task.fileName.toLowerCase();
+      const source = task.source.toLowerCase();
+      return (
+        fileName.includes(normalizedSearchQuery) || source.includes(normalizedSearchQuery)
+      );
+    });
+  }, [normalizedSearchQuery, tasks]);
+
   const selectedTasks = useMemo(
-    () => tasks.filter((task) => selectedIds.has(task.id)),
-    [selectedIds, tasks],
+    () => visibleTasks.filter((task) => selectedIds.has(task.id)),
+    [selectedIds, visibleTasks],
   );
   const detailTask = useMemo(
     () => tasks.find((task) => task.id === detailTaskId) ?? null,
@@ -303,8 +332,9 @@ function App() {
     () => tasks.find((task) => task.id === taskContextMenu?.taskId) ?? null,
     [taskContextMenu, tasks],
   );
-  const allVisibleSelected = tasks.length > 0 && selectedIds.size === tasks.length;
-  const selectedScopeTasks = selectedTasks.length > 0 ? selectedTasks : tasks;
+  const allVisibleSelected =
+    visibleTasks.length > 0 && visibleTasks.every((task) => selectedIds.has(task.id));
+  const selectedScopeTasks = selectedTasks.length > 0 ? selectedTasks : visibleTasks;
   const activeScopeTasks = selectedScopeTasks.filter((task) => !isFinished(task.status));
   const failedScopeTasks = selectedScopeTasks.filter((task) => task.status === "failed");
   const pausedScopeTasks = activeScopeTasks.filter((task) => task.status === "paused");
@@ -312,11 +342,57 @@ function App() {
     failedScopeTasks.length > 0 ||
     (activeScopeTasks.length > 0 && pausedScopeTasks.length === activeScopeTasks.length);
   const toggleDisabled = activeScopeTasks.length === 0 && failedScopeTasks.length === 0;
-  const deleteDisabled = selectedIds.size === 0;
+  const deleteDisabled = selectedTasks.length === 0;
   const totalTaskTableWidth = taskTableColumns.reduce(
     (sum, column) => sum + taskColumnWidths[column.key],
     0,
   );
+
+  useLayoutEffect(() => {
+    if (taskTableRef.current) {
+      taskTableRef.current.style.minWidth = `${totalTaskTableWidth}px`;
+    }
+  }, [totalTaskTableWidth]);
+
+  useLayoutEffect(() => {
+    if (!taskContextMenu || !taskContextMenuPanelRef.current) {
+      return;
+    }
+
+    taskContextMenuPanelRef.current.style.left = `${taskContextMenu.x}px`;
+    taskContextMenuPanelRef.current.style.top = `${taskContextMenu.y}px`;
+  }, [taskContextMenu]);
+
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isSearchOpen]);
+
+  useEffect(() => {
+    if (!isSearchOpen || normalizedSearchQuery) {
+      return;
+    }
+
+    function closeEmptySearchOnOutsideClick(event: PointerEvent) {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        searchContainerRef.current &&
+        searchContainerRef.current.contains(target)
+      ) {
+        return;
+      }
+
+      setIsSearchOpen(false);
+    }
+
+    window.addEventListener("pointerdown", closeEmptySearchOnOutsideClick);
+
+    return () => {
+      window.removeEventListener("pointerdown", closeEmptySearchOnOutsideClick);
+    };
+  }, [isSearchOpen, normalizedSearchQuery]);
 
   function handleColumnResizeStart(
     event: ReactPointerEvent<HTMLButtonElement>,
@@ -452,6 +528,12 @@ function App() {
       setDetailTaskId(null);
     }
   }, [detailTask, detailTaskId]);
+
+  useEffect(() => {
+    if (detailTaskId && !visibleTasks.some((task) => task.id === detailTaskId)) {
+      setDetailTaskId(null);
+    }
+  }, [detailTaskId, visibleTasks]);
 
   useEffect(() => {
     if (taskContextMenu && !contextMenuTask) {
@@ -613,9 +695,15 @@ function App() {
   }
 
   function toggleAllSelected() {
-    setSelectedIds(
-      allVisibleSelected ? new Set() : new Set(tasks.map((task) => task.id)),
-    );
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        visibleTasks.forEach((task) => next.delete(task.id));
+      } else {
+        visibleTasks.forEach((task) => next.add(task.id));
+      }
+      return next;
+    });
   }
 
   function toggleTaskSelected(taskId: string) {
@@ -788,7 +876,7 @@ function App() {
 
     setError(null);
     try {
-      const ids = [...selectedIds];
+      const ids = selectedTasks.map((task) => task.id);
       const resumeTasks = ids.length > 0 ? selectedTasks : pausedScopeTasks;
       const resumeIds = resumeTasks
         .filter((task) => task.status === "paused" || task.status === "failed")
@@ -905,12 +993,17 @@ function App() {
             </div>
           </div>
 
-          <label className="mb-2 block text-sm font-medium text-slate-700">
+          <label
+            htmlFor="web-access-password"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
             访问密码
           </label>
           <div className="relative">
             <input
+              id="web-access-password"
               type={isWebPasswordVisible ? "text" : "password"}
+              title="访问密码"
               value={webPassword}
               onChange={(event) => setWebPassword(event.target.value)}
               className="h-11 w-full rounded-lg border border-slate-300 px-3 pr-11 text-sm outline-none ring-0 transition focus:border-emerald-500"
@@ -1000,6 +1093,47 @@ function App() {
           >
             <Settings size={17} />
           </IconButton>
+          {view === "tasks" &&
+            (isSearchOpen ? (
+              <div ref={searchContainerRef} className="relative">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      if (searchQuery) {
+                        setSearchQuery("");
+                      } else {
+                        setIsSearchOpen(false);
+                      }
+                    }
+                  }}
+                  placeholder="搜索任务"
+                  aria-label="搜索任务"
+                  className="h-9 w-56 rounded-md border border-slate-200 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+                {searchQuery.length > 0 && (
+                  <button
+                    type="button"
+                    title="清空搜索"
+                    aria-label="清空搜索"
+                    onClick={() => {
+                      setSearchQuery("");
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-400 transition hover:text-slate-700"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <IconButton title="搜索" onClick={() => setIsSearchOpen(true)}>
+                <Search size={17} />
+              </IconButton>
+            ))}
         </div>
         <div data-tauri-drag-region className="h-full min-w-0 flex-1" />
         {hasTauriRuntime() && (
@@ -1051,15 +1185,12 @@ function App() {
         ) : (
           <section className="min-h-0 flex-1 overflow-auto">
             <table
-              className="table-fixed border-separate border-spacing-0 text-sm"
-              style={{ width: "100%", minWidth: `${totalTaskTableWidth}px` }}
+              ref={taskTableRef}
+              className="w-full table-fixed border-separate border-spacing-0 text-sm"
             >
               <colgroup>
                 {taskTableColumns.map((column) => (
-                  <col
-                    key={column.key}
-                    style={{ width: `${taskColumnWidths[column.key]}px` }}
-                  />
+                  <col key={column.key} width={taskColumnWidths[column.key]} />
                 ))}
               </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-100 text-xs font-semibold uppercase tracking-normal text-slate-600">
@@ -1104,7 +1235,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((task) => {
+                {visibleTasks.map((task) => {
                   const isSelected = selectedIds.has(task.id);
 
                   return (
@@ -1164,14 +1295,12 @@ function App() {
                           <div className="text-center text-xs tabular-nums text-slate-600">
                             {task.progress.toFixed(1)}%
                           </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                            <div
-                              className="h-full rounded-full bg-emerald-700"
-                              style={{
-                                width: `${Math.min(100, Math.max(0, task.progress))}%`,
-                              }}
-                            />
-                          </div>
+                          <progress
+                            className="task-progress block"
+                            value={Math.min(100, Math.max(0, task.progress))}
+                            max={100}
+                            aria-label={`${task.fileName} 下载进度`}
+                          />
                         </div>
                       </td>
                       <td className="border-b border-slate-100 px-3 py-3 text-center tabular-nums text-slate-700">
@@ -1198,9 +1327,9 @@ function App() {
               </tbody>
             </table>
 
-            {!isLoading && tasks.length === 0 && (
+            {!isLoading && visibleTasks.length === 0 && (
               <div className="grid h-[calc(100vh-180px)] min-h-[320px] place-items-center text-sm text-slate-500">
-                暂无任务
+                {tasks.length === 0 ? "暂无任务" : "没有匹配的任务"}
               </div>
             )}
           </section>
@@ -1217,8 +1346,8 @@ function App() {
           onContextMenu={(event) => event.preventDefault()}
         >
           <div
+            ref={taskContextMenuPanelRef}
             className="fixed z-50 min-w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
-            style={{ left: taskContextMenu.x, top: taskContextMenu.y }}
             onPointerDown={(event) => event.stopPropagation()}
           >
             <button
