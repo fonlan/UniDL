@@ -326,6 +326,18 @@ export function openDownloadDirectory(id: string): Promise<void> {
   return invoke("open_download_directory", { id });
 }
 
+export function openExternalUrl(url: string): Promise<void> {
+  if (!hasTauriRuntime()) {
+    const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
+    if (!openedWindow) {
+      throw new Error("failed to open external url");
+    }
+    return Promise.resolve();
+  }
+
+  return invoke("open_external_url", { url });
+}
+
 export function deleteDownloadTasks(
   ids: string[],
   deleteCompletedFiles: boolean,

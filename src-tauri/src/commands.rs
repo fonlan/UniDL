@@ -1,3 +1,5 @@
+use std::process::Command;
+
 use tauri::{AppHandle, Manager, State};
 
 use crate::{
@@ -248,6 +250,48 @@ pub fn open_download_directory(id: String, state: State<'_, AppState>) -> Result
     DownloadTaskService::new(&connection, state.database_path())
         .open_download_directory(&id)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    let normalized = url.trim();
+    if normalized != url || !is_http_url(normalized) {
+        return Err("external url must start with http:// or https://".to_string());
+    }
+
+    logger::info(format!("opening external url: {normalized}"));
+    open_url_with_default_browser(normalized).map_err(|error| error.to_string())
+}
+
+fn is_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+fn open_url_with_default_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("rundll32");
+        command.args(["url.dll,FileProtocolHandler", url]);
+        command
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+
+    command.spawn()?;
+    Ok(())
 }
 
 #[tauri::command]

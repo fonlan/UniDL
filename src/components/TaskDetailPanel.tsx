@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 
-import { getTaskTorrentFiles, updateTaskFileSelection } from "@/lib/api";
+import { getTaskTorrentFiles, openExternalUrl, updateTaskFileSelection } from "@/lib/api";
 import { reportError } from "@/lib/error";
 import type {
   DownloadStatus,
@@ -105,6 +105,19 @@ function parseMagnetTrackers(source: string) {
   return new URLSearchParams(source.slice("magnet:?".length)).getAll("tr");
 }
 
+function isHttpUrl(value: string) {
+  if (value.trim() !== value) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function fileProgress(file: TorrentFileEntry) {
   return file.length > 0 ? (file.completedLength / file.length) * 100 : 0;
 }
@@ -126,6 +139,38 @@ function DetailField({ label, value }: { label: string; value: string }) {
       <div className="text-xs text-slate-500">{label}</div>
       <div className="mt-1 truncate text-sm text-slate-800" title={value}>
         {value || "-"}
+      </div>
+    </div>
+  );
+}
+
+function UrlDetailBlock({ label, value }: { label: string; value: string }) {
+  const isLink = isHttpUrl(value);
+
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200">
+      <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
+        {label}
+      </div>
+      <div className="break-all px-3 py-2 text-sm text-slate-700">
+        {isLink ? (
+          <a
+            href={value}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              event.preventDefault();
+              void openExternalUrl(value).catch((nextError) => {
+                reportError("open external url", nextError);
+              });
+            }}
+            className="text-emerald-700 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-800"
+          >
+            {value}
+          </a>
+        ) : (
+          value
+        )}
       </div>
     </div>
   );
@@ -291,22 +336,10 @@ export default function TaskDetailPanel({
               <DetailField label="错误信息" value={task.errorMessage ?? "-"} />
             </div>
 
-            <div className="mt-4 rounded-lg border border-slate-200">
-              <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
-                原始来源
-              </div>
-              <div className="break-all px-3 py-2 text-sm text-slate-700">{task.source}</div>
-            </div>
+            <UrlDetailBlock label="原始来源" value={task.source} />
 
             {task.httpReferrer && (
-              <div className="mt-4 rounded-lg border border-slate-200">
-                <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
-                  HTTP 引用页
-                </div>
-                <div className="break-all px-3 py-2 text-sm text-slate-700">
-                  {task.httpReferrer}
-                </div>
-              </div>
+              <UrlDetailBlock label="HTTP 引用页" value={task.httpReferrer} />
             )}
 
             {(task.sourceType === "magnet" || task.sourceType === "torrent") && (
