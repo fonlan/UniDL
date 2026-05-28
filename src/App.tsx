@@ -49,7 +49,7 @@ import { getWebToken, hasTauriRuntime, isWebRuntime, webLogin } from "@/lib/runt
 import type { DownloadStatus, DownloadTask, EngineKind, SourceType } from "@shared/types";
 
 const statusLabels: Record<DownloadStatus, string> = {
-  queued: "等待中",
+  queued: "排队中",
   running: "下载中",
   paused: "已暂停",
   completed: "已完成",
@@ -212,14 +212,14 @@ function IconButton({
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-        tone === "neutral" &&
-        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-500",
+          tone === "neutral" &&
+          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-500",
         !disabled &&
-        tone === "primary" &&
-        "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:outline-emerald-500",
+          tone === "primary" &&
+          "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 focus-visible:outline-emerald-500",
         !disabled &&
-        tone === "danger" &&
-        "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:outline-rose-500",
+          tone === "danger" &&
+          "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:outline-rose-500",
       )}
     >
       {children}

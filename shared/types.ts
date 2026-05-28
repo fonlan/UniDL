@@ -124,6 +124,7 @@ export interface AppSettings {
   downloadCompletionNotificationEnabled: boolean;
   preventSleepWhenDownloadingEnabled: boolean;
   preventSleepWhenWebAccessEnabled: boolean;
+  localDownloadConcurrency: number;
   autoCleanDownloadTasksEnabled: boolean;
   autoCleanDownloadTasksDays: number;
 }

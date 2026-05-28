@@ -180,6 +180,10 @@ impl<'connection> DownloadTaskService<'connection> {
         self.repository.create(&id, &task_input)?;
         let task = self.repository.get_by_id(&id)?;
 
+        if is_local_download_engine(task.engine) && !self.has_local_download_capacity()? {
+            return Ok(task);
+        }
+
         match engine_adapters::add_task(&engine_settings, &task, self.database_path.clone()) {
             Ok(state) => {
                 self.apply_engine_state(&task.id, state)?;
@@ -242,7 +246,10 @@ impl<'connection> DownloadTaskService<'connection> {
         for task in tasks {
             if matches!(
                 task.status,
-                DownloadStatus::Completed | DownloadStatus::Deleted | DownloadStatus::Failed
+                DownloadStatus::Queued
+                    | DownloadStatus::Completed
+                    | DownloadStatus::Deleted
+                    | DownloadStatus::Failed
             ) || task.engine_task_id.is_none()
             {
                 continue;
@@ -256,10 +263,21 @@ impl<'connection> DownloadTaskService<'connection> {
             }
         }
 
+        self.start_queued_local_tasks()?;
+
         self.repository.list_created_desc()
     }
 
     pub fn pause_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
+        self.pause_tasks_internal(ids, true)
+    }
+
+    fn pause_tasks_internal(
+        &self,
+        ids: &[String],
+        start_next_after_pause: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut should_start_next = false;
         for task in self.repository.list_by_ids(ids)? {
             if !matches!(
                 task.status,
@@ -267,22 +285,49 @@ impl<'connection> DownloadTaskService<'connection> {
             ) {
                 continue;
             }
+            if task.status == DownloadStatus::Queued {
+                self.repository.update_engine_state_if_current(
+                    &task.id,
+                    task.status,
+                    task.engine_task_id.as_deref(),
+                    DownloadStatus::Paused,
+                    task.progress,
+                    0,
+                    task.downloaded_bytes,
+                    task.total_bytes,
+                    task.engine_task_id.as_deref(),
+                    None,
+                )?;
+                continue;
+            }
             let engine_settings =
                 EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
             match engine_adapters::pause_task(&engine_settings, &task) {
                 Ok(state) => {
-                    self.apply_engine_state_if_current(&task, state)?;
+                    let status = state.status;
+                    if self.apply_engine_state_if_current(&task, state)?
+                        && matches!(status, DownloadStatus::Paused | DownloadStatus::Failed)
+                    {
+                        should_start_next = true;
+                    }
                 }
                 Err(error) => {
-                    self.repository.mark_failed_if_current(
+                    if self.repository.mark_failed_if_current(
                         &task.id,
                         task.status,
                         task.engine_task_id.as_deref(),
                         &error.to_string(),
-                    )?;
+                    )? {
+                        if start_next_after_pause {
+                            self.start_queued_local_tasks()?;
+                        }
+                    }
                     return Err(error);
                 }
             }
+        }
+        if should_start_next && start_next_after_pause {
+            self.start_queued_local_tasks()?;
         }
         Ok(())
     }
@@ -290,6 +335,10 @@ impl<'connection> DownloadTaskService<'connection> {
     pub fn resume_tasks(&self, ids: &[String]) -> Result<(), Box<dyn Error>> {
         for task in self.repository.list_by_ids(ids)? {
             if !matches!(task.status, DownloadStatus::Paused | DownloadStatus::Failed) {
+                continue;
+            }
+            if is_local_download_engine(task.engine) && !self.has_local_download_capacity()? {
+                self.queue_local_task(&task)?;
                 continue;
             }
             let engine_settings =
@@ -306,6 +355,7 @@ impl<'connection> DownloadTaskService<'connection> {
                         task.engine_task_id.as_deref(),
                         &error.to_string(),
                     )?;
+                    self.start_queued_local_tasks()?;
                     return Err(error);
                 }
             }
@@ -411,7 +461,7 @@ impl<'connection> DownloadTaskService<'connection> {
             .into_iter()
             .map(|task| task.id)
             .collect::<Vec<_>>();
-        self.pause_tasks(&ids)
+        self.pause_tasks_internal(&ids, false)
     }
 
     pub fn resume_all_paused(&self) -> Result<(), Box<dyn Error>> {
@@ -497,7 +547,121 @@ impl<'connection> DownloadTaskService<'connection> {
                 self.repository.delete_tasks(&[task.id])?;
             }
         }
+        if matches!(
+            state.status,
+            DownloadStatus::Completed | DownloadStatus::Failed
+        ) {
+            self.start_queued_local_tasks()?;
+        }
         Ok(())
+    }
+
+    fn has_local_download_capacity(&self) -> Result<bool, Box<dyn Error>> {
+        let limit = self.local_download_concurrency()?;
+        Ok(self.repository.count_running_local_downloads()? < limit)
+    }
+
+    fn local_download_concurrency(&self) -> Result<i64, Box<dyn Error>> {
+        let value = AppSettingsRepository::new(self.connection)
+            .get()?
+            .local_download_concurrency;
+        if value <= 0 {
+            return Err("local download concurrency must be greater than 0".into());
+        }
+        Ok(value)
+    }
+
+    fn queue_local_task(&self, task: &DownloadTask) -> Result<bool, Box<dyn Error>> {
+        let next_engine_task_id = if task.status == DownloadStatus::Failed {
+            None
+        } else {
+            task.engine_task_id.as_deref()
+        };
+        Ok(self.repository.update_engine_state_if_current(
+            &task.id,
+            task.status,
+            task.engine_task_id.as_deref(),
+            DownloadStatus::Queued,
+            task.progress,
+            0,
+            task.downloaded_bytes,
+            task.total_bytes,
+            next_engine_task_id,
+            None,
+        )?)
+    }
+
+    pub fn start_queued_local_tasks(&self) -> Result<(), Box<dyn Error>> {
+        let limit = self.local_download_concurrency()?;
+        loop {
+            let available = limit - self.repository.count_running_local_downloads()?;
+            if available <= 0 {
+                return Ok(());
+            }
+
+            let tasks = self.repository.list_queued_local_oldest(available)?;
+            if tasks.is_empty() {
+                return Ok(());
+            }
+
+            for task in tasks {
+                let engine_settings =
+                    EngineSettingsRepository::new(self.connection).get(&task.engine_settings_id)?;
+                let state = match self.start_queued_local_task(&engine_settings, &task) {
+                    Ok(state) => state,
+                    Err(error) => {
+                        let message = error.to_string();
+                        self.repository.mark_failed_if_current(
+                            &task.id,
+                            task.status,
+                            task.engine_task_id.as_deref(),
+                            &message,
+                        )?;
+                        logger::warn(format!(
+                            "queued local download start failed: task_id={}, error={message}",
+                            task.id
+                        ));
+                        continue;
+                    }
+                };
+                self.apply_engine_state_if_current(&task, state)?;
+            }
+        }
+    }
+
+    fn start_queued_local_task(
+        &self,
+        engine_settings: &EngineSettings,
+        task: &DownloadTask,
+    ) -> Result<engine_adapters::EngineTaskState, Box<dyn Error>> {
+        if !engine_settings.enabled {
+            return Err(format!("{} is disabled", engine_settings.id).into());
+        }
+        if !engine_settings
+            .supported_source_types
+            .contains(&task.source_type)
+        {
+            return Err(format!(
+                "{} does not support {} tasks",
+                engine_settings.id,
+                task.source_type.as_db()
+            )
+            .into());
+        }
+
+        if task.engine_task_id.is_some() || task.progress > 0.0 || task.downloaded_bytes > 0 {
+            let mut resumable_task = task.clone();
+            if resumable_task.engine_task_id.is_some() {
+                resumable_task.status = DownloadStatus::Paused;
+            }
+            return engine_adapters::resume_task(
+                engine_settings,
+                &resumable_task,
+                self.database_path.clone(),
+            );
+        }
+
+        engine_adapters::add_task(engine_settings, task, self.database_path.clone())
     }
 
     fn resolve_engine_settings(
@@ -559,6 +723,10 @@ fn local_download_file_conflict(
         SourceType::Http | SourceType::Ftp => local_single_file_conflict(input, settings),
         SourceType::Magnet | SourceType::Torrent => Ok(None),
     }
+}
+
+fn is_local_download_engine(engine: EngineKind) -> bool {
+    matches!(engine, EngineKind::Aria2 | EngineKind::YtDlp)
 }
 
 fn local_single_file_conflict(
@@ -841,6 +1009,9 @@ impl<'connection> AppSettingsService<'connection> {
             }
         }
         validate_proxy_url(&input.app_proxy_url, PROXY_SCHEMES_ALL)?;
+        if input.local_download_concurrency <= 0 {
+            return Err("local download concurrency must be greater than 0".into());
+        }
         if input.auto_clean_download_tasks_days <= 0 {
             return Err("auto cleanup days must be greater than 0".into());
         }
@@ -1543,6 +1714,7 @@ mod tests {
                 download_completion_notification_enabled: false,
                 prevent_sleep_when_downloading_enabled: false,
                 prevent_sleep_when_web_access_enabled: false,
+                local_download_concurrency: 5,
                 auto_clean_download_tasks_enabled: false,
                 auto_clean_download_tasks_days: 365,
             })

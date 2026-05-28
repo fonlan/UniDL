@@ -358,10 +358,11 @@ pub fn save_app_settings(
     state: State<'_, AppState>,
 ) -> Result<AppSettings, String> {
     logger::info(format!(
-        "saving app settings: web_access_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}, auto_clean_download_tasks_enabled={}, auto_clean_download_tasks_days={}",
+        "saving app settings: web_access_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}, local_download_concurrency={}, auto_clean_download_tasks_enabled={}, auto_clean_download_tasks_days={}",
         settings.web_access_enabled,
         settings.auto_start_enabled,
         settings.close_to_tray_enabled,
+        settings.local_download_concurrency,
         settings.auto_clean_download_tasks_enabled,
         settings.auto_clean_download_tasks_days
     ));

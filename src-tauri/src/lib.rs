@@ -497,6 +497,7 @@ mod tests {
             download_completion_notification_enabled: false,
             prevent_sleep_when_downloading_enabled: false,
             prevent_sleep_when_web_access_enabled: false,
+            local_download_concurrency: 5,
             auto_clean_download_tasks_enabled: false,
             auto_clean_download_tasks_days: 365,
         }

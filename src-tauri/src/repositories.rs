@@ -45,6 +45,7 @@ impl<'connection> AppSettingsRepository<'connection> {
             prevent_sleep_when_web_access_enabled: self
                 .get_value("prevent_sleep_when_web_access_enabled")?
                 == "1",
+            local_download_concurrency: self.get_value("local_download_concurrency")?.parse()?,
             auto_clean_download_tasks_enabled: self
                 .get_value("auto_clean_download_tasks_enabled")?
                 == "1",
@@ -109,6 +110,10 @@ impl<'connection> AppSettingsRepository<'connection> {
             } else {
                 "0"
             },
+        )?;
+        self.save_value(
+            "local_download_concurrency",
+            &input.local_download_concurrency.to_string(),
         )?;
         self.save_value(
             "auto_clean_download_tasks_enabled",
@@ -622,6 +627,62 @@ impl<'connection> DownloadTaskRepository<'connection> {
             |row| row.get(0),
         )?;
         Ok(count > 0)
+    }
+
+    pub fn count_running_local_downloads(&self) -> Result<i64, rusqlite::Error> {
+        self.connection.query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM download_tasks
+            WHERE status = 'running'
+              AND engine IN ('aria2', 'yt-dlp')
+            "#,
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn list_queued_local_oldest(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<DownloadTask>, Box<dyn Error>> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT
+                id,
+                source_type,
+                source,
+                engine_settings_id,
+                engine,
+                engine_task_id,
+                file_name,
+                status,
+                progress,
+                speed_bytes_per_sec,
+                downloaded_bytes,
+                total_bytes,
+                save_path,
+                engine_args,
+                selected_file_indexes,
+                browser_cookies,
+                http_referrer,
+                created_at,
+                completed_at,
+                error_message
+            FROM download_tasks
+            WHERE status = 'queued'
+              AND engine IN ('aria2', 'yt-dlp')
+            ORDER BY datetime(created_at) ASC, created_at ASC
+            LIMIT ?1
+            "#,
+        )?;
+
+        let mut rows = statement.query([limit])?;
+        let mut tasks = Vec::new();
+        while let Some(row) = rows.next()? {
+            tasks.push(read_download_task(row)?);
+        }
+        Ok(tasks)
     }
 
     pub fn list_paused(&self) -> Result<Vec<DownloadTask>, Box<dyn Error>> {

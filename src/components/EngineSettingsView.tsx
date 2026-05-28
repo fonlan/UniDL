@@ -50,6 +50,7 @@ import type {
 } from "@shared/types";
 
 const ERROR_AUTO_DISMISS_MS = 10_000;
+const DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY = 5;
 const DEFAULT_AUTO_CLEAN_DOWNLOAD_TASK_DAYS = 365;
 const ARIA2_DEFAULT_RPC_LISTEN_ADDRESS = "127.0.0.1";
 const ARIA2_DEFAULT_RPC_LISTEN_PORT = 6800;
@@ -590,6 +591,13 @@ function normalizeAutoCleanDownloadTaskDays(value: number) {
   return Math.max(1, Math.trunc(value));
 }
 
+function normalizeLocalDownloadConcurrency(value: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY;
+  }
+  return Math.max(1, Math.trunc(value));
+}
+
 function isDirty(saved: EngineSettings, draft: EngineSettings) {
   return JSON.stringify(toInput(saved)) !== JSON.stringify(toInput(draft));
 }
@@ -607,6 +615,9 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     downloadCompletionNotificationEnabled: settings.downloadCompletionNotificationEnabled,
     preventSleepWhenDownloadingEnabled: settings.preventSleepWhenDownloadingEnabled,
     preventSleepWhenWebAccessEnabled: settings.preventSleepWhenWebAccessEnabled,
+    localDownloadConcurrency: normalizeLocalDownloadConcurrency(
+      settings.localDownloadConcurrency,
+    ),
     autoCleanDownloadTasksEnabled: settings.autoCleanDownloadTasksEnabled,
     autoCleanDownloadTasksDays: normalizeAutoCleanDownloadTaskDays(
       settings.autoCleanDownloadTasksDays,
@@ -849,9 +860,9 @@ function IconField({
           className={classNames(
             "grid h-9 w-9 shrink-0 place-items-center rounded-md border transition",
             buttonDisabled &&
-            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
             !buttonDisabled &&
-            "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+              "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
           )}
         >
           {buttonLabel}
@@ -883,7 +894,7 @@ function SmallIconButton({
         "grid h-8 w-8 place-items-center rounded-md border transition",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
       )}
     >
       {children}
@@ -1444,7 +1455,7 @@ export default function EngineSettingsView({
         ? "全部已结束下载记录"
         : `${option.label}的已结束下载记录`;
     const confirmed = await confirm(
-      `确定要清除${scope}？\n\n此操作只删除下载列表记录，不会删除已下载文件；等待中、下载中和暂停中的任务会保留。`,
+      `确定要清除${scope}？\n\n此操作只删除下载列表记录，不会删除已下载文件；排队中、下载中和暂停中的任务会保留。`,
       {
         title: "清理下载记录",
         kind: "warning",
@@ -1582,7 +1593,9 @@ export default function EngineSettingsView({
                           draftAppSettings?.autoStartMinimizedToTray ||
                           draftAppSettings?.closeToTrayEnabled ||
                           draftAppSettings?.downloadCompletionNotificationEnabled ||
-                          draftAppSettings?.preventSleepWhenDownloadingEnabled
+                          draftAppSettings?.preventSleepWhenDownloadingEnabled ||
+                          draftAppSettings?.localDownloadConcurrency !==
+                            DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY
                           ? "bg-emerald-500"
                           : "bg-slate-300",
                       )}
@@ -1725,6 +1738,40 @@ export default function EngineSettingsView({
                           </span>
                         </label>
 
+                        <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                          <span className="font-medium">本地下载并发任务数</span>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Download size={15} className="shrink-0 text-slate-400" />
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={draftAppSettings.localDownloadConcurrency}
+                              onChange={(event) =>
+                                updateAppDraft({
+                                  localDownloadConcurrency:
+                                    normalizeLocalDownloadConcurrency(
+                                      event.currentTarget.valueAsNumber,
+                                    ),
+                                })
+                              }
+                              onBlur={() =>
+                                updateAppDraft({
+                                  localDownloadConcurrency:
+                                    normalizeLocalDownloadConcurrency(
+                                      draftAppSettings.localDownloadConcurrency,
+                                    ),
+                                })
+                              }
+                              className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                            />
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            只限制 aria2 和 yt-dlp 这类本地下载引擎，qBittorrent
+                            不受影响。
+                          </span>
+                        </label>
+
                         <div className="grid gap-3">
                           <SettingsSwitch
                             checked={draftAppSettings.autoStartEnabled}
@@ -1773,7 +1820,7 @@ export default function EngineSettingsView({
                           <SettingsSwitch
                             checked={draftAppSettings.preventSleepWhenDownloadingEnabled}
                             label="有活动下载时阻止系统休眠"
-                            description="存在等待中或下载中的任务时阻止系统进入休眠。"
+                            description="存在排队中或下载中的任务时阻止系统进入休眠。"
                             onToggle={() =>
                               updateAppDraft({
                                 preventSleepWhenDownloadingEnabled:
@@ -1807,10 +1854,10 @@ export default function EngineSettingsView({
                             className={classNames(
                               "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                               (!appDirty || isSavingApp) &&
-                              "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                                "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                               appDirty &&
-                              !isSavingApp &&
-                              "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                                !isSavingApp &&
+                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                             )}
                           >
                             <RotateCcw size={14} />
@@ -1823,11 +1870,11 @@ export default function EngineSettingsView({
                             className={classNames(
                               "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                               (!appDirty || isSavingApp || proxyError) &&
-                              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                               appDirty &&
-                              !isSavingApp &&
-                              !proxyError &&
-                              "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                                !isSavingApp &&
+                                !proxyError &&
+                                "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                             )}
                           >
                             <Save size={14} />
@@ -1949,10 +1996,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            !isSavingApp &&
+                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -1965,10 +2012,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            !isSavingApp &&
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -2051,7 +2098,7 @@ export default function EngineSettingsView({
                             下载任务清理
                           </div>
                           <div className="mt-1 text-xs leading-5 text-slate-500">
-                            只删除列表记录，不删除磁盘文件；等待中、下载中和暂停中的任务不会被清理。
+                            只删除列表记录，不删除磁盘文件；排队中、下载中和暂停中的任务不会被清理。
                           </div>
                         </div>
                       </div>
@@ -2071,13 +2118,13 @@ export default function EngineSettingsView({
                               className={classNames(
                                 "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                                 isClearing &&
-                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                                  "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                                 !isClearing &&
-                                !isAll &&
-                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                                  !isAll &&
+                                  "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
                                 !isClearing &&
-                                isAll &&
-                                "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
+                                  isAll &&
+                                  "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
                               )}
                             >
                               <Trash2 size={14} />
@@ -2114,10 +2161,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            !isSavingApp &&
+                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -2130,10 +2177,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            !isSavingApp &&
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -2195,10 +2242,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                            !isSavingApp &&
+                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -2211,10 +2258,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                          !isSavingApp &&
-                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            !isSavingApp &&
+                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -2248,11 +2295,11 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!dirtySettings || isSavingEngines || hasEngineErrors) &&
-                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
-                          !isSavingEngines &&
-                          !hasEngineErrors &&
-                          "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+                            !isSavingEngines &&
+                            !hasEngineErrors &&
+                            "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
                         )}
                       >
                         <Save size={15} />
@@ -2328,15 +2375,13 @@ export default function EngineSettingsView({
                             : null;
                         const cardAria2TransferError =
                           cardAria2Error &&
-                          ["单服务器", "分片", "最小分片", "文件预分配"].some(
-                            (keyword) => cardAria2Error.includes(keyword),
+                          ["单服务器", "分片", "最小分片", "文件预分配"].some((keyword) =>
+                            cardAria2Error.includes(keyword),
                           )
                             ? cardAria2Error
                             : null;
                         const cardAria2BtError =
-                          cardAria2Error &&
-                          !cardAria2RpcError &&
-                          !cardAria2TransferError
+                          cardAria2Error && !cardAria2RpcError && !cardAria2TransferError
                             ? cardAria2Error
                             : null;
                         const cardSettingsError =
@@ -2414,8 +2459,9 @@ export default function EngineSettingsView({
                                 >
                                   <input
                                     type="checkbox"
-                                    aria-label={`${draft.enabled ? "停用" : "启用"
-                                      } ${draft.name || engineLabels[draft.engine]}`}
+                                    aria-label={`${
+                                      draft.enabled ? "停用" : "启用"
+                                    } ${draft.name || engineLabels[draft.engine]}`}
                                     checked={draft.enabled}
                                     onChange={(event) =>
                                       updateDraft(draft.id, {
@@ -2475,13 +2521,13 @@ export default function EngineSettingsView({
                                         const nextSourceTypes = event.currentTarget
                                           .checked
                                           ? sourceTypes.filter(
-                                            (item) =>
-                                              item === sourceType ||
-                                              draft.supportedSourceTypes.includes(item),
-                                          )
+                                              (item) =>
+                                                item === sourceType ||
+                                                draft.supportedSourceTypes.includes(item),
+                                            )
                                           : draft.supportedSourceTypes.filter(
-                                            (item) => item !== sourceType,
-                                          );
+                                              (item) => item !== sourceType,
+                                            );
                                         updateDraft(draft.id, {
                                           supportedSourceTypes: nextSourceTypes,
                                         });
@@ -2769,8 +2815,8 @@ export default function EngineSettingsView({
                                           限速与做种
                                         </div>
                                         <div className="mt-1 text-xs text-slate-500">
-                                          作用于 UniDL 创建的新 qBittorrent
-                                          任务；填 0 表示不覆盖 qBittorrent 端默认值。
+                                          作用于 UniDL 创建的新 qBittorrent 任务；填 0
+                                          表示不覆盖 qBittorrent 端默认值。
                                         </div>
                                       </div>
                                       <div className="grid gap-3 sm:grid-cols-2">
@@ -2846,7 +2892,8 @@ export default function EngineSettingsView({
                                           连接与分片
                                         </div>
                                         <div className="mt-1 text-xs text-slate-500">
-                                          配置 aria2 的 max-connection-per-server、split、min-split-size
+                                          配置 aria2 的
+                                          max-connection-per-server、split、min-split-size
                                           和 file-allocation。
                                         </div>
                                       </div>
@@ -2917,32 +2964,32 @@ export default function EngineSettingsView({
                                         description: string;
                                         checked: boolean;
                                       }> = [
-                                          {
-                                            key: "aria2EnableDht",
-                                            label: "启用 DHT",
-                                            description: "对应 aria2 的 enable-dht",
-                                            checked: draft.aria2EnableDht,
-                                          },
-                                          {
-                                            key: "aria2EnableDht6",
-                                            label: "启用 IPv6 DHT",
-                                            description: "对应 aria2 的 enable-dht6",
-                                            checked: draft.aria2EnableDht6,
-                                          },
-                                          {
-                                            key: "aria2EnablePeerExchange",
-                                            label: "启用 PeX 节点交换",
-                                            description:
-                                              "对应 aria2 的 enable-peer-exchange",
-                                            checked: draft.aria2EnablePeerExchange,
-                                          },
-                                          {
-                                            key: "aria2EnableLpd",
-                                            label: "启用本地端点发现",
-                                            description: "对应 aria2 的 bt-enable-lpd",
-                                            checked: draft.aria2EnableLpd,
-                                          },
-                                        ];
+                                        {
+                                          key: "aria2EnableDht",
+                                          label: "启用 DHT",
+                                          description: "对应 aria2 的 enable-dht",
+                                          checked: draft.aria2EnableDht,
+                                        },
+                                        {
+                                          key: "aria2EnableDht6",
+                                          label: "启用 IPv6 DHT",
+                                          description: "对应 aria2 的 enable-dht6",
+                                          checked: draft.aria2EnableDht6,
+                                        },
+                                        {
+                                          key: "aria2EnablePeerExchange",
+                                          label: "启用 PeX 节点交换",
+                                          description:
+                                            "对应 aria2 的 enable-peer-exchange",
+                                          checked: draft.aria2EnablePeerExchange,
+                                        },
+                                        {
+                                          key: "aria2EnableLpd",
+                                          label: "启用本地端点发现",
+                                          description: "对应 aria2 的 bt-enable-lpd",
+                                          checked: draft.aria2EnableLpd,
+                                        },
+                                      ];
 
                                       return (
                                         <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
@@ -3196,7 +3243,8 @@ export default function EngineSettingsView({
                                   />
                                   {draft.engine === "aria2" && (
                                     <div className="text-xs text-slate-500">
-                                      UniDL 仍内置 aria2 断点续传参数；连接与分片参数请优先使用上方专用设置。
+                                      UniDL 仍内置 aria2
+                                      断点续传参数；连接与分片参数请优先使用上方专用设置。
                                     </div>
                                   )}
 
