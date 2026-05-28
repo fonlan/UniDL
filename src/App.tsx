@@ -185,6 +185,11 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
+function clipboardDownloadSource(value: string) {
+  const source = value.trim();
+  return /^(?:https?:\/\/|magnet:)/i.test(source) ? source : null;
+}
+
 const ERROR_AUTO_DISMISS_MS = 10_000;
 
 function IconButton({
@@ -692,6 +697,16 @@ function App() {
     setShowNewTaskDialog(true);
   }
 
+  async function openNewTaskDialogFromToolbar() {
+    try {
+      const source = clipboardDownloadSource(await navigator.clipboard.readText());
+      openNewTaskDialog(source);
+    } catch (nextError) {
+      reportDisplayedError("read clipboard", nextError, setError);
+      openNewTaskDialog();
+    }
+  }
+
   function closeNewTaskDialog() {
     setShowNewTaskDialog(false);
     setNewTaskInitialSource(null);
@@ -1061,7 +1076,11 @@ function App() {
         <div className="flex items-center gap-2">
           {view === "tasks" ? (
             <>
-              <IconButton title="新建" tone="primary" onClick={() => openNewTaskDialog()}>
+              <IconButton
+                title="新建"
+                tone="primary"
+                onClick={() => void openNewTaskDialogFromToolbar()}
+              >
                 <Plus size={18} />
               </IconButton>
               <IconButton
