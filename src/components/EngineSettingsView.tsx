@@ -618,19 +618,55 @@ function isAppDirty(saved: AppSettings, draft: AppSettings) {
   return JSON.stringify(toAppInput(saved)) !== JSON.stringify(toAppInput(draft));
 }
 
+function requiredInputClass(isMissingRequired: boolean) {
+  return isMissingRequired
+    ? "border-rose-200 bg-rose-50/30 text-slate-900 focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+    : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+}
+
+function missingEngineRequiredFields(settings: EngineSettings) {
+  const missing: string[] = [];
+  if (!settings.name.trim()) {
+    missing.push("名称");
+  }
+  if (settings.engine === "aria2" || settings.engine === "yt-dlp") {
+    if (!settings.executablePath?.trim()) {
+      missing.push("可执行文件");
+    }
+    if (!settings.defaultDownloadDir.trim()) {
+      missing.push("默认下载目录");
+    }
+  }
+  if (settings.engine === "qbittorrent") {
+    if (!settings.connectionUrl?.trim()) {
+      missing.push("连接地址");
+    }
+    if (!settings.username?.trim()) {
+      missing.push("用户名");
+    }
+    if (!settings.password?.trim()) {
+      missing.push("密码");
+    }
+  }
+  return missing;
+}
+
 function Field({
   label,
   value,
   type = "text",
+  required = false,
   onChange,
 }: {
   label: string;
   value: string;
   type?: "text" | "password";
+  required?: boolean;
   onChange: (value: string) => void;
 }) {
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const isPassword = type === "password";
+  const isMissingRequired = required && !value.trim();
   const passwordToggleLabel = isPasswordVisible ? "隐藏密码" : "显示密码";
 
   return (
@@ -641,8 +677,10 @@ function Field({
           type={isPassword && isPasswordVisible ? "text" : type}
           value={value}
           onChange={(event) => onChange(event.currentTarget.value)}
+          aria-invalid={isMissingRequired || undefined}
           className={classNames(
-            "h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+            "h-9 w-full rounded-md border px-3 text-sm outline-none transition",
+            requiredInputClass(isMissingRequired),
             isPassword && "pr-10",
           )}
         />
@@ -696,14 +734,18 @@ function NumberField({
 function DirectoryField({
   label,
   value,
+  required = false,
   onChange,
   onBrowse,
 }: {
   label: string;
   value: string;
+  required?: boolean;
   onChange: (value: string) => void;
   onBrowse: () => void;
 }) {
+  const isMissingRequired = required && !value.trim();
+
   return (
     <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
       <span className="font-medium">{label}</span>
@@ -711,7 +753,11 @@ function DirectoryField({
         <input
           value={value}
           onChange={(event) => onChange(event.currentTarget.value)}
-          className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+          aria-invalid={isMissingRequired || undefined}
+          className={classNames(
+            "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
+            requiredInputClass(isMissingRequired),
+          )}
         />
         <button
           type="button"
@@ -763,6 +809,7 @@ function TextAreaField({
 function IconField({
   label,
   value,
+  required = false,
   onChange,
   onClick,
   buttonTitle,
@@ -771,12 +818,15 @@ function IconField({
 }: {
   label: string;
   value: string;
+  required?: boolean;
   onChange: (value: string) => void;
   onClick: () => void;
   buttonTitle: string;
   buttonDisabled?: boolean;
   buttonLabel: ReactNode;
 }) {
+  const isMissingRequired = required && !value.trim();
+
   return (
     <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
       <span className="font-medium">{label}</span>
@@ -784,7 +834,11 @@ function IconField({
         <input
           value={value}
           onChange={(event) => onChange(event.currentTarget.value)}
-          className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+          aria-invalid={isMissingRequired || undefined}
+          className={classNames(
+            "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
+            requiredInputClass(isMissingRequired),
+          )}
         />
         <button
           type="button"
@@ -958,6 +1012,17 @@ export default function EngineSettingsView({
     [draftSettings, savedById],
   );
 
+  const engineRequiredErrors = useMemo(() => {
+    const errors = new Map<string, string>();
+    for (const draft of draftSettings) {
+      const missing = missingEngineRequiredFields(draft);
+      if (missing.length > 0) {
+        errors.set(draft.id, `请填写必填项：${missing.join("、")}`);
+      }
+    }
+    return errors;
+  }, [draftSettings]);
+
   const engineProxyErrors = useMemo(() => {
     const errors = new Map<string, string>();
     for (const draft of draftSettings) {
@@ -1008,11 +1073,15 @@ export default function EngineSettingsView({
     return errors;
   }, [draftSettings]);
 
+  const hasEngineRequiredErrors = engineRequiredErrors.size > 0;
   const hasEngineProxyErrors = engineProxyErrors.size > 0;
   const hasEngineAria2Errors = engineAria2Errors.size > 0;
   const hasEngineQbittorrentErrors = engineQbittorrentErrors.size > 0;
   const hasEngineErrors =
-    hasEngineProxyErrors || hasEngineAria2Errors || hasEngineQbittorrentErrors;
+    hasEngineRequiredErrors ||
+    hasEngineProxyErrors ||
+    hasEngineAria2Errors ||
+    hasEngineQbittorrentErrors;
 
   const hasDirtySettings = appDirty || dirtySettings;
   const engineSettingsCount = draftSettings.length;
@@ -2247,6 +2316,8 @@ export default function EngineSettingsView({
                           isDeleting;
                         const isAdvancedOpen = expandedAdvanced.has(draft.id);
                         const isDragging = draggedEngineId === draft.id;
+                        const cardRequiredError =
+                          engineRequiredErrors.get(draft.id) ?? null;
                         const cardProxyError = engineProxyErrors.get(draft.id) ?? null;
                         const cardAria2Error = engineAria2Errors.get(draft.id) ?? null;
                         const cardQbittorrentError =
@@ -2269,7 +2340,10 @@ export default function EngineSettingsView({
                             ? cardAria2Error
                             : null;
                         const cardSettingsError =
-                          cardProxyError ?? cardAria2Error ?? cardQbittorrentError;
+                          cardRequiredError ??
+                          cardProxyError ??
+                          cardAria2Error ??
+                          cardQbittorrentError;
                         const aria2RpcUrl =
                           draft.engine === "aria2"
                             ? aria2RpcInputUrl(draft.connectionUrl)
@@ -2425,6 +2499,7 @@ export default function EngineSettingsView({
                               <Field
                                 label="名称"
                                 value={draft.name}
+                                required
                                 onChange={(value) =>
                                   updateDraft(draft.id, { name: value })
                                 }
@@ -2433,6 +2508,7 @@ export default function EngineSettingsView({
                                 <IconField
                                   label="可执行文件"
                                   value={draft.executablePath ?? ""}
+                                  required
                                   onChange={(value) =>
                                     updateDraft(draft.id, { executablePath: value })
                                   }
@@ -2447,6 +2523,7 @@ export default function EngineSettingsView({
                                   <DirectoryField
                                     label="默认下载目录"
                                     value={draft.defaultDownloadDir}
+                                    required
                                     onChange={(value) =>
                                       updateDraft(draft.id, { defaultDownloadDir: value })
                                     }
@@ -2470,6 +2547,7 @@ export default function EngineSettingsView({
                                   <IconField
                                     label="连接地址"
                                     value={draft.connectionUrl ?? ""}
+                                    required
                                     onChange={(value) =>
                                       updateDraft(draft.id, { connectionUrl: value })
                                     }
@@ -2488,6 +2566,7 @@ export default function EngineSettingsView({
                                   <Field
                                     label="用户名"
                                     value={draft.username ?? ""}
+                                    required
                                     onChange={(value) =>
                                       updateDraft(draft.id, { username: value })
                                     }
@@ -2496,6 +2575,7 @@ export default function EngineSettingsView({
                                     label="密码"
                                     type="password"
                                     value={draft.password ?? ""}
+                                    required
                                     onChange={(value) =>
                                       updateDraft(draft.id, { password: value })
                                     }
