@@ -2500,6 +2500,41 @@ export default function EngineSettingsView({
                                       updateDraft(draft.id, { password: value })
                                     }
                                   />
+                                  <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700 md:col-span-2">
+                                    <span className="font-medium">连接代理</span>
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <Network
+                                        size={15}
+                                        className="shrink-0 text-slate-400"
+                                      />
+                                      <input
+                                        value={draft.proxyUrl ?? ""}
+                                        placeholder="留空表示直连，例如 http://127.0.0.1:7890 或 socks5h://127.0.0.1:1080"
+                                        onChange={(event) =>
+                                          updateDraft(draft.id, {
+                                            proxyUrl: event.currentTarget.value,
+                                          })
+                                        }
+                                        className={classNames(
+                                          "h-9 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none transition",
+                                          cardProxyError
+                                            ? "border-rose-400 bg-rose-50/40 text-rose-700 focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
+                                            : "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100",
+                                        )}
+                                      />
+                                    </div>
+                                    <span
+                                      className={classNames(
+                                        "text-xs",
+                                        cardProxyError
+                                          ? "text-rose-600"
+                                          : "text-slate-500",
+                                      )}
+                                    >
+                                      {cardProxyError ??
+                                        "仅用于 UniDL 连接 qBittorrent Web API，不会修改 qBittorrent 的下载代理设置。支持 http / https / socks4 / socks4a / socks5 / socks5h。"}
+                                    </span>
+                                  </label>
                                   <div className="flex flex-col gap-1.5 md:col-span-2">
                                     <Field
                                       label="远程保存路径"
@@ -2586,6 +2621,7 @@ export default function EngineSettingsView({
                                     draft.engine === "aria2" ? "RPC 监听" : null,
                                     draft.engine === "aria2" ? "Tracker 订阅" : null,
                                     draft.engine === "qbittorrent" ? "限速与做种" : null,
+                                    draft.engine === "qbittorrent" ? "连接代理" : null,
                                     usesExecutable ? "User-Agent" : null,
                                     usesExecutable ? "限速" : null,
                                     "偏好域名",

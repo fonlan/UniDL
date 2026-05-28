@@ -477,7 +477,16 @@ fn remote_path_name(path: &str) -> String {
 }
 
 fn qbittorrent_client(settings: &EngineSettings) -> Result<Client, Box<dyn Error>> {
-    let client = Client::builder().cookie_store(true).build()?;
+    let mut builder = Client::builder().cookie_store(true);
+    if let Some(proxy_url) = settings
+        .proxy_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
+    }
+    let client = builder.build()?;
     let username = settings.username.as_deref().unwrap_or("");
     let password = settings.password.as_deref().unwrap_or("");
     let response = client
@@ -622,4 +631,107 @@ fn qbittorrent_url(settings: &EngineSettings, endpoint: &str) -> Result<String, 
         .ok_or("qBittorrent connection url is required")?
         .trim_end_matches('/');
     Ok(format!("{}/api/v2/{}", base, endpoint))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{Arc, Mutex},
+        thread,
+    };
+
+    use crate::models::{EngineKind, SourceType};
+
+    use super::*;
+
+    #[test]
+    fn qbittorrent_client_routes_login_through_configured_proxy() {
+        let (proxy_url, requests, server) = start_fake_http_proxy(1);
+        let mut settings = qbittorrent_settings("http://qbittorrent.test");
+        settings.proxy_url = Some(proxy_url);
+
+        qbittorrent_client(&settings).expect("login should succeed through proxy");
+
+        server.join().expect("fake proxy should finish");
+        let request = requests
+            .lock()
+            .expect("requests should lock")
+            .first()
+            .cloned()
+            .expect("proxy should receive login request");
+        assert!(request.starts_with("POST http://qbittorrent.test/api/v2/auth/login "));
+    }
+
+    fn qbittorrent_settings(connection_url: &str) -> EngineSettings {
+        EngineSettings {
+            id: "qbittorrent".to_string(),
+            engine: EngineKind::QBittorrent,
+            name: "qBittorrent".to_string(),
+            enabled: true,
+            executable_path: None,
+            default_download_dir: String::new(),
+            default_args: String::new(),
+            connection_url: Some(connection_url.to_string()),
+            username: Some("admin".to_string()),
+            password: Some("adminadmin".to_string()),
+            remote_path: Some("/downloads".to_string()),
+            supported_source_types: vec![SourceType::Magnet, SourceType::Torrent],
+            preferred_domains: Vec::new(),
+            tracker_subscription_url: None,
+            trackers: Vec::new(),
+            proxy_url: None,
+            user_agent: None,
+            speed_limit_bytes_per_sec: 0,
+            qbittorrent_download_limit_bytes_per_sec: 0,
+            qbittorrent_upload_limit_bytes_per_sec: 0,
+            qbittorrent_seed_ratio_limit: 0.0,
+            qbittorrent_seed_time_limit_minutes: 0,
+            aria2_enable_dht: false,
+            aria2_enable_dht6: false,
+            aria2_enable_peer_exchange: false,
+            aria2_enable_lpd: false,
+            aria2_bt_listen_port: 6881,
+            aria2_bt_max_peers: 55,
+            aria2_max_connection_per_server: 16,
+            aria2_split: 16,
+            aria2_min_split_size: "1M".to_string(),
+            aria2_file_allocation: "none".to_string(),
+            aria2_seed_time: 10,
+            aria2_seed_ratio: 1.0,
+            priority: 0,
+            updated_at: String::new(),
+        }
+    }
+
+    fn start_fake_http_proxy(
+        expected_requests: usize,
+    ) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("fake proxy should bind");
+        let address = listener
+            .local_addr()
+            .expect("fake proxy should have address");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let server_requests = Arc::clone(&requests);
+        let server = thread::spawn(move || {
+            for stream in listener.incoming().take(expected_requests) {
+                let mut stream = stream.expect("fake proxy stream should open");
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).expect("request should read");
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                server_requests
+                    .lock()
+                    .expect("requests should lock")
+                    .push(request);
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nOk.",
+                    )
+                    .expect("response should write");
+            }
+        });
+
+        (format!("http://{address}"), requests, server)
+    }
 }
