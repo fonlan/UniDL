@@ -139,20 +139,22 @@ fn add_qbittorrent_task(
     task: &DownloadTask,
 ) -> Result<EngineTaskState, Box<dyn Error>> {
     let client = qbittorrent_client(settings)?;
-    let mut form = multipart::Form::new()
-        .text("savepath", task.save_path.clone())
-        .text(
-            "paused",
-            if task
-                .selected_file_indexes
-                .as_ref()
-                .is_some_and(|indexes| !indexes.is_empty())
-            {
-                "true"
-            } else {
-                "false"
-            },
-        );
+    let mut form = multipart::Form::new().text(
+        "paused",
+        if task
+            .selected_file_indexes
+            .as_ref()
+            .is_some_and(|indexes| !indexes.is_empty())
+        {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    let save_path = task.save_path.trim();
+    if !save_path.is_empty() {
+        form = form.text("savepath", save_path.to_string());
+    }
     form = apply_qbittorrent_task_options(settings, form);
 
     if task.source_type == SourceType::Torrent && Path::new(&task.source).exists() {
@@ -233,10 +235,13 @@ fn resolve_qbittorrent_magnet_name(
     let existed = !qbittorrent_get_torrents(&client, settings, &hash)?.is_empty();
 
     if !existed {
-        let form = multipart::Form::new()
-            .text("savepath", save_path.to_string())
+        let mut form = multipart::Form::new()
             .text("paused", "false")
             .text("urls", source.to_string());
+        let save_path = save_path.trim();
+        if !save_path.is_empty() {
+            form = form.text("savepath", save_path.to_string());
+        }
 
         let response = client
             .post(qbittorrent_url(settings, "torrents/add")?)
@@ -264,10 +269,13 @@ fn resolve_qbittorrent_magnet_files(
     let existed = !qbittorrent_get_torrents(&client, settings, &hash)?.is_empty();
 
     if !existed {
-        let form = multipart::Form::new()
-            .text("savepath", save_path.to_string())
+        let mut form = multipart::Form::new()
             .text("paused", "false")
             .text("urls", source.to_string());
+        let save_path = save_path.trim();
+        if !save_path.is_empty() {
+            form = form.text("savepath", save_path.to_string());
+        }
 
         let response = client
             .post(qbittorrent_url(settings, "torrents/add")?)

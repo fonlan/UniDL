@@ -791,7 +791,7 @@ fn validate_create_task_input(input: &CreateDownloadTaskInput) -> Result<(), Box
     if input.file_name.trim().is_empty() {
         return Err("file name is required".into());
     }
-    if input.save_path.trim().is_empty() {
+    if input.engine != EngineKind::QBittorrent && input.save_path.trim().is_empty() {
         return Err("download path is required".into());
     }
     if let Some(indexes) = &input.selected_file_indexes {
@@ -1094,12 +1094,6 @@ fn normalize_engine_settings_input(
     let name = input.name.trim().to_string();
     if name.is_empty() {
         return Err("engine settings name is required".into());
-    }
-
-    if input.engine == EngineKind::QBittorrent
-        && input.remote_path.as_deref().unwrap_or("").trim().is_empty()
-    {
-        return Err("qBittorrent remote save path is required".into());
     }
 
     let supported = supported_source_types(input.engine);

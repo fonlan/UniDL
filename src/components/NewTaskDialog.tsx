@@ -244,7 +244,7 @@ export default function NewTaskDialog({
     Boolean(parsedSource) &&
     Boolean(selectedSettings?.enabled) &&
     (parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent" || fileName.trim().length > 0) &&
-    savePath.trim().length > 0 &&
+    (selectedSettings?.engine === "qbittorrent" || savePath.trim().length > 0) &&
     !isCreating;
   const canSelectLocalSavePath = selectedSettings?.engine !== "qbittorrent";
   const canSelectRemoteSavePath = selectedSettings?.engine === "qbittorrent" && Boolean(selectedSettings.enabled);
@@ -617,6 +617,11 @@ export default function NewTaskDialog({
                   <input
                     title={selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
                     aria-label={selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
+                    placeholder={
+                      selectedSettings?.engine === "qbittorrent"
+                        ? "留空使用 qBittorrent 默认保存路径"
+                        : undefined
+                    }
                     value={savePath}
                     onChange={(event) => setSavePath(event.currentTarget.value)}
                     className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
