@@ -83,6 +83,7 @@ fn add_ytdlp_task(
         .executable_path
         .as_deref()
         .ok_or("yt-dlp executable path is required")?;
+    require_ytdlp_ffmpeg(settings, task)?;
     let mut command = Command::new(executable);
     apply_ytdlp_utf8_env(&mut command);
     let cookie_path = write_ytdlp_cookie_file(task)?;
@@ -195,6 +196,92 @@ fn add_ytdlp_task(
     });
 
     Ok(EngineTaskState::running(pid))
+}
+
+fn require_ytdlp_ffmpeg(
+    settings: &EngineSettings,
+    task: &DownloadTask,
+) -> Result<(), Box<dyn Error>> {
+    if ytdlp_ffmpeg_available(settings, task) {
+        return Ok(());
+    }
+
+    Err("yt-dlp requires ffmpeg, but ffmpeg was not found. Install ffmpeg, add it to PATH, place it next to yt-dlp, or set --ffmpeg-location.".into())
+}
+
+fn ytdlp_ffmpeg_available(settings: &EngineSettings, task: &DownloadTask) -> bool {
+    if let Some(location) = ytdlp_ffmpeg_location(&task.engine_args)
+        .or_else(|| ytdlp_ffmpeg_location(&settings.default_args))
+    {
+        return ytdlp_ffmpeg_location_exists(&location);
+    }
+
+    ytdlp_ffmpeg_next_to_executable(settings) || ytdlp_ffmpeg_on_path()
+}
+
+fn ytdlp_ffmpeg_location(args: &str) -> Option<String> {
+    let mut parts = args.split_whitespace();
+    while let Some(arg) = parts.next() {
+        if arg == "--ffmpeg-location" {
+            return parts.next().map(trim_ytdlp_arg).and_then(non_empty_string);
+        }
+        if let Some(location) = arg.strip_prefix("--ffmpeg-location=") {
+            return non_empty_string(trim_ytdlp_arg(location));
+        }
+    }
+    None
+}
+
+fn trim_ytdlp_arg(value: &str) -> &str {
+    value.trim().trim_matches(['\"', '\''])
+}
+
+fn non_empty_string(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn ytdlp_ffmpeg_location_exists(location: &str) -> bool {
+    let path = Path::new(location);
+    if path.is_dir() {
+        return path.join(ffmpeg_binary_name()).is_file();
+    }
+    path.is_file()
+}
+
+fn ytdlp_ffmpeg_next_to_executable(settings: &EngineSettings) -> bool {
+    let Some(executable) = settings
+        .executable_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    Path::new(executable)
+        .parent()
+        .is_some_and(|directory| directory.join(ffmpeg_binary_name()).is_file())
+}
+
+fn ytdlp_ffmpeg_on_path() -> bool {
+    Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn ffmpeg_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    }
 }
 
 fn spawn_ytdlp_progress_reader(

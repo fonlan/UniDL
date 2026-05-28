@@ -22,6 +22,7 @@ use super::{
 };
 
 const ARIA2_BASE_DEFAULT_ARGS: &str = "--continue=true";
+const ARIA2_RPC_REQUIRED_MESSAGE: &str = "aria2 RPC is not enabled or unreachable. Start aria2 with --enable-rpc=true and confirm the RPC connection URL.";
 const MAGNET_NAME_RESOLVE_ATTEMPTS: usize = 60;
 const COLD_ARIA2_MAGNET_RESOLVE_ATTEMPTS: usize = 180;
 const MAGNET_NAME_RESOLVE_INTERVAL: Duration = Duration::from_secs(1);
@@ -86,7 +87,13 @@ pub(super) fn resolve_magnet_files(
 }
 
 pub(super) fn test_connection(settings: &EngineSettings) -> Result<(), Box<dyn Error>> {
-    aria2_rpc(settings, "aria2.getVersion", json!([]))?;
+    aria2_rpc(settings, "aria2.getVersion", json!([])).map_err(|error| -> Box<dyn Error> {
+        if aria2_unavailable(error.as_ref()) {
+            ARIA2_RPC_REQUIRED_MESSAGE.into()
+        } else {
+            error
+        }
+    })?;
     Ok(())
 }
 
@@ -710,13 +717,15 @@ fn cleanup_aria2_metadata_tasks(settings: &EngineSettings, gids: &[String]) {
 }
 
 fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<bool, Box<dyn Error>> {
-    if aria2_rpc(settings, "aria2.getVersion", json!([])).is_ok() {
-        return Ok(false);
+    match aria2_rpc(settings, "aria2.getVersion", json!([])) {
+        Ok(_) => return Ok(false),
+        Err(error) if !aria2_unavailable(error.as_ref()) => return Err(error),
+        Err(_) => {}
     }
 
     let executable = settings.executable_path.as_deref().unwrap_or("").trim();
     if executable.is_empty() {
-        return Ok(false);
+        return Err(ARIA2_RPC_REQUIRED_MESSAGE.into());
     }
 
     let rpc_listen_port = aria2_rpc_listen_port(settings)?;
@@ -775,12 +784,25 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
 
 fn wait_for_aria2_rpc(settings: &EngineSettings) -> Result<(), Box<dyn Error>> {
     let mut last_error = None;
+    let mut last_unavailable = false;
     for _ in 0..ARIA2_STARTUP_ATTEMPTS {
         match aria2_rpc(settings, "aria2.getVersion", json!([])) {
             Ok(_) => return Ok(()),
-            Err(error) => last_error = Some(error.to_string()),
+            Err(error) => {
+                last_unavailable = aria2_unavailable(error.as_ref());
+                last_error = Some(error.to_string());
+            }
         }
         thread::sleep(ARIA2_STARTUP_INTERVAL);
+    }
+
+    if last_unavailable {
+        return Err(format!(
+            "{}: {}",
+            ARIA2_RPC_REQUIRED_MESSAGE,
+            last_error.unwrap_or_else(|| "unknown error".to_string())
+        )
+        .into());
     }
 
     Err(format!(

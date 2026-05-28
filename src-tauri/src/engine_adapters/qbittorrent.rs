@@ -15,6 +15,7 @@ use super::{
 
 const MAGNET_NAME_RESOLVE_ATTEMPTS: usize = 60;
 const MAGNET_NAME_RESOLVE_INTERVAL: Duration = Duration::from_secs(1);
+const QBITTORRENT_WEBUI_REQUIRED_MESSAGE: &str = "qBittorrent WebUI is not enabled or unreachable. Enable qBittorrent WebUI and confirm the connection URL.";
 
 pub(super) fn add_task(
     settings: &EngineSettings,
@@ -500,7 +501,11 @@ fn qbittorrent_client(settings: &EngineSettings) -> Result<Client, Box<dyn Error
     let response = client
         .post(qbittorrent_url(settings, "auth/login")?)
         .form(&[("username", username), ("password", password)])
-        .send()?;
+        .send()
+        .map_err(qbittorrent_webui_send_error)?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(QBITTORRENT_WEBUI_REQUIRED_MESSAGE.into());
+    }
     if !response.status().is_success() {
         return Err(format!("qBittorrent login failed: {}", response.status()).into());
     }
@@ -509,6 +514,13 @@ fn qbittorrent_client(settings: &EngineSettings) -> Result<Client, Box<dyn Error
         return Err("qBittorrent login failed: invalid username or password".into());
     }
     Ok(client)
+}
+
+fn qbittorrent_webui_send_error(error: reqwest::Error) -> Box<dyn Error> {
+    if error.is_connect() || error.is_timeout() {
+        return format!("{}: {}", QBITTORRENT_WEBUI_REQUIRED_MESSAGE, error).into();
+    }
+    error.into()
 }
 
 fn qbittorrent_post(
