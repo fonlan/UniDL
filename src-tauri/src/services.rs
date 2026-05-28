@@ -932,6 +932,8 @@ impl<'connection> EngineSettingsService<'connection> {
             tracker_subscription_url: current.tracker_subscription_url,
             trackers: current.trackers,
             proxy_url: current.proxy_url,
+            user_agent: current.user_agent,
+            speed_limit_bytes_per_sec: current.speed_limit_bytes_per_sec,
             aria2_enable_dht: current.aria2_enable_dht,
             aria2_enable_dht6: current.aria2_enable_dht6,
             aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
@@ -968,6 +970,8 @@ impl<'connection> EngineSettingsService<'connection> {
             tracker_subscription_url: input.tracker_subscription_url,
             trackers: input.trackers,
             proxy_url: input.proxy_url,
+            user_agent: input.user_agent,
+            speed_limit_bytes_per_sec: input.speed_limit_bytes_per_sec,
             aria2_enable_dht: input.aria2_enable_dht,
             aria2_enable_dht6: input.aria2_enable_dht6,
             aria2_enable_peer_exchange: input.aria2_enable_peer_exchange,
@@ -1024,6 +1028,8 @@ impl<'connection> EngineSettingsService<'connection> {
             tracker_subscription_url: Some(subscription_urls.join("\n")),
             trackers,
             proxy_url: current.proxy_url,
+            user_agent: current.user_agent,
+            speed_limit_bytes_per_sec: current.speed_limit_bytes_per_sec,
             aria2_enable_dht: current.aria2_enable_dht,
             aria2_enable_dht6: current.aria2_enable_dht6,
             aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
@@ -1091,6 +1097,19 @@ fn normalize_engine_settings_input(
     if let Some(proxy_url) = proxy_url.as_deref() {
         validate_proxy_url(proxy_url, engine_proxy_allowed_schemes(input.engine))?;
     }
+    let user_agent = input.user_agent.and_then(|value| {
+        let trimmed = value.trim().to_string();
+        (!trimmed.is_empty()).then_some(trimmed)
+    });
+    if user_agent
+        .as_deref()
+        .is_some_and(|value| value.contains(['\r', '\n']))
+    {
+        return Err("user agent cannot contain line breaks".into());
+    }
+    if input.speed_limit_bytes_per_sec < 0 {
+        return Err("speed limit cannot be negative".into());
+    }
 
     if input.aria2_bt_listen_port < 1 || input.aria2_bt_listen_port > 65_535 {
         return Err("aria2 BT listen port must be between 1 and 65535".into());
@@ -1116,6 +1135,7 @@ fn normalize_engine_settings_input(
         trackers: normalize_trackers(input.trackers),
         supported_source_types,
         proxy_url,
+        user_agent,
         ..input
     })
 }
@@ -1236,6 +1256,8 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                user_agent: None,
+                speed_limit_bytes_per_sec: 0,
                 aria2_enable_dht: true,
                 aria2_enable_dht6: true,
                 aria2_enable_peer_exchange: true,
@@ -1267,6 +1289,8 @@ mod tests {
                 tracker_subscription_url: saved.tracker_subscription_url,
                 trackers: saved.trackers,
                 proxy_url: saved.proxy_url,
+                user_agent: saved.user_agent,
+                speed_limit_bytes_per_sec: saved.speed_limit_bytes_per_sec,
                 aria2_enable_dht: saved.aria2_enable_dht,
                 aria2_enable_dht6: saved.aria2_enable_dht6,
                 aria2_enable_peer_exchange: saved.aria2_enable_peer_exchange,
@@ -1683,6 +1707,8 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                user_agent: None,
+                speed_limit_bytes_per_sec: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2201,6 +2227,8 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                user_agent: None,
+                speed_limit_bytes_per_sec: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2410,6 +2438,8 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                user_agent: None,
+                speed_limit_bytes_per_sec: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2558,6 +2588,8 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                user_agent: None,
+                speed_limit_bytes_per_sec: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2590,6 +2622,8 @@ mod tests {
                 tracker_subscription_url: None,
                 trackers: Vec::new(),
                 proxy_url: None,
+                user_agent: None,
+                speed_limit_bytes_per_sec: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,

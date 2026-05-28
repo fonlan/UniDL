@@ -25,9 +25,10 @@ use aria2::{
 
 #[cfg(test)]
 use ytdlp::{
-    decode_ytdlp_stdout_line, is_ytdlp_format_temp_file_name, parse_ytdlp_destination_name,
-    parse_ytdlp_progress, parse_ytdlp_speed, refresh_task as refresh_ytdlp_task,
-    update_ytdlp_completion, update_ytdlp_progress, ytdlp_output_template,
+    append_ytdlp_transfer_options, decode_ytdlp_stdout_line, is_ytdlp_format_temp_file_name,
+    parse_ytdlp_destination_name, parse_ytdlp_progress, parse_ytdlp_speed,
+    refresh_task as refresh_ytdlp_task, update_ytdlp_completion, update_ytdlp_progress,
+    ytdlp_output_template,
 };
 
 pub(crate) use ytdlp::{apply_ytdlp_utf8_env, sanitize_ytdlp_output_name};
@@ -232,6 +233,18 @@ pub(crate) fn engine_proxy_url(settings: &EngineSettings) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+pub(crate) fn engine_user_agent(settings: &EngineSettings) -> Option<&str> {
+    settings
+        .user_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+pub(crate) fn engine_speed_limit_bytes_per_sec(settings: &EngineSettings) -> Option<i64> {
+    (settings.speed_limit_bytes_per_sec > 0).then_some(settings.speed_limit_bytes_per_sec)
+}
+
 pub(crate) fn append_args(command: &mut Command, args: &str) {
     for arg in args.split_whitespace() {
         command.arg(arg);
@@ -318,6 +331,8 @@ mod tests {
             tracker_subscription_url: None,
             trackers: Vec::new(),
             proxy_url: None,
+            user_agent: None,
+            speed_limit_bytes_per_sec: 0,
             aria2_enable_dht: true,
             aria2_enable_dht6: true,
             aria2_enable_peer_exchange: true,
@@ -396,6 +411,8 @@ mod tests {
             "--split=4 --out=task.bin",
             None,
             None,
+            None,
+            None,
             55,
             10,
             1.0,
@@ -418,6 +435,8 @@ mod tests {
             None,
             "--enable-dht=true --enable-peer-exchange=true",
             "--bt-enable-lpd=false",
+            None,
+            None,
             None,
             None,
             55,
@@ -444,6 +463,36 @@ mod tests {
         assert_eq!(
             options.get("bt-enable-lpd").and_then(Value::as_str),
             Some("true")
+        );
+    }
+
+    #[test]
+    fn aria2_download_options_uses_user_agent_and_speed_limit() {
+        let options = aria2_download_options(
+            "C:\\Downloads",
+            None,
+            "--user-agent=DefaultAgent --max-download-limit=1M",
+            "",
+            None,
+            None,
+            Some("UniDL Test Agent"),
+            Some(524_288),
+            55,
+            10,
+            1.0,
+            true,
+            true,
+            true,
+            true,
+        );
+
+        assert_eq!(
+            options.get("user-agent").and_then(Value::as_str),
+            Some("UniDL Test Agent")
+        );
+        assert_eq!(
+            options.get("max-download-limit").and_then(Value::as_str),
+            Some("524288")
         );
     }
 
@@ -686,6 +735,27 @@ mod tests {
     }
 
     #[test]
+    fn ytdlp_transfer_options_append_user_agent_and_limit_rate() {
+        let mut command = Command::new("yt-dlp");
+        append_ytdlp_transfer_options(&mut command, Some("UniDL Test Agent"), Some(524_288));
+
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            vec![
+                "--user-agent".to_string(),
+                "UniDL Test Agent".to_string(),
+                "--limit-rate".to_string(),
+                "524288".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn is_ytdlp_format_temp_file_name_matches_per_format_streams_only() {
         assert!(is_ytdlp_format_temp_file_name("My Video.f137.mp4"));
         assert!(is_ytdlp_format_temp_file_name("My Video.f140.m4a"));
@@ -732,6 +802,8 @@ mod tests {
             tracker_subscription_url: None,
             trackers: Vec::new(),
             proxy_url: None,
+            user_agent: None,
+            speed_limit_bytes_per_sec: 0,
             aria2_enable_dht: true,
             aria2_enable_dht6: true,
             aria2_enable_peer_exchange: true,

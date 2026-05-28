@@ -81,6 +81,8 @@ export interface EngineSettings {
   trackerSubscriptionUrl: string | null;
   trackers: string[];
   proxyUrl: string | null;
+  userAgent: string | null;
+  speedLimitBytesPerSec: number;
   aria2EnableDht: boolean;
   aria2EnableDht6: boolean;
   aria2EnablePeerExchange: boolean;

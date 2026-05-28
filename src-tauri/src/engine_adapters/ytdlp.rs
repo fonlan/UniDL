@@ -19,7 +19,10 @@ use crate::{
     repositories::DownloadTaskRepository,
 };
 
-use super::{append_args, engine_proxy_url, log_command, required_engine_task_id, EngineTaskState};
+use super::{
+    append_args, engine_proxy_url, engine_speed_limit_bytes_per_sec, engine_user_agent,
+    log_command, required_engine_task_id, EngineTaskState,
+};
 
 const YTDLP_FAST_DEFAULT_ARGS: &str = "--no-playlist --js-runtimes node --concurrent-fragments 8";
 const YTDLP_PROGRESS_PREFIX: &str = "[UniDL:progress] ";
@@ -86,6 +89,11 @@ fn add_ytdlp_task(
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
     append_args(&mut command, &settings.default_args);
     append_args(&mut command, &task.engine_args);
+    append_ytdlp_transfer_options(
+        &mut command,
+        engine_user_agent(settings),
+        engine_speed_limit_bytes_per_sec(settings),
+    );
     append_ytdlp_progress_args(&mut command);
     if force_continue {
         command.arg("--continue");
@@ -432,6 +440,21 @@ fn append_ytdlp_progress_args(command: &mut Command) {
         .arg("--newline")
         .arg("--progress-template")
         .arg(YTDLP_PROGRESS_TEMPLATE);
+}
+
+pub(super) fn append_ytdlp_transfer_options(
+    command: &mut Command,
+    user_agent: Option<&str>,
+    speed_limit_bytes_per_sec: Option<i64>,
+) {
+    if let Some(user_agent) = user_agent.map(str::trim).filter(|value| !value.is_empty()) {
+        command.arg("--user-agent").arg(user_agent);
+    }
+    if let Some(speed_limit_bytes_per_sec) = speed_limit_bytes_per_sec.filter(|value| *value > 0) {
+        command
+            .arg("--limit-rate")
+            .arg(speed_limit_bytes_per_sec.to_string());
+    }
 }
 
 fn write_ytdlp_cookie_file(task: &DownloadTask) -> Result<Option<PathBuf>, Box<dyn Error>> {

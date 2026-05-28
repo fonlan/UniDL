@@ -37,6 +37,8 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             tracker_subscription_url TEXT,
             trackers TEXT NOT NULL DEFAULT '',
             proxy_url TEXT,
+            user_agent TEXT,
+            speed_limit_bytes_per_sec INTEGER NOT NULL DEFAULT 0 CHECK (speed_limit_bytes_per_sec >= 0),
             aria2_enable_dht INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht IN (0, 1)),
             aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1)),
             aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1)),
@@ -97,6 +99,7 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     migrate_engine_settings_preferred_domains(connection)?;
     migrate_engine_settings_trackers(connection)?;
     migrate_engine_settings_proxy_url(connection)?;
+    migrate_engine_settings_transfer_options(connection)?;
     migrate_engine_settings_aria2_bt_options(connection)?;
     migrate_download_tasks_engine_settings_id(connection)?;
     migrate_download_tasks_engine_args(connection)?;
@@ -167,6 +170,8 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             tracker_subscription_url TEXT,
             trackers TEXT NOT NULL DEFAULT '',
             proxy_url TEXT,
+            user_agent TEXT,
+            speed_limit_bytes_per_sec INTEGER NOT NULL DEFAULT 0 CHECK (speed_limit_bytes_per_sec >= 0),
             aria2_enable_dht INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht IN (0, 1)),
             aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1)),
             aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1)),
@@ -197,6 +202,8 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             tracker_subscription_url,
             trackers,
             proxy_url,
+            user_agent,
+            speed_limit_bytes_per_sec,
             aria2_enable_dht,
             aria2_enable_dht6,
             aria2_enable_peer_exchange,
@@ -227,6 +234,8 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             NULL,
             '',
             NULL,
+            NULL,
+            0,
             1,
             1,
             1,
@@ -361,6 +370,32 @@ fn migrate_engine_settings_proxy_url(connection: &Connection) -> Result<(), rusq
         "#,
         [],
     )?;
+
+    Ok(())
+}
+
+fn migrate_engine_settings_transfer_options(
+    connection: &Connection,
+) -> Result<(), rusqlite::Error> {
+    if !has_column(connection, "engine_settings", "user_agent")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN user_agent TEXT;
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "speed_limit_bytes_per_sec")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN speed_limit_bytes_per_sec INTEGER NOT NULL DEFAULT 0 CHECK (speed_limit_bytes_per_sec >= 0);
+            "#,
+            [],
+        )?;
+    }
 
     Ok(())
 }

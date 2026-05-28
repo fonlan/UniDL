@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::{
-    append_args, bool_param, engine_proxy_url, log_command, parse_i64, required_engine_task_id,
-    EngineTaskState, MagnetMetadata,
+    append_args, bool_param, engine_proxy_url, engine_speed_limit_bytes_per_sec, engine_user_agent,
+    log_command, parse_i64, required_engine_task_id, EngineTaskState, MagnetMetadata,
 };
 
 const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
@@ -190,6 +190,8 @@ fn add_aria2_task(
         &task.engine_args,
         task.selected_file_indexes.as_deref(),
         engine_proxy_url(settings),
+        engine_user_agent(settings),
+        engine_speed_limit_bytes_per_sec(settings),
         settings.aria2_bt_max_peers,
         settings.aria2_seed_time,
         settings.aria2_seed_ratio,
@@ -236,6 +238,8 @@ fn resolve_aria2_magnet_metadata(
         "",
         None,
         engine_proxy_url(settings),
+        engine_user_agent(settings),
+        engine_speed_limit_bytes_per_sec(settings),
         settings.aria2_bt_max_peers,
         settings.aria2_seed_time,
         settings.aria2_seed_ratio,
@@ -274,6 +278,8 @@ fn resolve_aria2_magnet_files(
         "",
         None,
         engine_proxy_url(settings),
+        engine_user_agent(settings),
+        engine_speed_limit_bytes_per_sec(settings),
         settings.aria2_bt_max_peers,
         settings.aria2_seed_time,
         settings.aria2_seed_ratio,
@@ -936,6 +942,8 @@ pub(super) fn aria2_download_options(
     task_args: &str,
     selected_file_indexes: Option<&[i64]>,
     proxy_url: Option<&str>,
+    user_agent: Option<&str>,
+    speed_limit_bytes_per_sec: Option<i64>,
     aria2_bt_max_peers: i64,
     aria2_seed_time: i64,
     aria2_seed_ratio: f64,
@@ -964,6 +972,19 @@ pub(super) fn aria2_download_options(
         options.insert(
             "all-proxy".to_string(),
             Value::String(proxy_url.to_string()),
+        );
+    }
+    if let Some(user_agent) = user_agent.map(str::trim).filter(|value| !value.is_empty()) {
+        options.insert(
+            "user-agent".to_string(),
+            Value::String(user_agent.to_string()),
+        );
+    }
+    if let Some(speed_limit_bytes_per_sec) = speed_limit_bytes_per_sec.filter(|value| *value > 0) {
+        insert_i64_option(
+            &mut options,
+            "max-download-limit",
+            speed_limit_bytes_per_sec,
         );
     }
     if let Some(output_file_name) = output_file_name.filter(|value| !value.is_empty()) {
