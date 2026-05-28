@@ -25,6 +25,7 @@ export interface OpenTaskRequest {
   source: string;
   fileName?: string | null;
   browserCookies?: string | null;
+  httpReferrer?: string | null;
 }
 
 export type LogLevel = "info" | "warn" | "error";

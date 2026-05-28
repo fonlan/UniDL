@@ -147,6 +147,7 @@ pub struct DownloadTask {
     pub engine_args: String,
     pub selected_file_indexes: Option<Vec<i64>>,
     pub browser_cookies: Option<String>,
+    pub http_referrer: Option<String>,
     pub created_at: String,
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
@@ -164,6 +165,7 @@ pub struct CreateDownloadTaskInput {
     pub engine_args: String,
     pub selected_file_indexes: Option<Vec<i64>>,
     pub browser_cookies: Option<String>,
+    pub http_referrer: Option<String>,
     pub file_conflict_action: Option<FileConflictAction>,
 }
 
@@ -185,6 +187,7 @@ pub struct NewDownloadTask {
     pub engine_args: String,
     pub selected_file_indexes: Option<Vec<i64>>,
     pub browser_cookies: Option<String>,
+    pub http_referrer: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

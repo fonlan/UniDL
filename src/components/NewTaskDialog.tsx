@@ -188,6 +188,7 @@ export default function NewTaskDialog({
   initialSource = null,
   initialFileName = null,
   initialBrowserCookies = null,
+  initialHttpReferrer = null,
   onClose,
   onCreated,
 }: {
@@ -195,6 +196,7 @@ export default function NewTaskDialog({
   initialSource?: string | null;
   initialFileName?: string | null;
   initialBrowserCookies?: string | null;
+  initialHttpReferrer?: string | null;
   onClose: () => void;
   onCreated: (task: DownloadTask) => void;
 }) {
@@ -368,6 +370,7 @@ export default function NewTaskDialog({
       engineArgs: "",
       selectedFileIndexes: null,
       browserCookies: initialBrowserCookies,
+      httpReferrer: initialHttpReferrer,
       fileConflictAction: "prompt",
     };
   }
@@ -611,6 +614,8 @@ export default function NewTaskDialog({
                 </span>
                 <div className="flex min-w-0 gap-2">
                   <input
+                    title={selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
+                    aria-label={selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
                     value={savePath}
                     onChange={(event) => setSavePath(event.currentTarget.value)}
                     className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"

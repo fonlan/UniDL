@@ -29,6 +29,7 @@ export interface DownloadTask {
   engineArgs: string;
   selectedFileIndexes?: number[] | null;
   browserCookies?: string | null;
+  httpReferrer?: string | null;
   createdAt: string;
   completedAt: string | null;
   errorMessage: string | null;
@@ -44,6 +45,7 @@ export interface CreateDownloadTaskInput {
   engineArgs: string;
   selectedFileIndexes?: number[] | null;
   browserCookies?: string | null;
+  httpReferrer?: string | null;
   fileConflictAction?: FileConflictAction | null;
 }
 

@@ -259,6 +259,9 @@ function App() {
   const [newTaskInitialBrowserCookies, setNewTaskInitialBrowserCookies] = useState<
     string | null
   >(null);
+  const [newTaskInitialHttpReferrer, setNewTaskInitialHttpReferrer] = useState<
+    string | null
+  >(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -635,6 +638,7 @@ function App() {
       setNewTaskInitialSource(request.source);
       setNewTaskInitialFileName(request.fileName ?? null);
       setNewTaskInitialBrowserCookies(request.browserCookies ?? null);
+      setNewTaskInitialHttpReferrer(request.httpReferrer ?? null);
       setShowNewTaskDialog(true);
     };
 
@@ -684,6 +688,7 @@ function App() {
     setNewTaskInitialSource(source);
     setNewTaskInitialFileName(null);
     setNewTaskInitialBrowserCookies(null);
+    setNewTaskInitialHttpReferrer(null);
     setShowNewTaskDialog(true);
   }
 
@@ -692,6 +697,7 @@ function App() {
     setNewTaskInitialSource(null);
     setNewTaskInitialFileName(null);
     setNewTaskInitialBrowserCookies(null);
+    setNewTaskInitialHttpReferrer(null);
   }
 
   function toggleAllSelected() {
@@ -844,6 +850,7 @@ function App() {
         engineArgs: task.engineArgs,
         selectedFileIndexes: task.selectedFileIndexes ?? null,
         browserCookies: task.browserCookies ?? null,
+        httpReferrer: task.httpReferrer ?? null,
       });
       setSelectedIds(new Set([recreatedTask.id]));
       setDetailTaskId(recreatedTask.id);
@@ -1474,6 +1481,7 @@ function App() {
         initialSource={newTaskInitialSource}
         initialFileName={newTaskInitialFileName}
         initialBrowserCookies={newTaskInitialBrowserCookies}
+        initialHttpReferrer={newTaskInitialHttpReferrer}
         onClose={closeNewTaskDialog}
         onCreated={handleTaskCreated}
       />

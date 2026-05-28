@@ -11,6 +11,7 @@ pub struct OpenTaskRequest {
     pub source: String,
     pub file_name: Option<String>,
     pub browser_cookies: Option<String>,
+    pub http_referrer: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -37,6 +38,7 @@ pub fn source_requests(sources: Vec<String>) -> Vec<OpenTaskRequest> {
             source,
             file_name: None,
             browser_cookies: None,
+            http_referrer: None,
         })
         .collect()
 }

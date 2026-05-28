@@ -175,6 +175,7 @@ impl<'connection> DownloadTaskService<'connection> {
             engine_args: input.engine_args,
             selected_file_indexes: input.selected_file_indexes,
             browser_cookies: input.browser_cookies,
+            http_referrer: input.http_referrer,
         };
         self.repository.create(&id, &task_input)?;
         let task = self.repository.get_by_id(&id)?;
@@ -2052,6 +2053,7 @@ mod tests {
             engine_args: String::new(),
             selected_file_indexes: None,
             browser_cookies: None,
+            http_referrer: None,
             file_conflict_action: None,
         });
 
@@ -2085,6 +2087,7 @@ mod tests {
                     engine_args: String::new(),
                     selected_file_indexes: None,
                     browser_cookies: None,
+                    http_referrer: None,
                 },
             )
             .expect("failed task should insert");
@@ -2253,6 +2256,7 @@ mod tests {
                 engine_args: String::new(),
                 selected_file_indexes: None,
                 browser_cookies: None,
+                http_referrer: None,
                 file_conflict_action: None,
             })
             .expect("task should be added through qBittorrent");
@@ -2728,6 +2732,7 @@ mod tests {
             engine_args: String::new(),
             selected_file_indexes: None,
             browser_cookies: None,
+            http_referrer: None,
             created_at: String::new(),
             completed_at: Some(String::new()),
             error_message: None,

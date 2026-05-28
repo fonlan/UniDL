@@ -260,11 +260,10 @@ export default function TaskDetailPanel({
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab as "detail" | "files")}
-              className={`border-b-2 px-3 pb-2 text-sm font-medium ${
-                activeTab === tab
+              className={`border-b-2 px-3 pb-2 text-sm font-medium ${activeTab === tab
                   ? "border-emerald-700 text-emerald-700"
                   : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
+                }`}
             >
               {label}
             </button>
@@ -275,56 +274,67 @@ export default function TaskDetailPanel({
       <div className="max-h-[42vh] overflow-auto px-4 py-4">
         {activeTab === "detail" && (
           <>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <DetailField label="任务 ID" value={task.id} />
-          <DetailField label="引擎任务 ID" value={task.engineTaskId ?? "-"} />
-          <DetailField label="来源类型" value={sourceLabels[task.sourceType]} />
-          <DetailField label="下载引擎" value={engineLabels[task.engine]} />
-          <DetailField label="状态" value={statusLabels[task.status]} />
-          <DetailField label="进度" value={`${task.progress.toFixed(1)}%`} />
-          <DetailField label="已下载大小" value={formatBytes(task.downloadedBytes)} />
-          <DetailField label="总大小" value={formatBytes(task.totalBytes)} />
-          <DetailField label="速度" value={formatSpeed(task.speedBytesPerSec)} />
-          <DetailField label="保存路径" value={task.savePath} />
-          <DetailField label="创建时间" value={formatDate(task.createdAt)} />
-          <DetailField label="完成时间" value={formatDate(task.completedAt)} />
-          <DetailField label="引擎参数" value={task.engineArgs || "-"} />
-          <DetailField label="错误信息" value={task.errorMessage ?? "-"} />
-        </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <DetailField label="任务 ID" value={task.id} />
+              <DetailField label="引擎任务 ID" value={task.engineTaskId ?? "-"} />
+              <DetailField label="来源类型" value={sourceLabels[task.sourceType]} />
+              <DetailField label="下载引擎" value={engineLabels[task.engine]} />
+              <DetailField label="状态" value={statusLabels[task.status]} />
+              <DetailField label="进度" value={`${task.progress.toFixed(1)}%`} />
+              <DetailField label="已下载大小" value={formatBytes(task.downloadedBytes)} />
+              <DetailField label="总大小" value={formatBytes(task.totalBytes)} />
+              <DetailField label="速度" value={formatSpeed(task.speedBytesPerSec)} />
+              <DetailField label="保存路径" value={task.savePath} />
+              <DetailField label="创建时间" value={formatDate(task.createdAt)} />
+              <DetailField label="完成时间" value={formatDate(task.completedAt)} />
+              <DetailField label="引擎参数" value={task.engineArgs || "-"} />
+              <DetailField label="错误信息" value={task.errorMessage ?? "-"} />
+            </div>
 
-        <div className="mt-4 rounded-lg border border-slate-200">
-          <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
-            原始来源
-          </div>
-          <div className="break-all px-3 py-2 text-sm text-slate-700">{task.source}</div>
-        </div>
-
-        {(task.sourceType === "magnet" || task.sourceType === "torrent") && (
-          <div className="mt-4">
-            <section className="rounded-lg border border-slate-200">
+            <div className="mt-4 rounded-lg border border-slate-200">
               <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
-                Tracker
+                原始来源
               </div>
-              {task.sourceType === "magnet" ? (
-                trackers.length > 0 ? (
-                  <ul className="max-h-40 overflow-auto px-3 py-2 text-sm text-slate-700">
-                    {trackers.map((tracker) => (
-                      <li key={tracker} className="break-all border-b border-slate-100 py-1 last:border-b-0">
-                        {tracker}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="px-3 py-2 text-sm text-slate-500">磁链未包含 tr 参数。</div>
-                )
-              ) : (
-                <div className="px-3 py-2 text-sm text-slate-500">
-                  当前 .torrent 解析接口只提供文件列表，未暴露 tracker 信息。
+              <div className="break-all px-3 py-2 text-sm text-slate-700">{task.source}</div>
+            </div>
+
+            {task.httpReferrer && (
+              <div className="mt-4 rounded-lg border border-slate-200">
+                <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
+                  HTTP 引用页
                 </div>
-              )}
-            </section>
-          </div>
-        )}
+                <div className="break-all px-3 py-2 text-sm text-slate-700">
+                  {task.httpReferrer}
+                </div>
+              </div>
+            )}
+
+            {(task.sourceType === "magnet" || task.sourceType === "torrent") && (
+              <div className="mt-4">
+                <section className="rounded-lg border border-slate-200">
+                  <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
+                    Tracker
+                  </div>
+                  {task.sourceType === "magnet" ? (
+                    trackers.length > 0 ? (
+                      <ul className="max-h-40 overflow-auto px-3 py-2 text-sm text-slate-700">
+                        {trackers.map((tracker) => (
+                          <li key={tracker} className="break-all border-b border-slate-100 py-1 last:border-b-0">
+                            {tracker}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-slate-500">磁链未包含 tr 参数。</div>
+                    )
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-slate-500">
+                      当前 .torrent 解析接口只提供文件列表，未暴露 tracker 信息。
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
           </>
         )}
 
@@ -378,47 +388,47 @@ export default function TaskDetailPanel({
                 </div>
                 <div className="max-h-[30vh] overflow-auto">
                   <table className="w-full table-fixed text-left text-sm">
-                  <thead className="sticky top-0 bg-white text-xs text-slate-500">
-                    <tr>
-                      <th className="w-12 border-b border-slate-100 px-3 py-2">选择</th>
-                      <th className="border-b border-slate-100 px-3 py-2">相对路径</th>
-                      <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">大小</th>
-                      <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">进度</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {torrentFiles.map((file) => (
-                      <tr key={file.index}>
-                        <td className="border-b border-slate-100 px-3 py-2">
-                          <input
-                            type="checkbox"
-                            title={`选择 ${file.path}`}
-                            aria-label={`选择 ${file.path}`}
-                            checked={selectedFileIndexes.has(file.index)}
-                            disabled={isSavingFileSelection || (selectedFileIndexes.size === 1 && selectedFileIndexes.has(file.index))}
-                            onChange={(event) => {
-                              const next = new Set(selectedFileIndexes);
-                              if (event.currentTarget.checked) {
-                                next.add(file.index);
-                              } else {
-                                next.delete(file.index);
-                              }
-                              void saveFileSelection(next);
-                            }}
-                          />
-                        </td>
-                        <td className="border-b border-slate-100 px-3 py-2">
-                          <div className="truncate text-slate-700" title={file.path}>{file.path}</div>
-                        </td>
-                        <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
-                          {formatBytes(file.length)}
-                        </td>
-                        <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
-                          {fileProgress(file).toFixed(1)}%
-                        </td>
+                    <thead className="sticky top-0 bg-white text-xs text-slate-500">
+                      <tr>
+                        <th className="w-12 border-b border-slate-100 px-3 py-2">选择</th>
+                        <th className="border-b border-slate-100 px-3 py-2">相对路径</th>
+                        <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">大小</th>
+                        <th className="w-24 border-b border-slate-100 px-3 py-2 text-right">进度</th>
                       </tr>
-                    ))}
-                  </tbody>
+                    </thead>
+                    <tbody>
+                      {torrentFiles.map((file) => (
+                        <tr key={file.index}>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <input
+                              type="checkbox"
+                              title={`选择 ${file.path}`}
+                              aria-label={`选择 ${file.path}`}
+                              checked={selectedFileIndexes.has(file.index)}
+                              disabled={isSavingFileSelection || (selectedFileIndexes.size === 1 && selectedFileIndexes.has(file.index))}
+                              onChange={(event) => {
+                                const next = new Set(selectedFileIndexes);
+                                if (event.currentTarget.checked) {
+                                  next.add(file.index);
+                                } else {
+                                  next.delete(file.index);
+                                }
+                                void saveFileSelection(next);
+                              }}
+                            />
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <div className="truncate text-slate-700" title={file.path}>{file.path}</div>
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
+                            {formatBytes(file.length)}
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-right tabular-nums text-slate-600">
+                            {fileProgress(file).toFixed(1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 </div>
               </>

@@ -180,6 +180,7 @@ struct ExtensionYtDlpTaskInput {
     source: String,
     file_name: String,
     cookies: Option<String>,
+    http_referrer: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -188,6 +189,7 @@ struct ExtensionTaskInput {
     source_type: SourceType,
     source: String,
     file_name: String,
+    http_referrer: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -438,6 +440,7 @@ fn handle_extension_ytdlp_task(
             source,
             file_name: Some(file_name.clone()),
             browser_cookies: input.cookies.filter(|value| !value.trim().is_empty()),
+            http_referrer: normalize_optional_http_url(input.http_referrer),
         },
     )?;
     json_response(StatusCode(200), &ExtensionTaskOutput { file_name })
@@ -602,6 +605,18 @@ fn extension_source_type(source: &str) -> Option<SourceType> {
     }
 }
 
+fn normalize_optional_http_url(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("http://") || lower.starts_with("https://") {
+            Some(trimmed.to_string())
+        } else {
+            None
+        }
+    })
+}
+
 fn extension_video_title(source: &str) -> String {
     source
         .trim_start_matches("https://")
@@ -635,6 +650,7 @@ fn handle_extension_task(
         source,
         file_name: Some(file_name.clone()),
         browser_cookies: None,
+        http_referrer: normalize_optional_http_url(input.http_referrer),
     };
     open_task_dialog(context, request)?;
 
@@ -1249,7 +1265,8 @@ mod tests {
             .json(&serde_json::json!({
                 "sourceType": "magnet",
                 "source": "magnet:?xt=urn:btih:ABCDEF123456&dn=unidl",
-                "fileName": "unidl"
+                "fileName": "unidl",
+                "httpReferrer": "https://example.test/page"
             }))
             .send()
             .expect("extension task request should complete")
@@ -1266,6 +1283,7 @@ mod tests {
                 source: "magnet:?xt=urn:btih:ABCDEF123456&dn=unidl".to_string(),
                 file_name: Some("unidl".to_string()),
                 browser_cookies: None,
+                http_referrer: Some("https://example.test/page".to_string()),
             }]
         );
 

@@ -364,6 +364,7 @@ mod tests {
             engine_args: String::new(),
             selected_file_indexes: None,
             browser_cookies: None,
+            http_referrer: None,
             created_at: String::new(),
             completed_at: None,
             error_message: None,

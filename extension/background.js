@@ -35,7 +35,7 @@ function createContextMenus() {
 
 chrome.contextMenus.onClicked.addListener((info) => {
   if (info.menuItemId === MENU_SEND_LINK && info.linkUrl) {
-    runTask(sendSource(info.linkUrl));
+    runTask(sendSource(info.linkUrl, undefined, undefined, info.pageUrl));
   }
 });
 chrome.downloads.onCreated.addListener((download) => runTask(handleDownload(download)));
@@ -166,7 +166,12 @@ async function handleDownload(download) {
   if (shouldSkipCaptureByDomain(download.url, settings)) {
     return;
   }
-  const task = await sendSource(download.url, settings, download.filename);
+  const task = await sendSource(
+    download.url,
+    settings,
+    download.filename,
+    download.referrer,
+  );
   if (settings.cancelOriginal) {
     await cancelDownload(download.id);
   }
@@ -210,15 +215,17 @@ function runTask(task) {
   task.catch((error) => void remember("UniDL error: " + error.message));
 }
 
-async function sendSource(source, cachedSettings, suggestedFileName) {
+async function sendSource(source, cachedSettings, suggestedFileName, referrerUrl) {
   const settings = cachedSettings ?? (await getSettings());
   const parsed = parseSource(source, suggestedFileName);
+  const httpReferrer = normalizeHttpUrl(referrerUrl);
   const task = await requestJson(settings.apiBaseUrl, "/api/extension/tasks", {
     method: "POST",
     body: {
       sourceType: parsed.sourceType,
       source: parsed.source,
       fileName: parsed.fileName,
+      httpReferrer,
     },
   });
   await remember(task.fileName + " sent to UniDL");
