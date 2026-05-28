@@ -547,52 +547,38 @@ export default function NewTaskDialog({
               />
             </label>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {parsedSource ? (
-                <span className="inline-flex h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-medium text-emerald-800">
-                  {sourceLabels[parsedSource.sourceType]}
-                </span>
-              ) : (
-                <span className="inline-flex h-7 items-center rounded-md border border-amber-200 bg-amber-50 px-2 text-xs font-medium text-amber-800">
-                  未识别
-                </span>
-              )}
-              {parsedSource ? (
-                compatibleSettings.length > 0 && (
-                  <span className="text-xs text-slate-500">
-                    {compatibleSettings.length} 个兼容引擎
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {parsedSource ? (
+                  <span className="inline-flex h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-medium text-emerald-800">
+                    {sourceLabels[parsedSource.sourceType]}
                   </span>
-                )
-              ) : engineSettings.length > 0 ? (
-                <span className="text-xs text-slate-500">
-                  {engineSettings.length} 个已添加引擎
-                </span>
-              ) : null}
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
-                <span className="font-medium">文件名</span>
-                <input
-                  value={fileName}
-                  disabled={parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent"}
-                  onChange={(event) => setFileName(event.currentTarget.value)}
-                  className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
-                />
-                {(parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent") && (
-                  <span className="text-xs text-slate-500">BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。</span>
+                ) : (
+                  <span className="inline-flex h-7 items-center rounded-md border border-amber-200 bg-amber-50 px-2 text-xs font-medium text-amber-800">
+                    未识别
+                  </span>
                 )}
-              </label>
-
-              <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
-                <span className="font-medium">引擎</span>
+                {parsedSource ? (
+                  compatibleSettings.length > 0 && (
+                    <span className="text-xs text-slate-500">
+                      {compatibleSettings.length} 个兼容引擎
+                    </span>
+                  )
+                ) : engineSettings.length > 0 ? (
+                  <span className="text-xs text-slate-500">
+                    {engineSettings.length} 个已添加引擎
+                  </span>
+                ) : null}
+              </div>
+              <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                <span className="shrink-0 font-medium">引擎</span>
                 <select
                   value={selectedEngineSettingsId}
                   disabled={isLoading}
                   onChange={(event) =>
                     setSelectedEngineSettingsId(event.currentTarget.value)
                   }
-                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
+                  className="h-9 w-56 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <option value="">-</option>
                   {visibleEngineSettings.map((settings) => (
@@ -606,6 +592,21 @@ export default function NewTaskDialog({
                     </option>
                   ))}
                 </select>
+              </label>
+            </div>
+
+            <div className="grid gap-4">
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                <span className="font-medium">文件名</span>
+                <input
+                  value={fileName}
+                  disabled={parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent"}
+                  onChange={(event) => setFileName(event.currentTarget.value)}
+                  className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
+                />
+                {(parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent") && (
+                  <span className="text-xs text-slate-500">BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。</span>
+                )}
               </label>
 
               <div className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
@@ -623,21 +624,23 @@ export default function NewTaskDialog({
                   {canSelectLocalSavePath && (
                     <button
                       type="button"
+                      title="选择下载目录"
+                      aria-label="选择下载目录"
                       onClick={() => void selectSavePath()}
-                      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50"
                     >
                       <FolderOpen size={15} />
-                      选择
                     </button>
                   )}
                   {canSelectRemoteSavePath && (
                     <button
                       type="button"
+                      title="选择远程目录"
+                      aria-label="选择远程目录"
                       onClick={() => void loadRemoteDirectories(savePath)}
-                      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50"
                     >
                       <FolderOpen size={15} />
-                      选择
                     </button>
                   )}
                 </div>
