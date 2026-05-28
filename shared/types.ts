@@ -4,6 +4,15 @@ export type SourceType = "http" | "ftp" | "magnet" | "torrent";
 
 export type FileConflictAction = "prompt" | "overwrite" | "rename";
 
+export type DownloadDuplicateKind =
+  | "same_source"
+  | "same_final_url"
+  | "same_save_path"
+  | "same_name_and_size"
+  | "same_torrent_info_hash";
+
+export type DownloadDuplicateTaskState = "active" | "completed";
+
 export type DownloadStatus =
   | "queued"
   | "running"
@@ -52,6 +61,17 @@ export interface CreateDownloadTaskInput {
 export interface DownloadFileConflict {
   fileName: string;
   path: string;
+}
+
+export interface DownloadDuplicateMatch {
+  kind: DownloadDuplicateKind;
+  task: DownloadTask;
+  taskState: DownloadDuplicateTaskState;
+}
+
+export interface DownloadDuplicateCheck {
+  matches: DownloadDuplicateMatch[];
+  localFileConflict: DownloadFileConflict | null;
 }
 
 export interface TorrentFileEntry {

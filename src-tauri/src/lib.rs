@@ -449,6 +449,7 @@ pub fn run() {
             commands::refresh_download_tasks,
             commands::create_download_task,
             commands::check_download_file_conflict,
+            commands::check_download_duplicate,
             commands::get_torrent_files,
             commands::get_task_torrent_files,
             commands::update_task_file_selection,

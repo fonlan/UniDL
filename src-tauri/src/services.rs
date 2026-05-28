@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     error::Error,
     fs, io,
     path::{Path, PathBuf},
@@ -6,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use reqwest::blocking::Client;
+use reqwest::{blocking::Client, header::CONTENT_LENGTH};
 use rusqlite::Connection;
 use uuid::Uuid;
 
@@ -14,20 +15,29 @@ use crate::{
     engine_adapters, engine_install, logger,
     models::{
         engine_supports_source_type, supported_source_types, AppSettings, AppSettingsInput,
-        CreateDownloadTaskInput, DownloadFileConflict, DownloadStatus, DownloadTask,
-        EngineInstallResult, EngineKind, EngineSettings, EngineSettingsInput, FileConflictAction,
-        NewDownloadTask, SourceType,
+        CreateDownloadTaskInput, DownloadDuplicateCheck, DownloadDuplicateKind,
+        DownloadDuplicateMatch, DownloadDuplicateTaskState, DownloadFileConflict, DownloadStatus,
+        DownloadTask, EngineInstallResult, EngineKind, EngineSettings, EngineSettingsInput,
+        FileConflictAction, NewDownloadTask, SourceType,
     },
     repositories::{AppSettingsRepository, DownloadTaskRepository, EngineSettingsRepository},
 };
 
 const APP_HTTP_USER_AGENT: &str = "UniDL";
 const APP_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
+const DUPLICATE_HTTP_METADATA_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub fn build_app_http_client(proxy_url: Option<&str>) -> Result<Client, Box<dyn Error>> {
+    build_app_http_client_with_timeout(proxy_url, APP_HTTP_TIMEOUT)
+}
+
+fn build_app_http_client_with_timeout(
+    proxy_url: Option<&str>,
+    timeout: Duration,
+) -> Result<Client, Box<dyn Error>> {
     let mut builder = Client::builder()
         .user_agent(APP_HTTP_USER_AGENT)
-        .timeout(APP_HTTP_TIMEOUT);
+        .timeout(timeout);
     if let Some(proxy_url) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
         builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
     }
@@ -123,6 +133,117 @@ impl<'connection> DownloadTaskService<'connection> {
         }
 
         local_download_file_conflict(&input, &engine_settings)
+    }
+
+    pub fn download_duplicate_check(
+        &self,
+        input: CreateDownloadTaskInput,
+    ) -> Result<DownloadDuplicateCheck, Box<dyn Error>> {
+        validate_create_task_input(&input)?;
+
+        let engine_settings = self.resolve_engine_settings(&input)?;
+        if !engine_settings.enabled {
+            return Err(format!("{} is disabled", engine_settings.id).into());
+        }
+        if !engine_settings
+            .supported_source_types
+            .contains(&input.source_type)
+        {
+            return Err(format!(
+                "{} does not support {} tasks",
+                engine_settings.id,
+                input.source_type.as_db()
+            )
+            .into());
+        }
+
+        let local_file_conflict = local_download_file_conflict(&input, &engine_settings)?;
+        let mut matches = Vec::new();
+        let mut http_identity_cache = HashMap::new();
+        let input_source = normalize_duplicate_source(&input.source);
+        let input_save_path = normalize_duplicate_path(&input.save_path);
+        let input_file_name = input.file_name.trim();
+        let input_http_identity = download_http_resource_identity(
+            input.source_type,
+            &input.source,
+            &engine_settings,
+            &mut http_identity_cache,
+        );
+        let input_total_bytes = input_http_identity
+            .as_ref()
+            .and_then(|identity| identity.total_bytes);
+        let input_torrent_info_hash = input_torrent_info_hash(&input)?;
+
+        for task in self.repository.list_created_desc()? {
+            let Some(task_state) = duplicate_task_state(task.status) else {
+                continue;
+            };
+
+            let same_source = normalize_duplicate_source(&task.source) == input_source;
+            if same_source {
+                push_duplicate_match(
+                    &mut matches,
+                    DownloadDuplicateKind::SameSource,
+                    &task,
+                    task_state,
+                );
+            }
+
+            if !same_source
+                && same_final_url(
+                    input_http_identity.as_ref(),
+                    input_file_name,
+                    &task,
+                    &engine_settings,
+                    &mut http_identity_cache,
+                )
+            {
+                push_duplicate_match(
+                    &mut matches,
+                    DownloadDuplicateKind::SameFinalUrl,
+                    &task,
+                    task_state,
+                );
+            }
+
+            if normalize_duplicate_path(&task.save_path) == input_save_path
+                && task.file_name.trim() == input_file_name
+            {
+                push_duplicate_match(
+                    &mut matches,
+                    DownloadDuplicateKind::SameSavePath,
+                    &task,
+                    task_state,
+                );
+            }
+
+            if let Some(total_bytes) = input_total_bytes.filter(|value| *value > 0) {
+                if task.file_name.trim() == input_file_name && task.total_bytes == total_bytes {
+                    push_duplicate_match(
+                        &mut matches,
+                        DownloadDuplicateKind::SameNameAndSize,
+                        &task,
+                        task_state,
+                    );
+                }
+            }
+
+            if let Some(info_hash) = input_torrent_info_hash.as_deref() {
+                if task_torrent_info_hash(&task).as_deref() == Some(info_hash) {
+                    push_duplicate_match(
+                        &mut matches,
+                        DownloadDuplicateKind::SameTorrentInfoHash,
+                        &task,
+                        task_state,
+                    );
+                }
+            }
+        }
+
+        Ok(DownloadDuplicateCheck {
+            matches,
+            local_file_conflict,
+        })
     }
 
     pub fn create(
@@ -723,6 +844,250 @@ fn local_download_file_conflict(
         SourceType::Http | SourceType::Ftp => local_single_file_conflict(input, settings),
         SourceType::Magnet | SourceType::Torrent => Ok(None),
     }
+}
+
+#[derive(Clone)]
+struct DownloadHttpResourceIdentity {
+    final_url: String,
+    total_bytes: Option<i64>,
+}
+
+fn duplicate_task_state(status: DownloadStatus) -> Option<DownloadDuplicateTaskState> {
+    match status {
+        DownloadStatus::Completed => Some(DownloadDuplicateTaskState::Completed),
+        DownloadStatus::Queued
+        | DownloadStatus::Running
+        | DownloadStatus::Paused
+        | DownloadStatus::Failed => Some(DownloadDuplicateTaskState::Active),
+        DownloadStatus::Deleted => None,
+    }
+}
+
+fn push_duplicate_match(
+    matches: &mut Vec<DownloadDuplicateMatch>,
+    kind: DownloadDuplicateKind,
+    task: &DownloadTask,
+    task_state: DownloadDuplicateTaskState,
+) {
+    matches.push(DownloadDuplicateMatch {
+        kind,
+        task: task.clone(),
+        task_state,
+    });
+}
+
+fn normalize_duplicate_source(value: &str) -> String {
+    value.trim().to_string()
+}
+
+fn normalize_duplicate_path(value: &str) -> String {
+    let mut value = value.trim().replace('\\', "/");
+    while value.len() > 1 && value.ends_with('/') {
+        value.pop();
+    }
+    value
+}
+
+fn download_http_resource_identity(
+    source_type: SourceType,
+    source: &str,
+    settings: &EngineSettings,
+    cache: &mut HashMap<String, Option<DownloadHttpResourceIdentity>>,
+) -> Option<DownloadHttpResourceIdentity> {
+    if source_type != SourceType::Http {
+        return None;
+    }
+
+    let source = source.trim();
+    if source.is_empty() {
+        return None;
+    }
+
+    let cache_key = normalize_duplicate_source(source);
+    if let Some(identity) = cache.get(&cache_key) {
+        return identity.clone();
+    }
+
+    let identity = fetch_http_resource_identity(source, settings)
+        .map_err(|error| {
+            logger::warn(format!(
+                "download duplicate final url check skipped: source={source}, error={error}"
+            ));
+            error
+        })
+        .ok();
+    cache.insert(cache_key, identity.clone());
+    identity
+}
+
+fn fetch_http_resource_identity(
+    source: &str,
+    settings: &EngineSettings,
+) -> Result<DownloadHttpResourceIdentity, Box<dyn Error>> {
+    let client = build_app_http_client_with_timeout(
+        engine_adapters::engine_proxy_url(settings),
+        DUPLICATE_HTTP_METADATA_TIMEOUT,
+    )?;
+    let response = client.head(source).send()?;
+    if !response.status().is_success() {
+        return Err(format!("http metadata status failed: {}", response.status()).into());
+    }
+
+    let total_bytes = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0);
+
+    Ok(DownloadHttpResourceIdentity {
+        final_url: normalize_duplicate_source(response.url().as_str()),
+        total_bytes,
+    })
+}
+
+fn same_final_url(
+    input_identity: Option<&DownloadHttpResourceIdentity>,
+    input_file_name: &str,
+    task: &DownloadTask,
+    settings: &EngineSettings,
+    cache: &mut HashMap<String, Option<DownloadHttpResourceIdentity>>,
+) -> bool {
+    let Some(input_identity) = input_identity else {
+        return false;
+    };
+    if input_identity.final_url.is_empty() {
+        return false;
+    }
+
+    if normalize_duplicate_source(&task.source) == input_identity.final_url {
+        return true;
+    }
+
+    if task.source_type != SourceType::Http || task.file_name.trim() != input_file_name {
+        return false;
+    }
+
+    download_http_resource_identity(task.source_type, &task.source, settings, cache)
+        .map(|task_identity| task_identity.final_url == input_identity.final_url)
+        .unwrap_or(false)
+}
+
+fn input_torrent_info_hash(
+    input: &CreateDownloadTaskInput,
+) -> Result<Option<String>, Box<dyn Error>> {
+    match input.source_type {
+        SourceType::Magnet => Ok(parse_magnet_info_hash(&input.source)),
+        SourceType::Torrent => Ok(Some(crate::torrent_metadata::read_torrent_info_hash(
+            input.source.trim(),
+        )?)),
+        SourceType::Http | SourceType::Ftp => Ok(None),
+    }
+}
+
+fn task_torrent_info_hash(task: &DownloadTask) -> Option<String> {
+    match task.source_type {
+        SourceType::Magnet => parse_magnet_info_hash(&task.source),
+        SourceType::Torrent => crate::torrent_metadata::read_torrent_info_hash(task.source.trim())
+            .map_err(|error| {
+                logger::warn(format!(
+                    "download duplicate torrent hash check skipped: task_id={}, error={error}",
+                    task.id
+                ));
+                error
+            })
+            .ok(),
+        SourceType::Http | SourceType::Ftp => None,
+    }
+}
+
+fn parse_magnet_info_hash(source: &str) -> Option<String> {
+    let (_, query) = source.trim().split_once('?')?;
+    query.split('&').find_map(|part| {
+        let (key, value) = part.split_once('=')?;
+        if !key.eq_ignore_ascii_case("xt") {
+            return None;
+        }
+        let value = percent_decode_query_value(value)?;
+        let value = strip_btih_prefix(&value)?;
+        normalize_btih_hash(value)
+    })
+}
+
+fn strip_btih_prefix(value: &str) -> Option<&str> {
+    let prefix = "urn:btih:";
+    let bytes = value.as_bytes();
+    if bytes.len() < prefix.len() || !bytes[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
+    {
+        return None;
+    }
+    Some(&value[prefix.len()..])
+}
+
+fn percent_decode_query_value(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = bytes.get(index + 1).and_then(|byte| hex_value(*byte))?;
+            let low = bytes.get(index + 2).and_then(|byte| hex_value(*byte))?;
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    String::from_utf8(decoded).ok()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
+fn normalize_btih_hash(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Some(value.to_ascii_lowercase());
+    }
+    if value.len() == 32 {
+        return base32_btih_to_hex(value);
+    }
+    None
+}
+
+fn base32_btih_to_hex(value: &str) -> Option<String> {
+    let mut bits = 0;
+    let mut buffer = 0_u64;
+    let mut bytes = Vec::with_capacity(20);
+
+    for byte in value.bytes() {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a',
+            b'2'..=b'7' => byte - b'2' + 26,
+            _ => return None,
+        };
+        buffer = (buffer << 5) | u64::from(value);
+        bits += 5;
+        while bits >= 8 {
+            bits -= 8;
+            bytes.push(((buffer >> bits) & 0xff) as u8);
+        }
+    }
+
+    if bytes.len() != 20 {
+        return None;
+    }
+
+    Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn is_local_download_engine(engine: EngineKind) -> bool {

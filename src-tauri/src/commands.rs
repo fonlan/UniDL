@@ -5,9 +5,9 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     engine_adapters, engine_install, logger,
     models::{
-        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadFileConflict, DownloadTask,
-        EngineInstallResult, EngineKind, EngineSettings, EngineSettingsInput, RemoteDirectoryEntry,
-        SourceType,
+        AppSettings, AppSettingsInput, CreateDownloadTaskInput, DownloadDuplicateCheck,
+        DownloadFileConflict, DownloadTask, EngineInstallResult, EngineKind, EngineSettings,
+        EngineSettingsInput, RemoteDirectoryEntry, SourceType,
     },
     services::{AppSettingsService, DownloadTaskService, EngineSettingsService},
     AppState,
@@ -213,6 +213,17 @@ pub fn check_download_file_conflict(
     let connection = state.lock_connection()?;
     DownloadTaskService::new(&connection, state.database_path())
         .download_file_conflict(input)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn check_download_duplicate(
+    input: CreateDownloadTaskInput,
+    state: State<'_, AppState>,
+) -> Result<DownloadDuplicateCheck, String> {
+    let connection = state.lock_connection()?;
+    DownloadTaskService::new(&connection, state.database_path())
+        .download_duplicate_check(input)
         .map_err(|error| error.to_string())
 }
 

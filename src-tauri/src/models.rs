@@ -94,6 +94,23 @@ pub enum FileConflictAction {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum DownloadDuplicateKind {
+    SameSource,
+    SameFinalUrl,
+    SameSavePath,
+    SameNameAndSize,
+    SameTorrentInfoHash,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadDuplicateTaskState {
+    Active,
+    Completed,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum DownloadStatus {
     Queued,
     Running,
@@ -174,6 +191,21 @@ pub struct CreateDownloadTaskInput {
 pub struct DownloadFileConflict {
     pub file_name: String,
     pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadDuplicateMatch {
+    pub kind: DownloadDuplicateKind,
+    pub task: DownloadTask,
+    pub task_state: DownloadDuplicateTaskState,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadDuplicateCheck {
+    pub matches: Vec<DownloadDuplicateMatch>,
+    pub local_file_conflict: Option<DownloadFileConflict>,
 }
 
 #[derive(Debug, Clone)]

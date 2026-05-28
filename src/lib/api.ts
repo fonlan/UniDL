@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AppSettingsInput,
   CreateDownloadTaskInput,
+  DownloadDuplicateCheck,
   DownloadFileConflict,
   DownloadTask,
   EngineInstallResult,
@@ -165,6 +166,16 @@ export function checkDownloadFileConflict(
   }
 
   return invoke("check_download_file_conflict", { input });
+}
+
+export function checkDownloadDuplicate(
+  input: CreateDownloadTaskInput,
+): Promise<DownloadDuplicateCheck> {
+  if (!hasTauriRuntime()) {
+    return webJson("/api/tasks/duplicate-check", jsonRequest("POST", input));
+  }
+
+  return invoke("check_download_duplicate", { input });
 }
 
 export function listEngineSettings(): Promise<EngineSettings[]> {

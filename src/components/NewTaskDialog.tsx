@@ -5,7 +5,7 @@ import { openDialog } from "@/lib/tauri";
 import { reportDisplayedError } from "@/lib/error";
 
 import {
-  checkDownloadFileConflict,
+  checkDownloadDuplicate,
   createDownloadTask,
   listEngineSettings,
   listRemoteDirectories,
@@ -13,7 +13,10 @@ import {
 } from "@/lib/api";
 import type {
   CreateDownloadTaskInput,
-  DownloadFileConflict,
+  DownloadDuplicateCheck,
+  DownloadDuplicateKind,
+  DownloadDuplicateMatch,
+  DownloadStatus,
   DownloadTask,
   EngineKind,
   EngineSettings,
@@ -35,6 +38,23 @@ const engineLabels: Record<EngineKind, string> = {
   qbittorrent: "qBittorrent",
 };
 
+const duplicateKindLabels: Record<DownloadDuplicateKind, string> = {
+  same_source: "来源 URL 相同",
+  same_final_url: "最终 URL 相同",
+  same_save_path: "保存路径和文件名相同",
+  same_name_and_size: "文件名和大小相同",
+  same_torrent_info_hash: "Torrent info hash 相同",
+};
+
+const statusLabels: Record<DownloadStatus, string> = {
+  queued: "排队中",
+  running: "下载中",
+  paused: "已暂停",
+  completed: "已完成",
+  failed: "失败",
+  deleted: "已删除",
+};
+
 const ERROR_AUTO_DISMISS_MS = 10_000;
 function engineOptionLabel(settings: EngineSettings) {
   const name = settings.name.trim();
@@ -48,7 +68,6 @@ interface ParsedSource {
   fileName: string;
 }
 
-
 interface RemoteDirectoryTreeState {
   open: boolean;
   path: string;
@@ -56,6 +75,11 @@ interface RemoteDirectoryTreeState {
   loading: boolean;
 }
 
+interface DuplicateTaskGroup {
+  task: DownloadTask;
+  taskState: DownloadDuplicateMatch["taskState"];
+  kinds: DownloadDuplicateKind[];
+}
 
 function classNames(...names: Array<string | false | null | undefined>) {
   return names.filter(Boolean).join(" ");
@@ -165,13 +189,19 @@ function sourceHostname(parsedSource: ParsedSource) {
 }
 
 function normalizePreferredDomain(domain: string) {
-  return domain.trim().toLowerCase().replace(/^\*?\./, "");
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/^\*?\./, "");
 }
 
 function matchesPreferredDomain(settings: EngineSettings, hostname: string) {
   return settings.preferredDomains.some((domain) => {
     const normalized = normalizePreferredDomain(domain);
-    return normalized.length > 0 && (hostname === normalized || hostname.endsWith(`.${normalized}`));
+    return (
+      normalized.length > 0 &&
+      (hostname === normalized || hostname.endsWith(`.${normalized}`))
+    );
   });
 }
 
@@ -181,6 +211,27 @@ function defaultSavePath(settings: EngineSettings) {
   }
 
   return settings.defaultDownloadDir;
+}
+
+function groupDuplicateMatches(matches: DownloadDuplicateMatch[]) {
+  const groups = new Map<string, DuplicateTaskGroup>();
+  for (const match of matches) {
+    const group = groups.get(match.task.id);
+    if (group) {
+      if (!group.kinds.includes(match.kind)) {
+        group.kinds.push(match.kind);
+      }
+      continue;
+    }
+
+    groups.set(match.task.id, {
+      task: match.task,
+      taskState: match.taskState,
+      kinds: [match.kind],
+    });
+  }
+
+  return Array.from(groups.values());
 }
 
 export default function NewTaskDialog({
@@ -205,12 +256,16 @@ export default function NewTaskDialog({
   const [engineSettings, setEngineSettings] = useState<EngineSettings[]>([]);
   const [selectedEngineSettingsId, setSelectedEngineSettingsId] = useState("");
   const [savePath, setSavePath] = useState("");
-  const [remoteDirectoryTree, setRemoteDirectoryTree] = useState<RemoteDirectoryTreeState | null>(null);
+  const [remoteDirectoryTree, setRemoteDirectoryTree] =
+    useState<RemoteDirectoryTreeState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fileConflict, setFileConflict] = useState<DownloadFileConflict | null>(null);
-  const [pendingCreateInput, setPendingCreateInput] = useState<CreateDownloadTaskInput | null>(null);
+  const [duplicateCheck, setDuplicateCheck] = useState<DownloadDuplicateCheck | null>(
+    null,
+  );
+  const [pendingCreateInput, setPendingCreateInput] =
+    useState<CreateDownloadTaskInput | null>(null);
 
   const parsedSource = useMemo(() => parseSource(sourceInput), [sourceInput]);
   const compatibleSettings = useMemo(() => {
@@ -239,15 +294,23 @@ export default function NewTaskDialog({
   const selectedSettings =
     selectedEngineSettingsId === ""
       ? null
-      : engineSettings.find((settings) => settings.id === selectedEngineSettingsId) ?? null;
+      : (engineSettings.find((settings) => settings.id === selectedEngineSettingsId) ??
+        null);
   const canCreate =
     Boolean(parsedSource) &&
     Boolean(selectedSettings?.enabled) &&
-    (parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent" || fileName.trim().length > 0) &&
+    (parsedSource?.sourceType === "magnet" ||
+      parsedSource?.sourceType === "torrent" ||
+      fileName.trim().length > 0) &&
     (selectedSettings?.engine === "qbittorrent" || savePath.trim().length > 0) &&
     !isCreating;
   const canSelectLocalSavePath = selectedSettings?.engine !== "qbittorrent";
-  const canSelectRemoteSavePath = selectedSettings?.engine === "qbittorrent" && Boolean(selectedSettings.enabled);
+  const canSelectRemoteSavePath =
+    selectedSettings?.engine === "qbittorrent" && Boolean(selectedSettings.enabled);
+  const duplicateTaskGroups = useMemo(
+    () => (duplicateCheck ? groupDuplicateMatches(duplicateCheck.matches) : []),
+    [duplicateCheck],
+  );
   useEffect(() => {
     if (!open) {
       return;
@@ -326,7 +389,7 @@ export default function NewTaskDialog({
     setSelectedEngineSettingsId("");
     setSavePath("");
     setError(null);
-    setFileConflict(null);
+    setDuplicateCheck(null);
     setPendingCreateInput(null);
     setRemoteDirectoryTree(null);
     onClose();
@@ -365,7 +428,8 @@ export default function NewTaskDialog({
       source: parsedSource.source,
       engine: selectedSettings.engine,
       engineSettingsId: selectedSettings.id,
-      fileName: fileName.trim() || parsedSource.fileName || sourceLabels[parsedSource.sourceType],
+      fileName:
+        fileName.trim() || parsedSource.fileName || sourceLabels[parsedSource.sourceType],
       savePath: savePath.trim(),
       engineArgs: "",
       selectedFileIndexes: null,
@@ -402,7 +466,7 @@ export default function NewTaskDialog({
 
     setIsCreating(true);
     setError(null);
-    setFileConflict(null);
+    setDuplicateCheck(null);
     setPendingCreateInput(null);
 
     try {
@@ -410,9 +474,9 @@ export default function NewTaskDialog({
         "info",
         `submitting new task: engine=${selectedSettings.engine}, sourceType=${input.sourceType}`,
       );
-      const conflict = await checkDownloadFileConflict(input);
-      if (conflict) {
-        setFileConflict(conflict);
+      const check = await checkDownloadDuplicate(input);
+      if (check.matches.length > 0 || check.localFileConflict) {
+        setDuplicateCheck(check);
         setPendingCreateInput(input);
         return;
       }
@@ -424,12 +488,19 @@ export default function NewTaskDialog({
     }
   }
 
-  function cancelFileConflict() {
-    setFileConflict(null);
+  function skipDuplicateCheck() {
+    setDuplicateCheck(null);
     setPendingCreateInput(null);
   }
 
-  function resolveFileConflict(action: Exclude<FileConflictAction, "prompt">) {
+  function redownloadDuplicateTask() {
+    if (!pendingCreateInput || duplicateCheck?.localFileConflict) {
+      return;
+    }
+    void createTask(pendingCreateInput, "prompt");
+  }
+
+  function resolveDuplicateCheck(action: Exclude<FileConflictAction, "prompt">) {
     if (!pendingCreateInput) {
       return;
     }
@@ -600,23 +671,39 @@ export default function NewTaskDialog({
                 <span className="font-medium">文件名</span>
                 <input
                   value={fileName}
-                  disabled={parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent"}
+                  disabled={
+                    parsedSource?.sourceType === "magnet" ||
+                    parsedSource?.sourceType === "torrent"
+                  }
                   onChange={(event) => setFileName(event.currentTarget.value)}
                   className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
                 />
-                {(parsedSource?.sourceType === "magnet" || parsedSource?.sourceType === "torrent") && (
-                  <span className="text-xs text-slate-500">BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。</span>
+                {(parsedSource?.sourceType === "magnet" ||
+                  parsedSource?.sourceType === "torrent") && (
+                  <span className="text-xs text-slate-500">
+                    BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。
+                  </span>
                 )}
               </label>
 
               <div className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
                 <span className="font-medium">
-                  {selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
+                  {selectedSettings?.engine === "qbittorrent"
+                    ? "远程保存路径"
+                    : "本地目录"}
                 </span>
                 <div className="flex min-w-0 gap-2">
                   <input
-                    title={selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
-                    aria-label={selectedSettings?.engine === "qbittorrent" ? "远程保存路径" : "本地目录"}
+                    title={
+                      selectedSettings?.engine === "qbittorrent"
+                        ? "远程保存路径"
+                        : "本地目录"
+                    }
+                    aria-label={
+                      selectedSettings?.engine === "qbittorrent"
+                        ? "远程保存路径"
+                        : "本地目录"
+                    }
                     placeholder={
                       selectedSettings?.engine === "qbittorrent"
                         ? "留空使用 qBittorrent 默认保存路径"
@@ -662,7 +749,9 @@ export default function NewTaskDialog({
                       </button>
                     </div>
                     {remoteDirectoryTree.loading ? (
-                      <div className="px-2 py-1 text-xs text-slate-500">正在读取远程目录…</div>
+                      <div className="px-2 py-1 text-xs text-slate-500">
+                        正在读取远程目录…
+                      </div>
                     ) : remoteDirectoryTree.entries.length > 0 ? (
                       <div className="max-h-48 overflow-auto rounded border border-slate-200 bg-white">
                         {remoteDirectoryTree.entries.map((entry) => (
@@ -684,7 +773,6 @@ export default function NewTaskDialog({
                   </div>
                 )}
               </div>
-
             </div>
 
             {error && (
@@ -718,42 +806,115 @@ export default function NewTaskDialog({
           </button>
         </footer>
       </div>
-      {fileConflict && (
+      {duplicateCheck && (
         <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/40 px-4">
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl">
-            <h3 className="text-sm font-semibold text-slate-950">文件已存在</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              本地已存在同名文件，请选择如何处理。
-            </p>
-            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              <div className="font-medium">{fileConflict.fileName}</div>
-              <div className="mt-1 break-all text-xs">{fileConflict.path}</div>
+          <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h3 className="text-sm font-semibold text-slate-950">
+                发现重复任务或文件冲突
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                请确认是否继续创建新任务；不会自动打开已有任务。
+              </p>
             </div>
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <div className="min-h-0 overflow-auto px-4 py-3">
+              <div className="grid gap-3">
+                {duplicateTaskGroups.length > 0 && (
+                  <div className="grid gap-2">
+                    {duplicateTaskGroups.map((group) => (
+                      <div
+                        key={group.task.id}
+                        className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                      >
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="min-w-0 truncate font-medium">
+                            {group.task.fileName || group.task.source}
+                          </span>
+                          <span className="shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-xs text-amber-800">
+                            {group.taskState === "active"
+                              ? "已存在未完成任务"
+                              : "已完成相同任务"}
+                          </span>
+                          <span className="shrink-0 text-xs text-amber-700">
+                            {statusLabels[group.task.status]}
+                          </span>
+                        </div>
+                        <div className="mt-1 break-all text-xs text-amber-800">
+                          {group.task.savePath}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {group.kinds.map((kind) => (
+                            <span
+                              key={kind}
+                              className="rounded border border-amber-200 bg-white px-1.5 py-0.5 text-xs text-amber-800"
+                            >
+                              {duplicateKindLabels[kind]}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {duplicateCheck.localFileConflict && (
+                  <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                    <div className="font-medium">本地文件已存在</div>
+                    <div className="mt-1">
+                      {duplicateCheck.localFileConflict.fileName}
+                    </div>
+                    <div className="mt-1 break-all text-xs">
+                      {duplicateCheck.localFileConflict.path}
+                    </div>
+                  </div>
+                )}
+
+                {duplicateCheck.localFileConflict && duplicateTaskGroups.length > 0 && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    由于本地存在同名文件，如需继续创建请改用自动重命名或覆盖。
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3">
               <button
                 type="button"
                 disabled={isCreating}
-                onClick={cancelFileConflict}
+                onClick={skipDuplicateCheck}
                 className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
-                取消
+                跳过
               </button>
-              <button
-                type="button"
-                disabled={isCreating}
-                onClick={() => resolveFileConflict("rename")}
-                className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                自动重命名
-              </button>
-              <button
-                type="button"
-                disabled={isCreating}
-                onClick={() => resolveFileConflict("overwrite")}
-                className="h-9 rounded-md bg-rose-600 px-4 text-sm font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                覆盖
-              </button>
+              {duplicateTaskGroups.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isCreating || Boolean(duplicateCheck.localFileConflict)}
+                  onClick={redownloadDuplicateTask}
+                  className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  重新下载
+                </button>
+              )}
+              {duplicateCheck.localFileConflict && (
+                <>
+                  <button
+                    type="button"
+                    disabled={isCreating}
+                    onClick={() => resolveDuplicateCheck("rename")}
+                    className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    自动重命名
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreating}
+                    onClick={() => resolveDuplicateCheck("overwrite")}
+                    className="h-9 rounded-md bg-rose-600 px-4 text-sm font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    覆盖
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
