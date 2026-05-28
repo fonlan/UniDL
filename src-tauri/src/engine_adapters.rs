@@ -339,6 +339,10 @@ mod tests {
             aria2_enable_lpd: true,
             aria2_bt_listen_port: 6881,
             aria2_bt_max_peers: 55,
+            aria2_max_connection_per_server: 16,
+            aria2_split: 16,
+            aria2_min_split_size: "1M".to_string(),
+            aria2_file_allocation: "none".to_string(),
             aria2_seed_time: 10,
             aria2_seed_ratio: 1.0,
             priority: 0,
@@ -415,6 +419,10 @@ mod tests {
             None,
             None,
             55,
+            16,
+            16,
+            "1M",
+            "none",
             10,
             1.0,
             true,
@@ -441,6 +449,10 @@ mod tests {
             None,
             None,
             55,
+            16,
+            16,
+            "1M",
+            "none",
             10,
             1.0,
             false,
@@ -468,6 +480,47 @@ mod tests {
     }
 
     #[test]
+    fn aria2_download_options_uses_configured_transfer_options() {
+        let options = aria2_download_options(
+            "C:\\Downloads",
+            None,
+            "--max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none",
+            "",
+            None,
+            None,
+            None,
+            None,
+            55,
+            8,
+            4,
+            "2M",
+            "prealloc",
+            10,
+            1.0,
+            true,
+            true,
+            true,
+            true,
+        );
+
+        assert_eq!(
+            options
+                .get("max-connection-per-server")
+                .and_then(Value::as_str),
+            Some("8")
+        );
+        assert_eq!(options.get("split").and_then(Value::as_str), Some("4"));
+        assert_eq!(
+            options.get("min-split-size").and_then(Value::as_str),
+            Some("2M")
+        );
+        assert_eq!(
+            options.get("file-allocation").and_then(Value::as_str),
+            Some("prealloc")
+        );
+    }
+
+    #[test]
     fn aria2_download_options_uses_user_agent_and_speed_limit() {
         let options = aria2_download_options(
             "C:\\Downloads",
@@ -479,6 +532,10 @@ mod tests {
             Some("UniDL Test Agent"),
             Some(524_288),
             55,
+            16,
+            16,
+            "1M",
+            "none",
             10,
             1.0,
             true,
@@ -811,6 +868,10 @@ mod tests {
             aria2_enable_lpd: true,
             aria2_bt_listen_port: 6881,
             aria2_bt_max_peers: 55,
+            aria2_max_connection_per_server: 16,
+            aria2_split: 16,
+            aria2_min_split_size: "1M".to_string(),
+            aria2_file_allocation: "none".to_string(),
             aria2_seed_time: 10,
             aria2_seed_ratio: 1.0,
             priority: 0,

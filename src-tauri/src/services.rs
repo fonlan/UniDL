@@ -941,6 +941,10 @@ impl<'connection> EngineSettingsService<'connection> {
             aria2_enable_lpd: current.aria2_enable_lpd,
             aria2_bt_listen_port: current.aria2_bt_listen_port,
             aria2_bt_max_peers: current.aria2_bt_max_peers,
+            aria2_max_connection_per_server: current.aria2_max_connection_per_server,
+            aria2_split: current.aria2_split,
+            aria2_min_split_size: current.aria2_min_split_size,
+            aria2_file_allocation: current.aria2_file_allocation,
             aria2_seed_time: current.aria2_seed_time,
             aria2_seed_ratio: current.aria2_seed_ratio,
             priority: current.priority,
@@ -979,6 +983,10 @@ impl<'connection> EngineSettingsService<'connection> {
             aria2_enable_lpd: input.aria2_enable_lpd,
             aria2_bt_listen_port: input.aria2_bt_listen_port,
             aria2_bt_max_peers: input.aria2_bt_max_peers,
+            aria2_max_connection_per_server: input.aria2_max_connection_per_server,
+            aria2_split: input.aria2_split,
+            aria2_min_split_size: input.aria2_min_split_size,
+            aria2_file_allocation: input.aria2_file_allocation,
             aria2_seed_time: input.aria2_seed_time,
             aria2_seed_ratio: input.aria2_seed_ratio,
             priority: input.priority,
@@ -1037,6 +1045,10 @@ impl<'connection> EngineSettingsService<'connection> {
             aria2_enable_lpd: current.aria2_enable_lpd,
             aria2_bt_listen_port: current.aria2_bt_listen_port,
             aria2_bt_max_peers: current.aria2_bt_max_peers,
+            aria2_max_connection_per_server: current.aria2_max_connection_per_server,
+            aria2_split: current.aria2_split,
+            aria2_min_split_size: current.aria2_min_split_size,
+            aria2_file_allocation: current.aria2_file_allocation,
             aria2_seed_time: current.aria2_seed_time,
             aria2_seed_ratio: current.aria2_seed_ratio,
             priority: current.priority,
@@ -1118,6 +1130,27 @@ fn normalize_engine_settings_input(
     if input.aria2_bt_max_peers < 0 {
         return Err("aria2 BT max peers cannot be negative".into());
     }
+    if input.aria2_max_connection_per_server < 1 {
+        return Err("aria2 max connection per server must be at least 1".into());
+    }
+    if input.aria2_split < 1 {
+        return Err("aria2 split must be at least 1".into());
+    }
+    let aria2_min_split_size = input.aria2_min_split_size.trim().to_string();
+    if aria2_min_split_size.is_empty()
+        || aria2_min_split_size
+            .chars()
+            .any(|character| character.is_whitespace())
+    {
+        return Err("aria2 min split size is required and cannot contain spaces".into());
+    }
+    let aria2_file_allocation = input.aria2_file_allocation.trim().to_ascii_lowercase();
+    if !matches!(
+        aria2_file_allocation.as_str(),
+        "none" | "prealloc" | "trunc" | "falloc"
+    ) {
+        return Err("aria2 file allocation must be one of none, prealloc, trunc, falloc".into());
+    }
     if input.aria2_seed_time < 0 {
         return Err("aria2 seed time cannot be negative".into());
     }
@@ -1137,6 +1170,8 @@ fn normalize_engine_settings_input(
         supported_source_types,
         proxy_url,
         user_agent,
+        aria2_min_split_size,
+        aria2_file_allocation,
         ..input
     })
 }
@@ -1265,6 +1300,10 @@ mod tests {
                 aria2_enable_lpd: true,
                 aria2_bt_listen_port: 6881,
                 aria2_bt_max_peers: 55,
+                aria2_max_connection_per_server: 16,
+                aria2_split: 16,
+                aria2_min_split_size: "1M".to_string(),
+                aria2_file_allocation: "none".to_string(),
                 aria2_seed_time: 10,
                 aria2_seed_ratio: 1.0,
                 priority: 0,
@@ -1298,6 +1337,10 @@ mod tests {
                 aria2_enable_lpd: saved.aria2_enable_lpd,
                 aria2_bt_listen_port: saved.aria2_bt_listen_port,
                 aria2_bt_max_peers: saved.aria2_bt_max_peers,
+                aria2_max_connection_per_server: saved.aria2_max_connection_per_server,
+                aria2_split: saved.aria2_split,
+                aria2_min_split_size: saved.aria2_min_split_size,
+                aria2_file_allocation: saved.aria2_file_allocation,
                 aria2_seed_time: saved.aria2_seed_time,
                 aria2_seed_ratio: saved.aria2_seed_ratio,
                 priority: saved.priority,
@@ -1716,6 +1759,10 @@ mod tests {
                 aria2_enable_lpd: false,
                 aria2_bt_listen_port: 6881,
                 aria2_bt_max_peers: 55,
+                aria2_max_connection_per_server: 16,
+                aria2_split: 16,
+                aria2_min_split_size: "1M".to_string(),
+                aria2_file_allocation: "none".to_string(),
                 aria2_seed_time: 10,
                 aria2_seed_ratio: 1.0,
                 priority: 0,
@@ -2238,6 +2285,10 @@ mod tests {
                 aria2_enable_lpd: false,
                 aria2_bt_listen_port: 6881,
                 aria2_bt_max_peers: 55,
+                aria2_max_connection_per_server: 16,
+                aria2_split: 16,
+                aria2_min_split_size: "1M".to_string(),
+                aria2_file_allocation: "none".to_string(),
                 aria2_seed_time: 10,
                 aria2_seed_ratio: 1.0,
                 priority: 0,
@@ -2450,6 +2501,10 @@ mod tests {
                 aria2_enable_lpd: false,
                 aria2_bt_listen_port: 6881,
                 aria2_bt_max_peers: 55,
+                aria2_max_connection_per_server: 16,
+                aria2_split: 16,
+                aria2_min_split_size: "1M".to_string(),
+                aria2_file_allocation: "none".to_string(),
                 aria2_seed_time: 10,
                 aria2_seed_ratio: 1.0,
                 priority: 0,
@@ -2600,6 +2655,10 @@ mod tests {
                 aria2_enable_lpd: false,
                 aria2_bt_listen_port: 6881,
                 aria2_bt_max_peers: 55,
+                aria2_max_connection_per_server: 16,
+                aria2_split: 16,
+                aria2_min_split_size: "1M".to_string(),
+                aria2_file_allocation: "none".to_string(),
                 aria2_seed_time: 10,
                 aria2_seed_ratio: 1.0,
                 priority: 0,
@@ -2634,6 +2693,10 @@ mod tests {
                 aria2_enable_lpd: false,
                 aria2_bt_listen_port: 6881,
                 aria2_bt_max_peers: 55,
+                aria2_max_connection_per_server: 16,
+                aria2_split: 16,
+                aria2_min_split_size: "1M".to_string(),
+                aria2_file_allocation: "none".to_string(),
                 aria2_seed_time: 10,
                 aria2_seed_ratio: 1.0,
                 priority: 0,

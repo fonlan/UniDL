@@ -21,7 +21,7 @@ use super::{
     log_command, parse_i64, required_engine_task_id, EngineTaskState, MagnetMetadata,
 };
 
-const ARIA2_FAST_DEFAULT_ARGS: &str = "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none";
+const ARIA2_BASE_DEFAULT_ARGS: &str = "--continue=true";
 const MAGNET_NAME_RESOLVE_ATTEMPTS: usize = 60;
 const COLD_ARIA2_MAGNET_RESOLVE_ATTEMPTS: usize = 180;
 const MAGNET_NAME_RESOLVE_INTERVAL: Duration = Duration::from_secs(1);
@@ -193,6 +193,10 @@ fn add_aria2_task(
         engine_user_agent(settings),
         engine_speed_limit_bytes_per_sec(settings),
         settings.aria2_bt_max_peers,
+        settings.aria2_max_connection_per_server,
+        settings.aria2_split,
+        &settings.aria2_min_split_size,
+        &settings.aria2_file_allocation,
         settings.aria2_seed_time,
         settings.aria2_seed_ratio,
         settings.aria2_enable_dht,
@@ -241,6 +245,10 @@ fn resolve_aria2_magnet_metadata(
         engine_user_agent(settings),
         engine_speed_limit_bytes_per_sec(settings),
         settings.aria2_bt_max_peers,
+        settings.aria2_max_connection_per_server,
+        settings.aria2_split,
+        &settings.aria2_min_split_size,
+        &settings.aria2_file_allocation,
         settings.aria2_seed_time,
         settings.aria2_seed_ratio,
         settings.aria2_enable_dht,
@@ -281,6 +289,10 @@ fn resolve_aria2_magnet_files(
         engine_user_agent(settings),
         engine_speed_limit_bytes_per_sec(settings),
         settings.aria2_bt_max_peers,
+        settings.aria2_max_connection_per_server,
+        settings.aria2_split,
+        &settings.aria2_min_split_size,
+        &settings.aria2_file_allocation,
         settings.aria2_seed_time,
         settings.aria2_seed_ratio,
         settings.aria2_enable_dht,
@@ -712,9 +724,22 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
     command
         .arg("--enable-rpc=true")
         .arg("--rpc-listen-all=false")
-        .args(ARIA2_FAST_DEFAULT_ARGS.split_whitespace());
+        .args(ARIA2_BASE_DEFAULT_ARGS.split_whitespace());
     append_args(&mut command, &settings.default_args);
     command
+        .arg(format!(
+            "--max-connection-per-server={}",
+            settings.aria2_max_connection_per_server
+        ))
+        .arg(format!("--split={}", settings.aria2_split))
+        .arg(format!(
+            "--min-split-size={}",
+            settings.aria2_min_split_size
+        ))
+        .arg(format!(
+            "--file-allocation={}",
+            settings.aria2_file_allocation
+        ))
         .arg(format!("--rpc-listen-port={rpc_listen_port}"))
         .arg(format!(
             "--enable-dht={}",
@@ -945,6 +970,10 @@ pub(super) fn aria2_download_options(
     user_agent: Option<&str>,
     speed_limit_bytes_per_sec: Option<i64>,
     aria2_bt_max_peers: i64,
+    aria2_max_connection_per_server: i64,
+    aria2_split: i64,
+    aria2_min_split_size: &str,
+    aria2_file_allocation: &str,
     aria2_seed_time: i64,
     aria2_seed_ratio: f64,
     aria2_enable_dht: bool,
@@ -954,10 +983,24 @@ pub(super) fn aria2_download_options(
 ) -> Value {
     let mut options = serde_json::Map::new();
     options.insert("dir".to_string(), Value::String(save_path.to_string()));
-    append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
+    append_aria2_options(&mut options, ARIA2_BASE_DEFAULT_ARGS);
     append_aria2_options(&mut options, default_args);
     append_aria2_options(&mut options, task_args);
     insert_i64_option(&mut options, "bt-max-peers", aria2_bt_max_peers);
+    insert_i64_option(
+        &mut options,
+        "max-connection-per-server",
+        aria2_max_connection_per_server,
+    );
+    insert_i64_option(&mut options, "split", aria2_split);
+    options.insert(
+        "min-split-size".to_string(),
+        Value::String(aria2_min_split_size.to_string()),
+    );
+    options.insert(
+        "file-allocation".to_string(),
+        Value::String(aria2_file_allocation.to_string()),
+    );
     insert_i64_option(&mut options, "seed-time", aria2_seed_time);
     insert_f64_option(&mut options, "seed-ratio", aria2_seed_ratio);
     insert_bool_option(&mut options, "enable-dht", aria2_enable_dht);

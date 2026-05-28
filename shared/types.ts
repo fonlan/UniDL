@@ -91,6 +91,10 @@ export interface EngineSettings {
   aria2EnableLpd: boolean;
   aria2BtListenPort: number;
   aria2BtMaxPeers: number;
+  aria2MaxConnectionPerServer: number;
+  aria2Split: number;
+  aria2MinSplitSize: string;
+  aria2FileAllocation: string;
   aria2SeedTime: number;
   aria2SeedRatio: number;
   priority: number;

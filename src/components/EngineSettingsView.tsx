@@ -56,9 +56,14 @@ const ARIA2_DEFAULT_RPC_LISTEN_PORT = 6800;
 const ARIA2_RPC_PATH = "/jsonrpc";
 const ARIA2_DEFAULT_BT_LISTEN_PORT = 6881;
 const ARIA2_DEFAULT_BT_MAX_PEERS = 55;
+const ARIA2_DEFAULT_MAX_CONNECTION_PER_SERVER = 16;
+const ARIA2_DEFAULT_SPLIT = 16;
+const ARIA2_DEFAULT_MIN_SPLIT_SIZE = "1M";
+const ARIA2_DEFAULT_FILE_ALLOCATION = "none";
 const ARIA2_DEFAULT_SEED_TIME = 10;
 const ARIA2_DEFAULT_SEED_RATIO = 1;
 const SPEED_LIMIT_BYTES_PER_MEGABYTE = 1024 * 1024;
+const aria2FileAllocationOptions = ["none", "prealloc", "trunc", "falloc"] as const;
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
@@ -323,6 +328,28 @@ function validateAria2Settings(settings: EngineSettings) {
   if (!Number.isInteger(settings.aria2BtMaxPeers) || settings.aria2BtMaxPeers < 0) {
     return "BT 下载的最大 Peer 数量不能为负数";
   }
+  if (
+    !Number.isInteger(settings.aria2MaxConnectionPerServer) ||
+    settings.aria2MaxConnectionPerServer < 1
+  ) {
+    return "单服务器最大连接数必须是至少 1 的整数";
+  }
+  if (!Number.isInteger(settings.aria2Split) || settings.aria2Split < 1) {
+    return "分片数必须是至少 1 的整数";
+  }
+  if (
+    settings.aria2MinSplitSize.trim().length === 0 ||
+    /\s/.test(settings.aria2MinSplitSize)
+  ) {
+    return "最小分片大小不能为空，也不能包含空格";
+  }
+  if (
+    !aria2FileAllocationOptions.includes(
+      settings.aria2FileAllocation as (typeof aria2FileAllocationOptions)[number],
+    )
+  ) {
+    return "文件预分配方式无效";
+  }
   if (!Number.isInteger(settings.aria2SeedTime) || settings.aria2SeedTime < 0) {
     return "下载完成后持续做种时间不能为负数";
   }
@@ -369,6 +396,10 @@ function defaultEngineSettings(
     aria2EnableLpd: true,
     aria2BtListenPort,
     aria2BtMaxPeers: ARIA2_DEFAULT_BT_MAX_PEERS,
+    aria2MaxConnectionPerServer: ARIA2_DEFAULT_MAX_CONNECTION_PER_SERVER,
+    aria2Split: ARIA2_DEFAULT_SPLIT,
+    aria2MinSplitSize: ARIA2_DEFAULT_MIN_SPLIT_SIZE,
+    aria2FileAllocation: ARIA2_DEFAULT_FILE_ALLOCATION,
     aria2SeedTime: ARIA2_DEFAULT_SEED_TIME,
     aria2SeedRatio: ARIA2_DEFAULT_SEED_RATIO,
     priority: 0,
@@ -442,6 +473,10 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     aria2EnableLpd: settings.aria2EnableLpd,
     aria2BtListenPort: settings.aria2BtListenPort,
     aria2BtMaxPeers: settings.aria2BtMaxPeers,
+    aria2MaxConnectionPerServer: Math.trunc(settings.aria2MaxConnectionPerServer),
+    aria2Split: Math.trunc(settings.aria2Split),
+    aria2MinSplitSize: settings.aria2MinSplitSize.trim(),
+    aria2FileAllocation: settings.aria2FileAllocation.trim().toLowerCase(),
     aria2SeedTime: settings.aria2SeedTime,
     aria2SeedRatio: settings.aria2SeedRatio,
     priority: settings.priority,
@@ -2157,8 +2192,19 @@ export default function EngineSettingsView({
                           cardAria2Error && cardAria2Error.includes("RPC")
                             ? cardAria2Error
                             : null;
+                        const cardAria2TransferError =
+                          cardAria2Error &&
+                          ["单服务器", "分片", "最小分片", "文件预分配"].some(
+                            (keyword) => cardAria2Error.includes(keyword),
+                          )
+                            ? cardAria2Error
+                            : null;
                         const cardAria2BtError =
-                          cardAria2Error && !cardAria2RpcError ? cardAria2Error : null;
+                          cardAria2Error &&
+                          !cardAria2RpcError &&
+                          !cardAria2TransferError
+                            ? cardAria2Error
+                            : null;
                         const cardSettingsError = cardProxyError ?? cardAria2Error;
                         const aria2RpcUrl =
                           draft.engine === "aria2"
@@ -2470,6 +2516,7 @@ export default function EngineSettingsView({
                                 </span>
                                 <span className="truncate text-xs text-slate-400">
                                   {[
+                                    draft.engine === "aria2" ? "连接与分片" : null,
                                     draft.engine === "aria2" ? "BT 参数" : null,
                                     draft.engine === "aria2" ? "BT 发现" : null,
                                     draft.engine === "aria2" ? "RPC 监听" : null,
@@ -2531,6 +2578,76 @@ export default function EngineSettingsView({
                                           })
                                         }
                                       />
+                                    </div>
+                                  )}
+
+                                  {draft.engine === "aria2" && (
+                                    <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                      <div>
+                                        <div className="text-sm font-medium text-slate-800">
+                                          连接与分片
+                                        </div>
+                                        <div className="mt-1 text-xs text-slate-500">
+                                          配置 aria2 的 max-connection-per-server、split、min-split-size
+                                          和 file-allocation。
+                                        </div>
+                                      </div>
+                                      <div className="grid gap-3 sm:grid-cols-2">
+                                        <NumberField
+                                          label="单服务器最大连接数"
+                                          value={draft.aria2MaxConnectionPerServer}
+                                          min={1}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2MaxConnectionPerServer:
+                                                Math.trunc(value),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="分片数"
+                                          value={draft.aria2Split}
+                                          min={1}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2Split: Math.trunc(value),
+                                            })
+                                          }
+                                        />
+                                        <Field
+                                          label="最小分片大小"
+                                          value={draft.aria2MinSplitSize}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2MinSplitSize: value,
+                                            })
+                                          }
+                                        />
+                                        <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+                                          <span className="font-medium">文件预分配</span>
+                                          <select
+                                            value={draft.aria2FileAllocation}
+                                            onChange={(event) =>
+                                              updateDraft(draft.id, {
+                                                aria2FileAllocation:
+                                                  event.currentTarget.value,
+                                              })
+                                            }
+                                            className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                                          >
+                                            {aria2FileAllocationOptions.map((option) => (
+                                              <option key={option} value={option}>
+                                                {option}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                      </div>
+                                      {cardAria2TransferError && (
+                                        <div className="text-xs text-rose-600">
+                                          {cardAria2TransferError}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
 
@@ -2821,7 +2938,7 @@ export default function EngineSettingsView({
                                   />
                                   {draft.engine === "aria2" && (
                                     <div className="text-xs text-slate-500">
-                                      UniDL 已内置 aria2 基础加速参数，可在此填写额外参数进行补充或覆盖。
+                                      UniDL 仍内置 aria2 断点续传参数；连接与分片参数请优先使用上方专用设置。
                                     </div>
                                   )}
 

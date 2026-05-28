@@ -45,6 +45,10 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1)),
             aria2_bt_listen_port INTEGER NOT NULL DEFAULT 6881 CHECK (aria2_bt_listen_port >= 1 AND aria2_bt_listen_port <= 65535),
             aria2_bt_max_peers INTEGER NOT NULL DEFAULT 55 CHECK (aria2_bt_max_peers >= 0),
+            aria2_max_connection_per_server INTEGER NOT NULL DEFAULT 16 CHECK (aria2_max_connection_per_server >= 1),
+            aria2_split INTEGER NOT NULL DEFAULT 16 CHECK (aria2_split >= 1),
+            aria2_min_split_size TEXT NOT NULL DEFAULT '1M',
+            aria2_file_allocation TEXT NOT NULL DEFAULT 'none',
             aria2_seed_time INTEGER NOT NULL DEFAULT 10 CHECK (aria2_seed_time >= 0),
             aria2_seed_ratio REAL NOT NULL DEFAULT 1.0 CHECK (aria2_seed_ratio >= 0),
             priority INTEGER NOT NULL DEFAULT 0,
@@ -180,6 +184,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1)),
             aria2_bt_listen_port INTEGER NOT NULL DEFAULT 6881 CHECK (aria2_bt_listen_port >= 1 AND aria2_bt_listen_port <= 65535),
             aria2_bt_max_peers INTEGER NOT NULL DEFAULT 55 CHECK (aria2_bt_max_peers >= 0),
+            aria2_max_connection_per_server INTEGER NOT NULL DEFAULT 16 CHECK (aria2_max_connection_per_server >= 1),
+            aria2_split INTEGER NOT NULL DEFAULT 16 CHECK (aria2_split >= 1),
+            aria2_min_split_size TEXT NOT NULL DEFAULT '1M',
+            aria2_file_allocation TEXT NOT NULL DEFAULT 'none',
             aria2_seed_time INTEGER NOT NULL DEFAULT 10 CHECK (aria2_seed_time >= 0),
             aria2_seed_ratio REAL NOT NULL DEFAULT 1.0 CHECK (aria2_seed_ratio >= 0),
             priority INTEGER NOT NULL DEFAULT 0,
@@ -210,6 +218,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             aria2_enable_dht6,
             aria2_enable_peer_exchange,
             aria2_enable_lpd,
+            aria2_max_connection_per_server,
+            aria2_split,
+            aria2_min_split_size,
+            aria2_file_allocation,
             priority,
             created_at,
             updated_at
@@ -242,6 +254,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             1,
             1,
             1,
+            16,
+            16,
+            '1M',
+            'none',
             CASE engine
                 WHEN 'aria2' THEN 0
                 WHEN 'yt-dlp' THEN 1
@@ -460,6 +476,50 @@ fn migrate_engine_settings_aria2_bt_options(
             r#"
             ALTER TABLE engine_settings
                 ADD COLUMN aria2_bt_max_peers INTEGER NOT NULL DEFAULT 55 CHECK (aria2_bt_max_peers >= 0);
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(
+        connection,
+        "engine_settings",
+        "aria2_max_connection_per_server",
+    )? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_max_connection_per_server INTEGER NOT NULL DEFAULT 16 CHECK (aria2_max_connection_per_server >= 1);
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_split")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_split INTEGER NOT NULL DEFAULT 16 CHECK (aria2_split >= 1);
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_min_split_size")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_min_split_size TEXT NOT NULL DEFAULT '1M';
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_file_allocation")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_file_allocation TEXT NOT NULL DEFAULT 'none';
             "#,
             [],
         )?;
