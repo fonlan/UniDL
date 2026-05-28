@@ -68,6 +68,11 @@ interface ParsedSource {
   fileName: string;
 }
 
+interface ParsedSourceInput {
+  sources: ParsedSource[];
+  error: string | null;
+}
+
 interface RemoteDirectoryTreeState {
   open: boolean;
   path: string;
@@ -124,6 +129,35 @@ function parseSource(value: string): ParsedSource | null {
   }
 
   return null;
+}
+
+function parseSourceInput(value: string): ParsedSourceInput {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return { sources: [], error: null };
+  }
+
+  const sources: ParsedSource[] = [];
+  for (const line of lines) {
+    const parsed = parseSource(line);
+    if (!parsed) {
+      return { sources: [], error: "来源中包含无法识别的链接" };
+    }
+    sources.push(parsed);
+  }
+
+  const firstSourceType = sources[0]?.sourceType;
+  if (
+    firstSourceType &&
+    sources.some((source) => source.sourceType !== firstSourceType)
+  ) {
+    return { sources: [], error: "批量添加仅支持相同类型的链接" };
+  }
+
+  return { sources, error: null };
 }
 
 function parseUrlName(value: string) {
@@ -266,8 +300,15 @@ export default function NewTaskDialog({
   );
   const [pendingCreateInput, setPendingCreateInput] =
     useState<CreateDownloadTaskInput | null>(null);
+  const [pendingBatchInputs, setPendingBatchInputs] = useState<CreateDownloadTaskInput[]>(
+    [],
+  );
 
-  const parsedSource = useMemo(() => parseSource(sourceInput), [sourceInput]);
+  const parsedSourceInput = useMemo(() => parseSourceInput(sourceInput), [sourceInput]);
+  const parsedSources = parsedSourceInput.sources;
+  const parsedSource = parsedSources[0] ?? null;
+  const isBatchMode = parsedSources.length > 1;
+  const sourceInputError = parsedSourceInput.error;
   const compatibleSettings = useMemo(() => {
     if (!parsedSource) {
       return [];
@@ -298,8 +339,10 @@ export default function NewTaskDialog({
         null);
   const canCreate =
     Boolean(parsedSource) &&
+    !sourceInputError &&
     Boolean(selectedSettings?.enabled) &&
-    (parsedSource?.sourceType === "magnet" ||
+    (isBatchMode ||
+      parsedSource?.sourceType === "magnet" ||
       parsedSource?.sourceType === "torrent" ||
       fileName.trim().length > 0) &&
     (selectedSettings?.engine === "qbittorrent" || savePath.trim().length > 0) &&
@@ -343,8 +386,8 @@ export default function NewTaskDialog({
 
   useEffect(() => {
     const nextFileName = resolvedInitialFileName(initialFileName, parsedSource);
-    setFileName(nextFileName);
-  }, [initialFileName, parsedSource]);
+    setFileName(isBatchMode ? "" : nextFileName);
+  }, [initialFileName, isBatchMode, parsedSource]);
 
   useEffect(() => {
     if (!parsedSource) {
@@ -391,6 +434,7 @@ export default function NewTaskDialog({
     setError(null);
     setDuplicateCheck(null);
     setPendingCreateInput(null);
+    setPendingBatchInputs([]);
     setRemoteDirectoryTree(null);
     onClose();
   }
@@ -412,55 +456,70 @@ export default function NewTaskDialog({
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const text = event.clipboardData.getData("text/plain");
-    if (parseSource(text)) {
+    if (parseSourceInput(text).sources.length > 0) {
       event.preventDefault();
       setSourceInput(text);
     }
   }
 
-  function buildCreateInput(): CreateDownloadTaskInput | null {
-    if (!parsedSource || !selectedSettings) {
+  function buildCreateInputs(): CreateDownloadTaskInput[] | null {
+    if (parsedSources.length === 0 || !selectedSettings || sourceInputError) {
       return null;
     }
 
-    return {
-      sourceType: parsedSource.sourceType,
-      source: parsedSource.source,
+    return parsedSources.map((source) => ({
+      sourceType: source.sourceType,
+      source: source.source,
       engine: selectedSettings.engine,
       engineSettingsId: selectedSettings.id,
       fileName:
-        fileName.trim() || parsedSource.fileName || sourceLabels[parsedSource.sourceType],
+        (isBatchMode ? "" : fileName.trim()) ||
+        source.fileName ||
+        sourceLabels[source.sourceType],
       savePath: savePath.trim(),
       engineArgs: "",
       selectedFileIndexes: null,
       browserCookies: initialBrowserCookies,
       httpReferrer: initialHttpReferrer,
       fileConflictAction: "prompt",
-    };
+    }));
   }
 
-  async function createTask(input: CreateDownloadTaskInput, action: FileConflictAction) {
-    setIsCreating(true);
-    setError(null);
+  async function createTaskRecord(
+    input: CreateDownloadTaskInput,
+    action: FileConflictAction,
+  ) {
+    const task = await createDownloadTask({
+      ...input,
+      fileConflictAction: action,
+    });
+    onCreated(task);
+    void writeLog("info", `new task created: id=${task.id}`);
+  }
 
-    try {
-      const task = await createDownloadTask({
-        ...input,
-        fileConflictAction: action,
-      });
-      onCreated(task);
-      void writeLog("info", `new task created: id=${task.id}`);
-      resetAndClose();
-    } catch (nextError) {
-      reportDisplayedError("create download task", nextError, setError);
-    } finally {
-      setIsCreating(false);
+  async function createInputsUntilBlocked(inputs: CreateDownloadTaskInput[]) {
+    for (const [index, input] of inputs.entries()) {
+      void writeLog(
+        "info",
+        `submitting new task: engine=${input.engine}, sourceType=${input.sourceType}`,
+      );
+      const check = await checkDownloadDuplicate(input);
+      if (check.matches.length > 0 || check.localFileConflict) {
+        setDuplicateCheck(check);
+        setPendingCreateInput(input);
+        setPendingBatchInputs(inputs.slice(index + 1));
+        return;
+      }
+
+      await createTaskRecord(input, "prompt");
     }
+
+    resetAndClose();
   }
 
   async function submitTask() {
-    const input = buildCreateInput();
-    if (!input || !selectedSettings) {
+    const inputs = buildCreateInputs();
+    if (!inputs || inputs.length === 0 || !selectedSettings) {
       return;
     }
 
@@ -468,19 +527,10 @@ export default function NewTaskDialog({
     setError(null);
     setDuplicateCheck(null);
     setPendingCreateInput(null);
+    setPendingBatchInputs([]);
 
     try {
-      void writeLog(
-        "info",
-        `submitting new task: engine=${selectedSettings.engine}, sourceType=${input.sourceType}`,
-      );
-      const check = await checkDownloadDuplicate(input);
-      if (check.matches.length > 0 || check.localFileConflict) {
-        setDuplicateCheck(check);
-        setPendingCreateInput(input);
-        return;
-      }
-      await createTask(input, "prompt");
+      await createInputsUntilBlocked(inputs);
     } catch (nextError) {
       reportDisplayedError("create download task", nextError, setError);
     } finally {
@@ -488,23 +538,62 @@ export default function NewTaskDialog({
     }
   }
 
-  function skipDuplicateCheck() {
+  async function skipDuplicateCheck() {
+    const restInputs = pendingBatchInputs;
     setDuplicateCheck(null);
     setPendingCreateInput(null);
+    setPendingBatchInputs([]);
+
+    if (restInputs.length === 0) {
+      return;
+    }
+
+    setIsCreating(true);
+    setError(null);
+    try {
+      await createInputsUntilBlocked(restInputs);
+    } catch (nextError) {
+      reportDisplayedError("create download task", nextError, setError);
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  async function createPendingTask(action: FileConflictAction) {
+    if (!pendingCreateInput) {
+      return;
+    }
+
+    const input = pendingCreateInput;
+    const restInputs = pendingBatchInputs;
+    setIsCreating(true);
+    setError(null);
+    setDuplicateCheck(null);
+    setPendingCreateInput(null);
+    setPendingBatchInputs([]);
+
+    try {
+      await createTaskRecord(input, action);
+      await createInputsUntilBlocked(restInputs);
+    } catch (nextError) {
+      reportDisplayedError("create download task", nextError, setError);
+    } finally {
+      setIsCreating(false);
+    }
   }
 
   function redownloadDuplicateTask() {
     if (!pendingCreateInput || duplicateCheck?.localFileConflict) {
       return;
     }
-    void createTask(pendingCreateInput, "prompt");
+    void createPendingTask("prompt");
   }
 
   function resolveDuplicateCheck(action: Exclude<FileConflictAction, "prompt">) {
     if (!pendingCreateInput) {
       return;
     }
-    void createTask(pendingCreateInput, action);
+    void createPendingTask(action);
   }
 
   async function selectSavePath() {
@@ -616,6 +705,17 @@ export default function NewTaskDialog({
                 rows={4}
                 className="min-h-24 resize-y rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
               />
+              {sourceInputError ? (
+                <span className="text-xs text-rose-600">{sourceInputError}</span>
+              ) : isBatchMode ? (
+                <span className="text-xs text-slate-500">
+                  将按相同类型、相同目录和相同引擎创建 {parsedSources.length} 个任务。
+                </span>
+              ) : (
+                <span className="text-xs text-slate-500">
+                  支持一行一个链接批量添加，同一批链接必须类型相同。
+                </span>
+              )}
             </label>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -640,6 +740,11 @@ export default function NewTaskDialog({
                     {engineSettings.length} 个已添加引擎
                   </span>
                 ) : null}
+                {isBatchMode && (
+                  <span className="text-xs text-slate-500">
+                    批量 {parsedSources.length} 个
+                  </span>
+                )}
               </div>
               <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
                 <span className="shrink-0 font-medium">引擎</span>
@@ -672,17 +777,24 @@ export default function NewTaskDialog({
                 <input
                   value={fileName}
                   disabled={
+                    isBatchMode ||
                     parsedSource?.sourceType === "magnet" ||
                     parsedSource?.sourceType === "torrent"
                   }
                   onChange={(event) => setFileName(event.currentTarget.value)}
                   className="h-9 rounded-md border border-slate-200 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
                 />
-                {(parsedSource?.sourceType === "magnet" ||
-                  parsedSource?.sourceType === "torrent") && (
+                {isBatchMode ? (
                   <span className="text-xs text-slate-500">
-                    BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。
+                    批量模式下文件名保持为空，由每个链接自行推断。
                   </span>
+                ) : (
+                  (parsedSource?.sourceType === "magnet" ||
+                    parsedSource?.sourceType === "torrent") && (
+                    <span className="text-xs text-slate-500">
+                      BT/Magnet 任务创建时不解析文件名，详情页会显示文件列表。
+                    </span>
+                  )
                 )}
               </label>
 
@@ -802,7 +914,7 @@ export default function NewTaskDialog({
                 : "cursor-not-allowed bg-slate-100 text-slate-400",
             )}
           >
-            创建
+            {isBatchMode ? `创建 ${parsedSources.length} 个` : "创建"}
           </button>
         </footer>
       </div>
