@@ -346,10 +346,7 @@ function defaultEngineSettings(
     enabled: false,
     executablePath,
     defaultDownloadDir,
-    defaultArgs:
-      engine === "aria2"
-        ? "--continue=true --max-connection-per-server=16 --split=16 --min-split-size=1M --file-allocation=none"
-        : "",
+    defaultArgs: "",
     connectionUrl:
       engine === "aria2"
         ? defaultAria2RpcConnectionUrl(aria2RpcListenPort)
@@ -2822,6 +2819,11 @@ export default function EngineSettingsView({
                                       updateDraft(draft.id, { defaultArgs: value })
                                     }
                                   />
+                                  {draft.engine === "aria2" && (
+                                    <div className="text-xs text-slate-500">
+                                      UniDL 已内置 aria2 基础加速参数，可在此填写额外参数进行补充或覆盖。
+                                    </div>
+                                  )}
 
                                   <div className="flex items-center justify-between gap-3 rounded-md border border-rose-100 bg-rose-50/40 px-3 py-2.5">
                                     <div className="min-w-0">
