@@ -2336,25 +2336,27 @@ export default function EngineSettingsView({
                                 />
                               )}
                               {draft.engine !== "qbittorrent" && (
-                                <DirectoryField
-                                  label="默认下载目录"
-                                  value={draft.defaultDownloadDir}
-                                  onChange={(value) =>
-                                    updateDraft(draft.id, { defaultDownloadDir: value })
-                                  }
-                                  onBrowse={() => {
-                                    void (async () => {
-                                      const selected = await pickDownloadDirectory(
-                                        draft.defaultDownloadDir,
-                                      );
-                                      if (selected) {
-                                        updateDraft(draft.id, {
-                                          defaultDownloadDir: selected,
-                                        });
-                                      }
-                                    })();
-                                  }}
-                                />
+                                <div className="md:col-span-2">
+                                  <DirectoryField
+                                    label="默认下载目录"
+                                    value={draft.defaultDownloadDir}
+                                    onChange={(value) =>
+                                      updateDraft(draft.id, { defaultDownloadDir: value })
+                                    }
+                                    onBrowse={() => {
+                                      void (async () => {
+                                        const selected = await pickDownloadDirectory(
+                                          draft.defaultDownloadDir,
+                                        );
+                                        if (selected) {
+                                          updateDraft(draft.id, {
+                                            defaultDownloadDir: selected,
+                                          });
+                                        }
+                                      })();
+                                    }}
+                                  />
+                                </div>
                               )}
                               {usesConnection && (
                                 <div className="flex flex-col gap-1.5 md:col-span-2">
