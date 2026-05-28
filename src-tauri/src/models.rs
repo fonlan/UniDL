@@ -217,6 +217,10 @@ pub struct EngineSettings {
     pub aria2_enable_dht6: bool,
     pub aria2_enable_peer_exchange: bool,
     pub aria2_enable_lpd: bool,
+    pub aria2_bt_listen_port: i64,
+    pub aria2_bt_max_peers: i64,
+    pub aria2_seed_time: i64,
+    pub aria2_seed_ratio: f64,
     pub priority: i64,
     pub updated_at: String,
 }
@@ -244,6 +248,10 @@ pub struct EngineSettingsInput {
     pub aria2_enable_dht6: bool,
     pub aria2_enable_peer_exchange: bool,
     pub aria2_enable_lpd: bool,
+    pub aria2_bt_listen_port: i64,
+    pub aria2_bt_max_peers: i64,
+    pub aria2_seed_time: i64,
+    pub aria2_seed_ratio: f64,
     pub priority: i64,
 }
 

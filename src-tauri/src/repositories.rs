@@ -199,6 +199,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 aria2_enable_dht6,
                 aria2_enable_peer_exchange,
                 aria2_enable_lpd,
+                aria2_bt_listen_port,
+                aria2_bt_max_peers,
+                aria2_seed_time,
+                aria2_seed_ratio,
                 priority,
                 updated_at
             FROM engine_settings
@@ -242,10 +246,14 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 aria2_enable_dht6,
                 aria2_enable_peer_exchange,
                 aria2_enable_lpd,
+                aria2_bt_listen_port,
+                aria2_bt_max_peers,
+                aria2_seed_time,
+                aria2_seed_ratio,
                 priority,
                 created_at,
                 updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, datetime('now'), datetime('now'))
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
@@ -265,6 +273,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 aria2_enable_dht6 = excluded.aria2_enable_dht6,
                 aria2_enable_peer_exchange = excluded.aria2_enable_peer_exchange,
                 aria2_enable_lpd = excluded.aria2_enable_lpd,
+                aria2_bt_listen_port = excluded.aria2_bt_listen_port,
+                aria2_bt_max_peers = excluded.aria2_bt_max_peers,
+                aria2_seed_time = excluded.aria2_seed_time,
+                aria2_seed_ratio = excluded.aria2_seed_ratio,
                 priority = excluded.priority,
                 updated_at = datetime('now')
             "#,
@@ -289,6 +301,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 if input.aria2_enable_dht6 { 1_i64 } else { 0_i64 },
                 if input.aria2_enable_peer_exchange { 1_i64 } else { 0_i64 },
                 if input.aria2_enable_lpd { 1_i64 } else { 0_i64 },
+                input.aria2_bt_listen_port,
+                input.aria2_bt_max_peers,
+                input.aria2_seed_time,
+                input.aria2_seed_ratio,
                 input.priority,
             ],
         )?;
@@ -320,6 +336,10 @@ impl<'connection> EngineSettingsRepository<'connection> {
                 aria2_enable_dht6,
                 aria2_enable_peer_exchange,
                 aria2_enable_lpd,
+                aria2_bt_listen_port,
+                aria2_bt_max_peers,
+                aria2_seed_time,
+                aria2_seed_ratio,
                 priority,
                 updated_at
             FROM engine_settings
@@ -429,6 +449,10 @@ fn read_engine_settings(row: &rusqlite::Row<'_>) -> Result<EngineSettings, Box<d
         aria2_enable_dht6: aria2_enable_dht6 == 1,
         aria2_enable_peer_exchange: aria2_enable_peer_exchange == 1,
         aria2_enable_lpd: aria2_enable_lpd == 1,
+        aria2_bt_listen_port: row.get("aria2_bt_listen_port")?,
+        aria2_bt_max_peers: row.get("aria2_bt_max_peers")?,
+        aria2_seed_time: row.get("aria2_seed_time")?,
+        aria2_seed_ratio: row.get("aria2_seed_ratio")?,
         priority: row.get("priority")?,
         updated_at: row.get("updated_at")?,
     })

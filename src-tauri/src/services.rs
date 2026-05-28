@@ -936,6 +936,10 @@ impl<'connection> EngineSettingsService<'connection> {
             aria2_enable_dht6: current.aria2_enable_dht6,
             aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
             aria2_enable_lpd: current.aria2_enable_lpd,
+            aria2_bt_listen_port: current.aria2_bt_listen_port,
+            aria2_bt_max_peers: current.aria2_bt_max_peers,
+            aria2_seed_time: current.aria2_seed_time,
+            aria2_seed_ratio: current.aria2_seed_ratio,
             priority: current.priority,
         })?;
 
@@ -968,6 +972,10 @@ impl<'connection> EngineSettingsService<'connection> {
             aria2_enable_dht6: input.aria2_enable_dht6,
             aria2_enable_peer_exchange: input.aria2_enable_peer_exchange,
             aria2_enable_lpd: input.aria2_enable_lpd,
+            aria2_bt_listen_port: input.aria2_bt_listen_port,
+            aria2_bt_max_peers: input.aria2_bt_max_peers,
+            aria2_seed_time: input.aria2_seed_time,
+            aria2_seed_ratio: input.aria2_seed_ratio,
             priority: input.priority,
             updated_at: String::new(),
         };
@@ -1020,6 +1028,10 @@ impl<'connection> EngineSettingsService<'connection> {
             aria2_enable_dht6: current.aria2_enable_dht6,
             aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
             aria2_enable_lpd: current.aria2_enable_lpd,
+            aria2_bt_listen_port: current.aria2_bt_listen_port,
+            aria2_bt_max_peers: current.aria2_bt_max_peers,
+            aria2_seed_time: current.aria2_seed_time,
+            aria2_seed_ratio: current.aria2_seed_ratio,
             priority: current.priority,
         })
     }
@@ -1078,6 +1090,19 @@ fn normalize_engine_settings_input(
     });
     if let Some(proxy_url) = proxy_url.as_deref() {
         validate_proxy_url(proxy_url, engine_proxy_allowed_schemes(input.engine))?;
+    }
+
+    if input.aria2_bt_listen_port < 1 || input.aria2_bt_listen_port > 65_535 {
+        return Err("aria2 BT listen port must be between 1 and 65535".into());
+    }
+    if input.aria2_bt_max_peers < 0 {
+        return Err("aria2 BT max peers cannot be negative".into());
+    }
+    if input.aria2_seed_time < 0 {
+        return Err("aria2 seed time cannot be negative".into());
+    }
+    if !input.aria2_seed_ratio.is_finite() || input.aria2_seed_ratio < 0.0 {
+        return Err("aria2 seed ratio cannot be negative".into());
     }
 
     Ok(EngineSettingsInput {
@@ -1215,6 +1240,10 @@ mod tests {
                 aria2_enable_dht6: true,
                 aria2_enable_peer_exchange: true,
                 aria2_enable_lpd: true,
+                aria2_bt_listen_port: 6881,
+                aria2_bt_max_peers: 55,
+                aria2_seed_time: 10,
+                aria2_seed_ratio: 1.0,
                 priority: 0,
             })
             .expect("engine settings should save");
@@ -1242,6 +1271,10 @@ mod tests {
                 aria2_enable_dht6: saved.aria2_enable_dht6,
                 aria2_enable_peer_exchange: saved.aria2_enable_peer_exchange,
                 aria2_enable_lpd: saved.aria2_enable_lpd,
+                aria2_bt_listen_port: saved.aria2_bt_listen_port,
+                aria2_bt_max_peers: saved.aria2_bt_max_peers,
+                aria2_seed_time: saved.aria2_seed_time,
+                aria2_seed_ratio: saved.aria2_seed_ratio,
                 priority: saved.priority,
             })
             .expect("engine settings should rename");
@@ -1654,6 +1687,10 @@ mod tests {
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
                 aria2_enable_lpd: false,
+                aria2_bt_listen_port: 6881,
+                aria2_bt_max_peers: 55,
+                aria2_seed_time: 10,
+                aria2_seed_ratio: 1.0,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -2168,6 +2205,10 @@ mod tests {
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
                 aria2_enable_lpd: false,
+                aria2_bt_listen_port: 6881,
+                aria2_bt_max_peers: 55,
+                aria2_seed_time: 10,
+                aria2_seed_ratio: 1.0,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -2373,6 +2414,10 @@ mod tests {
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
                 aria2_enable_lpd: false,
+                aria2_bt_listen_port: 6881,
+                aria2_bt_max_peers: 55,
+                aria2_seed_time: 10,
+                aria2_seed_ratio: 1.0,
                 priority: 0,
             })
             .expect("aria2 settings should save");
@@ -2517,6 +2562,10 @@ mod tests {
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
                 aria2_enable_lpd: false,
+                aria2_bt_listen_port: 6881,
+                aria2_bt_max_peers: 55,
+                aria2_seed_time: 10,
+                aria2_seed_ratio: 1.0,
                 priority: 0,
             })
             .expect("qBittorrent settings should save");
@@ -2545,6 +2594,10 @@ mod tests {
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
                 aria2_enable_lpd: false,
+                aria2_bt_listen_port: 6881,
+                aria2_bt_max_peers: 55,
+                aria2_seed_time: 10,
+                aria2_seed_ratio: 1.0,
                 priority: 0,
             })
             .expect("yt-dlp settings should save");

@@ -41,6 +41,10 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1)),
             aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1)),
             aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1)),
+            aria2_bt_listen_port INTEGER NOT NULL DEFAULT 6881 CHECK (aria2_bt_listen_port >= 1 AND aria2_bt_listen_port <= 65535),
+            aria2_bt_max_peers INTEGER NOT NULL DEFAULT 55 CHECK (aria2_bt_max_peers >= 0),
+            aria2_seed_time INTEGER NOT NULL DEFAULT 10 CHECK (aria2_seed_time >= 0),
+            aria2_seed_ratio REAL NOT NULL DEFAULT 1.0 CHECK (aria2_seed_ratio >= 0),
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -167,6 +171,10 @@ fn migrate_engine_settings_ids(connection: &Connection) -> Result<(), rusqlite::
             aria2_enable_dht6 INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_dht6 IN (0, 1)),
             aria2_enable_peer_exchange INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_peer_exchange IN (0, 1)),
             aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1)),
+            aria2_bt_listen_port INTEGER NOT NULL DEFAULT 6881 CHECK (aria2_bt_listen_port >= 1 AND aria2_bt_listen_port <= 65535),
+            aria2_bt_max_peers INTEGER NOT NULL DEFAULT 55 CHECK (aria2_bt_max_peers >= 0),
+            aria2_seed_time INTEGER NOT NULL DEFAULT 10 CHECK (aria2_seed_time >= 0),
+            aria2_seed_ratio REAL NOT NULL DEFAULT 1.0 CHECK (aria2_seed_ratio >= 0),
             priority INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -395,6 +403,46 @@ fn migrate_engine_settings_aria2_bt_options(
             r#"
             ALTER TABLE engine_settings
                 ADD COLUMN aria2_enable_lpd INTEGER NOT NULL DEFAULT 1 CHECK (aria2_enable_lpd IN (0, 1));
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_bt_listen_port")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_bt_listen_port INTEGER NOT NULL DEFAULT 6881 CHECK (aria2_bt_listen_port >= 1 AND aria2_bt_listen_port <= 65535);
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_bt_max_peers")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_bt_max_peers INTEGER NOT NULL DEFAULT 55 CHECK (aria2_bt_max_peers >= 0);
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_seed_time")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_seed_time INTEGER NOT NULL DEFAULT 10 CHECK (aria2_seed_time >= 0);
+            "#,
+            [],
+        )?;
+    }
+
+    if !has_column(connection, "engine_settings", "aria2_seed_ratio")? {
+        connection.execute(
+            r#"
+            ALTER TABLE engine_settings
+                ADD COLUMN aria2_seed_ratio REAL NOT NULL DEFAULT 1.0 CHECK (aria2_seed_ratio >= 0);
             "#,
             [],
         )?;

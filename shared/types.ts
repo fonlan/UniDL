@@ -85,6 +85,10 @@ export interface EngineSettings {
   aria2EnableDht6: boolean;
   aria2EnablePeerExchange: boolean;
   aria2EnableLpd: boolean;
+  aria2BtListenPort: number;
+  aria2BtMaxPeers: number;
+  aria2SeedTime: number;
+  aria2SeedRatio: number;
   priority: number;
   updatedAt: string;
 }

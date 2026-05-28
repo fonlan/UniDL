@@ -190,6 +190,9 @@ fn add_aria2_task(
         &task.engine_args,
         task.selected_file_indexes.as_deref(),
         engine_proxy_url(settings),
+        settings.aria2_bt_max_peers,
+        settings.aria2_seed_time,
+        settings.aria2_seed_ratio,
         settings.aria2_enable_dht,
         settings.aria2_enable_dht6,
         settings.aria2_enable_peer_exchange,
@@ -233,6 +236,9 @@ fn resolve_aria2_magnet_metadata(
         "",
         None,
         engine_proxy_url(settings),
+        settings.aria2_bt_max_peers,
+        settings.aria2_seed_time,
+        settings.aria2_seed_ratio,
         settings.aria2_enable_dht,
         settings.aria2_enable_dht6,
         settings.aria2_enable_peer_exchange,
@@ -268,6 +274,9 @@ fn resolve_aria2_magnet_files(
         "",
         None,
         engine_proxy_url(settings),
+        settings.aria2_bt_max_peers,
+        settings.aria2_seed_time,
+        settings.aria2_seed_ratio,
         settings.aria2_enable_dht,
         settings.aria2_enable_dht6,
         settings.aria2_enable_peer_exchange,
@@ -716,6 +725,10 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
             "--bt-enable-lpd={}",
             bool_param(settings.aria2_enable_lpd)
         ))
+        .arg(format!("--listen-port={}", settings.aria2_bt_listen_port))
+        .arg(format!("--bt-max-peers={}", settings.aria2_bt_max_peers))
+        .arg(format!("--seed-time={}", settings.aria2_seed_time))
+        .arg(format!("--seed-ratio={}", settings.aria2_seed_ratio))
         .arg(format!("--dir={}", save_path))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -916,6 +929,9 @@ pub(super) fn aria2_download_options(
     task_args: &str,
     selected_file_indexes: Option<&[i64]>,
     proxy_url: Option<&str>,
+    aria2_bt_max_peers: i64,
+    aria2_seed_time: i64,
+    aria2_seed_ratio: f64,
     aria2_enable_dht: bool,
     aria2_enable_dht6: bool,
     aria2_enable_peer_exchange: bool,
@@ -926,6 +942,9 @@ pub(super) fn aria2_download_options(
     append_aria2_options(&mut options, ARIA2_FAST_DEFAULT_ARGS);
     append_aria2_options(&mut options, default_args);
     append_aria2_options(&mut options, task_args);
+    insert_i64_option(&mut options, "bt-max-peers", aria2_bt_max_peers);
+    insert_i64_option(&mut options, "seed-time", aria2_seed_time);
+    insert_f64_option(&mut options, "seed-ratio", aria2_seed_ratio);
     insert_bool_option(&mut options, "enable-dht", aria2_enable_dht);
     insert_bool_option(&mut options, "enable-dht6", aria2_enable_dht6);
     insert_bool_option(
@@ -962,6 +981,14 @@ fn insert_bool_option(options: &mut serde_json::Map<String, Value>, key: &str, v
         key.to_string(),
         Value::String(bool_param(value).to_string()),
     );
+}
+
+fn insert_i64_option(options: &mut serde_json::Map<String, Value>, key: &str, value: i64) {
+    options.insert(key.to_string(), Value::String(value.to_string()));
+}
+
+fn insert_f64_option(options: &mut serde_json::Map<String, Value>, key: &str, value: f64) {
+    options.insert(key.to_string(), Value::String(value.to_string()));
 }
 
 fn format_select_file_indexes(indexes: &[i64]) -> String {
@@ -1004,7 +1031,7 @@ fn append_aria2_options(options: &mut serde_json::Map<String, Value>, args: &str
 fn aria2_download_option_allowed(key: &str) -> bool {
     !matches!(
         key,
-        "dir" | "enable-rpc" | "rpc-listen-all" | "rpc-listen-port" | "rpc-secret"
+        "dir" | "enable-rpc" | "listen-port" | "rpc-listen-all" | "rpc-listen-port" | "rpc-secret"
     )
 }
 

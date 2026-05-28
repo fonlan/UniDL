@@ -51,6 +51,10 @@ import type {
 
 const ERROR_AUTO_DISMISS_MS = 10_000;
 const DEFAULT_AUTO_CLEAN_DOWNLOAD_TASK_DAYS = 365;
+const ARIA2_DEFAULT_BT_LISTEN_PORT = 6881;
+const ARIA2_DEFAULT_BT_MAX_PEERS = 55;
+const ARIA2_DEFAULT_SEED_TIME = 10;
+const ARIA2_DEFAULT_SEED_RATIO = 1;
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
@@ -160,10 +164,50 @@ function isLocalDownloadEngine(engine: EngineKind) {
   return engine === "aria2" || engine === "yt-dlp";
 }
 
+function nextAria2BtListenPort(settings: EngineSettings[]) {
+  const ports = settings
+    .filter((item) => item.engine === "aria2")
+    .map((item) => item.aria2BtListenPort)
+    .filter(Number.isFinite);
+  if (ports.length === 0) {
+    return ARIA2_DEFAULT_BT_LISTEN_PORT;
+  }
+
+  const nextPort = Math.max(...ports) + 1;
+  if (nextPort > 65_535) {
+    throw new Error("aria2 BT 监听端口已超过 65535，无法自动递增");
+  }
+  return nextPort;
+}
+
+function validateAria2BtSettings(settings: EngineSettings) {
+  if (settings.engine !== "aria2") {
+    return null;
+  }
+  if (
+    !Number.isInteger(settings.aria2BtListenPort) ||
+    settings.aria2BtListenPort < 1 ||
+    settings.aria2BtListenPort > 65_535
+  ) {
+    return "BT 下载监听端口必须是 1 到 65535 的整数";
+  }
+  if (!Number.isInteger(settings.aria2BtMaxPeers) || settings.aria2BtMaxPeers < 0) {
+    return "BT 下载的最大 Peer 数量不能为负数";
+  }
+  if (!Number.isInteger(settings.aria2SeedTime) || settings.aria2SeedTime < 0) {
+    return "下载完成后持续做种时间不能为负数";
+  }
+  if (!Number.isFinite(settings.aria2SeedRatio) || settings.aria2SeedRatio < 0) {
+    return "下载完成后持续做种分享率不能为负数";
+  }
+  return null;
+}
+
 function defaultEngineSettings(
   engine: EngineKind,
   defaultDownloadDir: string,
   executablePath: string | null,
+  aria2BtListenPort = ARIA2_DEFAULT_BT_LISTEN_PORT,
 ): EngineSettings {
   return {
     id: crypto.randomUUID(),
@@ -194,6 +238,10 @@ function defaultEngineSettings(
     aria2EnableDht6: true,
     aria2EnablePeerExchange: true,
     aria2EnableLpd: true,
+    aria2BtListenPort,
+    aria2BtMaxPeers: ARIA2_DEFAULT_BT_MAX_PEERS,
+    aria2SeedTime: ARIA2_DEFAULT_SEED_TIME,
+    aria2SeedRatio: ARIA2_DEFAULT_SEED_RATIO,
     priority: 0,
     updatedAt: "",
   };
@@ -242,6 +290,10 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     aria2EnableDht6: settings.aria2EnableDht6,
     aria2EnablePeerExchange: settings.aria2EnablePeerExchange,
     aria2EnableLpd: settings.aria2EnableLpd,
+    aria2BtListenPort: settings.aria2BtListenPort,
+    aria2BtMaxPeers: settings.aria2BtMaxPeers,
+    aria2SeedTime: settings.aria2SeedTime,
+    aria2SeedRatio: settings.aria2SeedRatio,
     priority: settings.priority,
   };
 }
@@ -373,6 +425,37 @@ function Field({
           </button>
         )}
       </div>
+    </label>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700">
+      <span className="font-medium">{label}</span>
+      <input
+        type="number"
+        value={Number.isFinite(value) ? value : ""}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => onChange(event.currentTarget.valueAsNumber)}
+        className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+      />
     </label>
   );
 }
@@ -653,7 +736,20 @@ export default function EngineSettingsView({
     return errors;
   }, [draftSettings]);
 
+  const engineBtErrors = useMemo(() => {
+    const errors = new Map<string, string>();
+    for (const draft of draftSettings) {
+      const error = validateAria2BtSettings(draft);
+      if (error) {
+        errors.set(draft.id, error);
+      }
+    }
+    return errors;
+  }, [draftSettings]);
+
   const hasEngineProxyErrors = engineProxyErrors.size > 0;
+  const hasEngineBtErrors = engineBtErrors.size > 0;
+  const hasEngineErrors = hasEngineProxyErrors || hasEngineBtErrors;
 
   const hasDirtySettings = appDirty || dirtySettings;
   const engineSettingsCount = draftSettings.length;
@@ -758,8 +854,17 @@ export default function EngineSettingsView({
       setTestedEngineId(null);
       setIsAddMenuOpen(false);
       setDraftSettings((current) => {
+        const aria2BtListenPort =
+          engine === "aria2"
+            ? nextAria2BtListenPort(current)
+            : ARIA2_DEFAULT_BT_LISTEN_PORT;
         const next = {
-          ...defaultEngineSettings(engine, defaultDownloadDir, executablePath),
+          ...defaultEngineSettings(
+            engine,
+            defaultDownloadDir,
+            executablePath,
+            aria2BtListenPort,
+          ),
           priority: current.length,
         };
         return assignPriorities([...sortSettings(current), next]);
@@ -1801,17 +1906,17 @@ export default function EngineSettingsView({
                       <button
                         type="button"
                         disabled={
-                          !dirtySettings || isSavingEngines || hasEngineProxyErrors
+                          !dirtySettings || isSavingEngines || hasEngineErrors
                         }
                         onClick={() => void saveAllEngines()}
-                        title={hasEngineProxyErrors ? "请先修正引擎代理地址" : undefined}
+                        title={hasEngineErrors ? "请先修正引擎设置错误" : undefined}
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
-                          (!dirtySettings || isSavingEngines || hasEngineProxyErrors) &&
+                          (!dirtySettings || isSavingEngines || hasEngineErrors) &&
                           "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
                           !isSavingEngines &&
-                          !hasEngineProxyErrors &&
+                          !hasEngineErrors &&
                           "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
                         )}
                       >
@@ -1878,6 +1983,8 @@ export default function EngineSettingsView({
                         const isAdvancedOpen = expandedAdvanced.has(draft.id);
                         const isDragging = draggedEngineId === draft.id;
                         const cardProxyError = engineProxyErrors.get(draft.id) ?? null;
+                        const cardBtError = engineBtErrors.get(draft.id) ?? null;
+                        const cardSettingsError = cardProxyError ?? cardBtError;
 
                         return (
                           <div
@@ -1967,11 +2074,11 @@ export default function EngineSettingsView({
                                 </SmallIconButton>
                                 <SmallIconButton
                                   title={
-                                    cardProxyError
-                                      ? `请先修正代理地址：${cardProxyError}`
+                                    cardSettingsError
+                                      ? `请先修正设置：${cardSettingsError}`
                                       : "保存改动"
                                   }
-                                  disabled={!dirty || isBusy || Boolean(cardProxyError)}
+                                  disabled={!dirty || isBusy || Boolean(cardSettingsError)}
                                   onClick={() => void saveEngine(draft.id)}
                                 >
                                   <Save size={15} />
@@ -2180,6 +2287,7 @@ export default function EngineSettingsView({
                                 </span>
                                 <span className="truncate text-xs text-slate-400">
                                   {[
+                                    draft.engine === "aria2" ? "BT 参数" : null,
                                     draft.engine === "aria2" ? "BT 发现" : null,
                                     draft.engine === "aria2" ? "Tracker 订阅" : null,
                                     "偏好域名",
@@ -2274,6 +2382,72 @@ export default function EngineSettingsView({
                                         </div>
                                       );
                                     })()}
+
+                                  {draft.engine === "aria2" && (
+                                    <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                      <div>
+                                        <div className="text-sm font-medium text-slate-800">
+                                          BT 参数
+                                        </div>
+                                        <div className="mt-1 text-xs text-slate-500">
+                                          控制 aria2 BT 下载监听端口、最大 Peer
+                                          数量以及下载完成后的做种策略。
+                                        </div>
+                                      </div>
+                                      <div className="grid gap-3 sm:grid-cols-2">
+                                        <NumberField
+                                          label="BT 下载监听端口"
+                                          value={draft.aria2BtListenPort}
+                                          min={1}
+                                          max={65_535}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2BtListenPort: Math.trunc(value),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="BT 下载最大 Peer 数量"
+                                          value={draft.aria2BtMaxPeers}
+                                          min={0}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2BtMaxPeers: Math.trunc(value),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="完成后持续做种时间（分钟）"
+                                          value={draft.aria2SeedTime}
+                                          min={0}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2SeedTime: Math.trunc(value),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="完成后持续做种分享率（%）"
+                                          value={
+                                            Number.isFinite(draft.aria2SeedRatio)
+                                              ? draft.aria2SeedRatio * 100
+                                              : Number.NaN
+                                          }
+                                          min={0}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              aria2SeedRatio: value / 100,
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                      {cardBtError && (
+                                        <div className="text-xs text-rose-600">
+                                          {cardBtError}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {draft.engine === "aria2" && (
                                     <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
