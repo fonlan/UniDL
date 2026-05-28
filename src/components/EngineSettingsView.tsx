@@ -359,6 +359,37 @@ function validateAria2Settings(settings: EngineSettings) {
   return null;
 }
 
+function validateQbittorrentSettings(settings: EngineSettings) {
+  if (settings.engine !== "qbittorrent") {
+    return null;
+  }
+  if (
+    !Number.isInteger(settings.qbittorrentDownloadLimitBytesPerSec) ||
+    settings.qbittorrentDownloadLimitBytesPerSec < 0
+  ) {
+    return "qBittorrent 下载限速不能为负数";
+  }
+  if (
+    !Number.isInteger(settings.qbittorrentUploadLimitBytesPerSec) ||
+    settings.qbittorrentUploadLimitBytesPerSec < 0
+  ) {
+    return "qBittorrent 上传限速不能为负数";
+  }
+  if (
+    !Number.isFinite(settings.qbittorrentSeedRatioLimit) ||
+    settings.qbittorrentSeedRatioLimit < 0
+  ) {
+    return "qBittorrent 分享率限制不能为负数";
+  }
+  if (
+    !Number.isInteger(settings.qbittorrentSeedTimeLimitMinutes) ||
+    settings.qbittorrentSeedTimeLimitMinutes < 0
+  ) {
+    return "qBittorrent 做种时间限制不能为负数";
+  }
+  return null;
+}
+
 function defaultEngineSettings(
   engine: EngineKind,
   defaultDownloadDir: string,
@@ -390,6 +421,10 @@ function defaultEngineSettings(
     proxyUrl: null,
     userAgent: null,
     speedLimitBytesPerSec: 0,
+    qbittorrentDownloadLimitBytesPerSec: 0,
+    qbittorrentUploadLimitBytesPerSec: 0,
+    qbittorrentSeedRatioLimit: 0,
+    qbittorrentSeedTimeLimitMinutes: 0,
     aria2EnableDht: true,
     aria2EnableDht6: true,
     aria2EnablePeerExchange: true,
@@ -467,6 +502,19 @@ function toInput(settings: EngineSettings): EngineSettingsInput {
     proxyUrl: emptyToNull(settings.proxyUrl ?? ""),
     userAgent: emptyToNull(settings.userAgent ?? ""),
     speedLimitBytesPerSec: normalizeSpeedLimitBytes(settings.speedLimitBytesPerSec),
+    qbittorrentDownloadLimitBytesPerSec: normalizeSpeedLimitBytes(
+      settings.qbittorrentDownloadLimitBytesPerSec,
+    ),
+    qbittorrentUploadLimitBytesPerSec: normalizeSpeedLimitBytes(
+      settings.qbittorrentUploadLimitBytesPerSec,
+    ),
+    qbittorrentSeedRatioLimit: Number.isFinite(settings.qbittorrentSeedRatioLimit)
+      ? settings.qbittorrentSeedRatioLimit
+      : 0,
+    qbittorrentSeedTimeLimitMinutes: Math.max(
+      0,
+      Math.trunc(settings.qbittorrentSeedTimeLimitMinutes),
+    ),
     aria2EnableDht: settings.aria2EnableDht,
     aria2EnableDht6: settings.aria2EnableDht6,
     aria2EnablePeerExchange: settings.aria2EnablePeerExchange,
@@ -949,9 +997,22 @@ export default function EngineSettingsView({
     return errors;
   }, [draftSettings]);
 
+  const engineQbittorrentErrors = useMemo(() => {
+    const errors = new Map<string, string>();
+    for (const draft of draftSettings) {
+      const error = validateQbittorrentSettings(draft);
+      if (error) {
+        errors.set(draft.id, error);
+      }
+    }
+    return errors;
+  }, [draftSettings]);
+
   const hasEngineProxyErrors = engineProxyErrors.size > 0;
   const hasEngineAria2Errors = engineAria2Errors.size > 0;
-  const hasEngineErrors = hasEngineProxyErrors || hasEngineAria2Errors;
+  const hasEngineQbittorrentErrors = engineQbittorrentErrors.size > 0;
+  const hasEngineErrors =
+    hasEngineProxyErrors || hasEngineAria2Errors || hasEngineQbittorrentErrors;
 
   const hasDirtySettings = appDirty || dirtySettings;
   const engineSettingsCount = draftSettings.length;
@@ -2188,6 +2249,8 @@ export default function EngineSettingsView({
                         const isDragging = draggedEngineId === draft.id;
                         const cardProxyError = engineProxyErrors.get(draft.id) ?? null;
                         const cardAria2Error = engineAria2Errors.get(draft.id) ?? null;
+                        const cardQbittorrentError =
+                          engineQbittorrentErrors.get(draft.id) ?? null;
                         const cardAria2RpcError =
                           cardAria2Error && cardAria2Error.includes("RPC")
                             ? cardAria2Error
@@ -2205,7 +2268,8 @@ export default function EngineSettingsView({
                           !cardAria2TransferError
                             ? cardAria2Error
                             : null;
-                        const cardSettingsError = cardProxyError ?? cardAria2Error;
+                        const cardSettingsError =
+                          cardProxyError ?? cardAria2Error ?? cardQbittorrentError;
                         const aria2RpcUrl =
                           draft.engine === "aria2"
                             ? aria2RpcInputUrl(draft.connectionUrl)
@@ -2521,6 +2585,7 @@ export default function EngineSettingsView({
                                     draft.engine === "aria2" ? "BT 发现" : null,
                                     draft.engine === "aria2" ? "RPC 监听" : null,
                                     draft.engine === "aria2" ? "Tracker 订阅" : null,
+                                    draft.engine === "qbittorrent" ? "限速与做种" : null,
                                     usesExecutable ? "User-Agent" : null,
                                     usesExecutable ? "限速" : null,
                                     "偏好域名",
@@ -2578,6 +2643,83 @@ export default function EngineSettingsView({
                                           })
                                         }
                                       />
+                                    </div>
+                                  )}
+
+                                  {draft.engine === "qbittorrent" && (
+                                    <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                      <div>
+                                        <div className="text-sm font-medium text-slate-800">
+                                          限速与做种
+                                        </div>
+                                        <div className="mt-1 text-xs text-slate-500">
+                                          作用于 UniDL 创建的新 qBittorrent
+                                          任务；填 0 表示不覆盖 qBittorrent 端默认值。
+                                        </div>
+                                      </div>
+                                      <div className="grid gap-3 sm:grid-cols-2">
+                                        <NumberField
+                                          label="下载限速（MB/s）"
+                                          value={speedLimitMegabytes(
+                                            draft.qbittorrentDownloadLimitBytesPerSec,
+                                          )}
+                                          min={0}
+                                          step={0.1}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              qbittorrentDownloadLimitBytesPerSec:
+                                                speedLimitBytesFromMegabytes(value),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="上传限速（MB/s）"
+                                          value={speedLimitMegabytes(
+                                            draft.qbittorrentUploadLimitBytesPerSec,
+                                          )}
+                                          min={0}
+                                          step={0.1}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              qbittorrentUploadLimitBytesPerSec:
+                                                speedLimitBytesFromMegabytes(value),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="分享率限制（%）"
+                                          value={
+                                            Number.isFinite(
+                                              draft.qbittorrentSeedRatioLimit,
+                                            )
+                                              ? draft.qbittorrentSeedRatioLimit * 100
+                                              : Number.NaN
+                                          }
+                                          min={0}
+                                          step={1}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              qbittorrentSeedRatioLimit: value / 100,
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="做种时间限制（分钟）"
+                                          value={draft.qbittorrentSeedTimeLimitMinutes}
+                                          min={0}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              qbittorrentSeedTimeLimitMinutes:
+                                                Math.trunc(value),
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                      {cardQbittorrentError && (
+                                        <div className="text-xs text-rose-600">
+                                          {cardQbittorrentError}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
 

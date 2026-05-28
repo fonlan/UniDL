@@ -153,6 +153,7 @@ fn add_qbittorrent_task(
                 "false"
             },
         );
+    form = apply_qbittorrent_task_options(settings, form);
 
     if task.source_type == SourceType::Torrent && Path::new(&task.source).exists() {
         let bytes = fs::read(&task.source)?;
@@ -187,6 +188,39 @@ fn add_qbittorrent_task(
     qbittorrent_post(&client, settings, "torrents/resume", &[("hashes", &hash)])?;
 
     Ok(EngineTaskState::running(hash))
+}
+
+fn apply_qbittorrent_task_options(
+    settings: &EngineSettings,
+    mut form: multipart::Form,
+) -> multipart::Form {
+    if settings.qbittorrent_download_limit_bytes_per_sec > 0 {
+        form = form.text(
+            "dlLimit",
+            settings
+                .qbittorrent_download_limit_bytes_per_sec
+                .to_string(),
+        );
+    }
+    if settings.qbittorrent_upload_limit_bytes_per_sec > 0 {
+        form = form.text(
+            "upLimit",
+            settings.qbittorrent_upload_limit_bytes_per_sec.to_string(),
+        );
+    }
+    if settings.qbittorrent_seed_ratio_limit > 0.0 {
+        form = form.text(
+            "ratioLimit",
+            settings.qbittorrent_seed_ratio_limit.to_string(),
+        );
+    }
+    if settings.qbittorrent_seed_time_limit_minutes > 0 {
+        form = form.text(
+            "seedingTimeLimit",
+            settings.qbittorrent_seed_time_limit_minutes.to_string(),
+        );
+    }
+    form
 }
 
 fn resolve_qbittorrent_magnet_name(

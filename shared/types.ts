@@ -85,6 +85,10 @@ export interface EngineSettings {
   proxyUrl: string | null;
   userAgent: string | null;
   speedLimitBytesPerSec: number;
+  qbittorrentDownloadLimitBytesPerSec: number;
+  qbittorrentUploadLimitBytesPerSec: number;
+  qbittorrentSeedRatioLimit: number;
+  qbittorrentSeedTimeLimitMinutes: number;
   aria2EnableDht: boolean;
   aria2EnableDht6: boolean;
   aria2EnablePeerExchange: boolean;

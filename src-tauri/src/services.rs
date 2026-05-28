@@ -935,6 +935,11 @@ impl<'connection> EngineSettingsService<'connection> {
             proxy_url: current.proxy_url,
             user_agent: current.user_agent,
             speed_limit_bytes_per_sec: current.speed_limit_bytes_per_sec,
+            qbittorrent_download_limit_bytes_per_sec: current
+                .qbittorrent_download_limit_bytes_per_sec,
+            qbittorrent_upload_limit_bytes_per_sec: current.qbittorrent_upload_limit_bytes_per_sec,
+            qbittorrent_seed_ratio_limit: current.qbittorrent_seed_ratio_limit,
+            qbittorrent_seed_time_limit_minutes: current.qbittorrent_seed_time_limit_minutes,
             aria2_enable_dht: current.aria2_enable_dht,
             aria2_enable_dht6: current.aria2_enable_dht6,
             aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
@@ -977,6 +982,11 @@ impl<'connection> EngineSettingsService<'connection> {
             proxy_url: input.proxy_url,
             user_agent: input.user_agent,
             speed_limit_bytes_per_sec: input.speed_limit_bytes_per_sec,
+            qbittorrent_download_limit_bytes_per_sec: input
+                .qbittorrent_download_limit_bytes_per_sec,
+            qbittorrent_upload_limit_bytes_per_sec: input.qbittorrent_upload_limit_bytes_per_sec,
+            qbittorrent_seed_ratio_limit: input.qbittorrent_seed_ratio_limit,
+            qbittorrent_seed_time_limit_minutes: input.qbittorrent_seed_time_limit_minutes,
             aria2_enable_dht: input.aria2_enable_dht,
             aria2_enable_dht6: input.aria2_enable_dht6,
             aria2_enable_peer_exchange: input.aria2_enable_peer_exchange,
@@ -1039,6 +1049,11 @@ impl<'connection> EngineSettingsService<'connection> {
             proxy_url: current.proxy_url,
             user_agent: current.user_agent,
             speed_limit_bytes_per_sec: current.speed_limit_bytes_per_sec,
+            qbittorrent_download_limit_bytes_per_sec: current
+                .qbittorrent_download_limit_bytes_per_sec,
+            qbittorrent_upload_limit_bytes_per_sec: current.qbittorrent_upload_limit_bytes_per_sec,
+            qbittorrent_seed_ratio_limit: current.qbittorrent_seed_ratio_limit,
+            qbittorrent_seed_time_limit_minutes: current.qbittorrent_seed_time_limit_minutes,
             aria2_enable_dht: current.aria2_enable_dht,
             aria2_enable_dht6: current.aria2_enable_dht6,
             aria2_enable_peer_exchange: current.aria2_enable_peer_exchange,
@@ -1122,6 +1137,18 @@ fn normalize_engine_settings_input(
     }
     if input.speed_limit_bytes_per_sec < 0 {
         return Err("speed limit cannot be negative".into());
+    }
+    if input.qbittorrent_download_limit_bytes_per_sec < 0 {
+        return Err("qBittorrent download limit cannot be negative".into());
+    }
+    if input.qbittorrent_upload_limit_bytes_per_sec < 0 {
+        return Err("qBittorrent upload limit cannot be negative".into());
+    }
+    if !input.qbittorrent_seed_ratio_limit.is_finite() || input.qbittorrent_seed_ratio_limit < 0.0 {
+        return Err("qBittorrent seed ratio limit cannot be negative".into());
+    }
+    if input.qbittorrent_seed_time_limit_minutes < 0 {
+        return Err("qBittorrent seed time limit cannot be negative".into());
     }
 
     if input.aria2_bt_listen_port < 1 || input.aria2_bt_listen_port > 65_535 {
@@ -1294,6 +1321,10 @@ mod tests {
                 proxy_url: None,
                 user_agent: None,
                 speed_limit_bytes_per_sec: 0,
+                qbittorrent_download_limit_bytes_per_sec: 0,
+                qbittorrent_upload_limit_bytes_per_sec: 0,
+                qbittorrent_seed_ratio_limit: 0.0,
+                qbittorrent_seed_time_limit_minutes: 0,
                 aria2_enable_dht: true,
                 aria2_enable_dht6: true,
                 aria2_enable_peer_exchange: true,
@@ -1331,6 +1362,12 @@ mod tests {
                 proxy_url: saved.proxy_url,
                 user_agent: saved.user_agent,
                 speed_limit_bytes_per_sec: saved.speed_limit_bytes_per_sec,
+                qbittorrent_download_limit_bytes_per_sec: saved
+                    .qbittorrent_download_limit_bytes_per_sec,
+                qbittorrent_upload_limit_bytes_per_sec: saved
+                    .qbittorrent_upload_limit_bytes_per_sec,
+                qbittorrent_seed_ratio_limit: saved.qbittorrent_seed_ratio_limit,
+                qbittorrent_seed_time_limit_minutes: saved.qbittorrent_seed_time_limit_minutes,
                 aria2_enable_dht: saved.aria2_enable_dht,
                 aria2_enable_dht6: saved.aria2_enable_dht6,
                 aria2_enable_peer_exchange: saved.aria2_enable_peer_exchange,
@@ -1753,6 +1790,10 @@ mod tests {
                 proxy_url: None,
                 user_agent: None,
                 speed_limit_bytes_per_sec: 0,
+                qbittorrent_download_limit_bytes_per_sec: 0,
+                qbittorrent_upload_limit_bytes_per_sec: 0,
+                qbittorrent_seed_ratio_limit: 0.0,
+                qbittorrent_seed_time_limit_minutes: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2279,6 +2320,10 @@ mod tests {
                 proxy_url: None,
                 user_agent: None,
                 speed_limit_bytes_per_sec: 0,
+                qbittorrent_download_limit_bytes_per_sec: 0,
+                qbittorrent_upload_limit_bytes_per_sec: 0,
+                qbittorrent_seed_ratio_limit: 0.0,
+                qbittorrent_seed_time_limit_minutes: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2495,6 +2540,10 @@ mod tests {
                 proxy_url: None,
                 user_agent: None,
                 speed_limit_bytes_per_sec: 0,
+                qbittorrent_download_limit_bytes_per_sec: 0,
+                qbittorrent_upload_limit_bytes_per_sec: 0,
+                qbittorrent_seed_ratio_limit: 0.0,
+                qbittorrent_seed_time_limit_minutes: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2649,6 +2698,10 @@ mod tests {
                 proxy_url: None,
                 user_agent: None,
                 speed_limit_bytes_per_sec: 0,
+                qbittorrent_download_limit_bytes_per_sec: 0,
+                qbittorrent_upload_limit_bytes_per_sec: 0,
+                qbittorrent_seed_ratio_limit: 0.0,
+                qbittorrent_seed_time_limit_minutes: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
@@ -2687,6 +2740,10 @@ mod tests {
                 proxy_url: None,
                 user_agent: None,
                 speed_limit_bytes_per_sec: 0,
+                qbittorrent_download_limit_bytes_per_sec: 0,
+                qbittorrent_upload_limit_bytes_per_sec: 0,
+                qbittorrent_seed_ratio_limit: 0.0,
+                qbittorrent_seed_time_limit_minutes: 0,
                 aria2_enable_dht: false,
                 aria2_enable_dht6: false,
                 aria2_enable_peer_exchange: false,
