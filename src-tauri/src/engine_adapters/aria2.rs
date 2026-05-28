@@ -7,7 +7,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose, Engine as _};
-use reqwest::blocking::Client;
+use reqwest::{blocking::Client, Url};
 use serde_json::{json, Value};
 
 use crate::{
@@ -701,14 +701,15 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
         return Ok(false);
     }
 
+    let rpc_listen_port = aria2_rpc_listen_port(settings)?;
     let mut command = Command::new(executable);
     command
         .arg("--enable-rpc=true")
         .arg("--rpc-listen-all=false")
-        .arg("--rpc-listen-port=6800")
         .args(ARIA2_FAST_DEFAULT_ARGS.split_whitespace());
     append_args(&mut command, &settings.default_args);
     command
+        .arg(format!("--rpc-listen-port={rpc_listen_port}"))
         .arg(format!(
             "--enable-dht={}",
             bool_param(settings.aria2_enable_dht)
@@ -893,6 +894,12 @@ pub(super) fn aria2_rpc_url(settings: &EngineSettings) -> String {
     } else {
         format!("{}/jsonrpc", url.trim_end_matches('/'))
     }
+}
+
+fn aria2_rpc_listen_port(settings: &EngineSettings) -> Result<u16, Box<dyn Error>> {
+    let url = Url::parse(&aria2_rpc_url(settings))?;
+    url.port()
+        .ok_or_else(|| "aria2 rpc url must include port".into())
 }
 
 pub(super) fn aria2_params(

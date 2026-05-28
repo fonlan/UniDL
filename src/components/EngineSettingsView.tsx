@@ -51,6 +51,9 @@ import type {
 
 const ERROR_AUTO_DISMISS_MS = 10_000;
 const DEFAULT_AUTO_CLEAN_DOWNLOAD_TASK_DAYS = 365;
+const ARIA2_DEFAULT_RPC_LISTEN_ADDRESS = "127.0.0.1";
+const ARIA2_DEFAULT_RPC_LISTEN_PORT = 6800;
+const ARIA2_RPC_PATH = "/jsonrpc";
 const ARIA2_DEFAULT_BT_LISTEN_PORT = 6881;
 const ARIA2_DEFAULT_BT_MAX_PEERS = 55;
 const ARIA2_DEFAULT_SEED_TIME = 10;
@@ -164,6 +167,117 @@ function isLocalDownloadEngine(engine: EngineKind) {
   return engine === "aria2" || engine === "yt-dlp";
 }
 
+function defaultAria2RpcConnectionUrl(port = ARIA2_DEFAULT_RPC_LISTEN_PORT) {
+  return `http://${ARIA2_DEFAULT_RPC_LISTEN_ADDRESS}:${port}${ARIA2_RPC_PATH}`;
+}
+
+function parseAria2RpcConnectionUrl(value: string | null | undefined) {
+  const trimmed =
+    value === null || value === undefined
+      ? defaultAria2RpcConnectionUrl()
+      : value.trim();
+  if (!trimmed) {
+    throw new Error("aria2 RPC 连接地址不能为空");
+  }
+  const normalized = trimmed.endsWith(ARIA2_RPC_PATH)
+    ? trimmed
+    : `${trimmed.replace(/\/+$/, "")}${ARIA2_RPC_PATH}`;
+  return new URL(normalized);
+}
+
+function parseAria2RpcConnectionUrlOrDefault(value: string | null | undefined) {
+  try {
+    return parseAria2RpcConnectionUrl(value);
+  } catch {
+    return new URL(defaultAria2RpcConnectionUrl());
+  }
+}
+
+function aria2RpcListenAddress(value: string | null | undefined) {
+  return parseAria2RpcConnectionUrl(value).hostname || ARIA2_DEFAULT_RPC_LISTEN_ADDRESS;
+}
+
+function aria2RpcListenPort(value: string | null | undefined) {
+  const url = parseAria2RpcConnectionUrl(value);
+  if (!url.port) {
+    throw new Error("aria2 RPC 连接地址必须包含端口");
+  }
+  const port = Number.parseInt(url.port, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("aria2 RPC 监听端口必须是 1 到 65535 的整数");
+  }
+  return port;
+}
+
+function updateAria2RpcListenAddress(
+  value: string | null | undefined,
+  address: string,
+) {
+  const trimmed = address.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const url = parseAria2RpcConnectionUrlOrDefault(value);
+  url.hostname = trimmed;
+  url.pathname = ARIA2_RPC_PATH;
+  return url.toString();
+}
+
+function updateAria2RpcListenPort(value: string | null | undefined, port: number) {
+  const url = parseAria2RpcConnectionUrlOrDefault(value);
+  url.pathname = ARIA2_RPC_PATH;
+  if (!Number.isFinite(port)) {
+    url.port = "";
+    return url.toString();
+  }
+
+  const normalizedPort = Math.trunc(port);
+  if (normalizedPort < 0 || normalizedPort > 65_535) {
+    const host =
+      url.hostname.includes(":") && !url.hostname.startsWith("[")
+        ? `[${url.hostname}]`
+        : url.hostname;
+    return `${url.protocol}//${host}:${normalizedPort}${ARIA2_RPC_PATH}`;
+  }
+  url.port = String(normalizedPort);
+  return url.toString();
+}
+
+function aria2RpcInputPort(value: string | null | undefined) {
+  try {
+    return aria2RpcListenPort(value);
+  } catch {
+    return Number.NaN;
+  }
+}
+
+function aria2RpcInputUrl(value: string | null | undefined) {
+  try {
+    const url = parseAria2RpcConnectionUrl(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.hostname) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function nextAria2RpcListenPort(settings: EngineSettings[]) {
+  const ports = settings
+    .filter((item) => item.engine === "aria2")
+    .map((item) => aria2RpcListenPort(item.connectionUrl));
+  if (ports.length === 0) {
+    return ARIA2_DEFAULT_RPC_LISTEN_PORT;
+  }
+
+  const nextPort = Math.max(...ports) + 1;
+  if (nextPort > 65_535) {
+    throw new Error("aria2 RPC 监听端口已超过 65535，无法自动递增");
+  }
+  return nextPort;
+}
+
 function nextAria2BtListenPort(settings: EngineSettings[]) {
   const ports = settings
     .filter((item) => item.engine === "aria2")
@@ -180,9 +294,28 @@ function nextAria2BtListenPort(settings: EngineSettings[]) {
   return nextPort;
 }
 
-function validateAria2BtSettings(settings: EngineSettings) {
+function validateAria2Settings(settings: EngineSettings) {
   if (settings.engine !== "aria2") {
     return null;
+  }
+  let rpcUrl: URL;
+  try {
+    rpcUrl = parseAria2RpcConnectionUrl(settings.connectionUrl);
+  } catch {
+    return "aria2 RPC 连接地址格式无效";
+  }
+  if (rpcUrl.protocol !== "http:" && rpcUrl.protocol !== "https:") {
+    return "aria2 RPC 连接地址需以 http 或 https 开头";
+  }
+  if (!rpcUrl.hostname) {
+    return "aria2 RPC 监听地址不能为空";
+  }
+  if (!rpcUrl.port) {
+    return "aria2 RPC 连接地址必须包含端口";
+  }
+  const rpcPort = Number.parseInt(rpcUrl.port, 10);
+  if (!Number.isInteger(rpcPort) || rpcPort < 1 || rpcPort > 65_535) {
+    return "aria2 RPC 监听端口必须是 1 到 65535 的整数";
   }
   if (
     !Number.isInteger(settings.aria2BtListenPort) ||
@@ -208,6 +341,7 @@ function defaultEngineSettings(
   defaultDownloadDir: string,
   executablePath: string | null,
   aria2BtListenPort = ARIA2_DEFAULT_BT_LISTEN_PORT,
+  aria2RpcListenPort = ARIA2_DEFAULT_RPC_LISTEN_PORT,
 ): EngineSettings {
   return {
     id: crypto.randomUUID(),
@@ -222,7 +356,7 @@ function defaultEngineSettings(
         : "",
     connectionUrl:
       engine === "aria2"
-        ? "http://127.0.0.1:6800/jsonrpc"
+        ? defaultAria2RpcConnectionUrl(aria2RpcListenPort)
         : engine === "qbittorrent"
           ? "http://127.0.0.1:8080"
           : null,
@@ -736,20 +870,37 @@ export default function EngineSettingsView({
     return errors;
   }, [draftSettings]);
 
-  const engineBtErrors = useMemo(() => {
+  const engineAria2Errors = useMemo(() => {
     const errors = new Map<string, string>();
     for (const draft of draftSettings) {
-      const error = validateAria2BtSettings(draft);
+      const error = validateAria2Settings(draft);
       if (error) {
         errors.set(draft.id, error);
+      }
+    }
+
+    const rpcPorts = new Map<number, string[]>();
+    for (const draft of draftSettings) {
+      if (draft.engine !== "aria2" || errors.has(draft.id)) {
+        continue;
+      }
+      const port = aria2RpcListenPort(draft.connectionUrl);
+      rpcPorts.set(port, [...(rpcPorts.get(port) ?? []), draft.id]);
+    }
+    for (const duplicatedIds of rpcPorts.values()) {
+      if (duplicatedIds.length <= 1) {
+        continue;
+      }
+      for (const settingsId of duplicatedIds) {
+        errors.set(settingsId, "多个 aria2 下载引擎不能使用相同 RPC 监听端口");
       }
     }
     return errors;
   }, [draftSettings]);
 
   const hasEngineProxyErrors = engineProxyErrors.size > 0;
-  const hasEngineBtErrors = engineBtErrors.size > 0;
-  const hasEngineErrors = hasEngineProxyErrors || hasEngineBtErrors;
+  const hasEngineAria2Errors = engineAria2Errors.size > 0;
+  const hasEngineErrors = hasEngineProxyErrors || hasEngineAria2Errors;
 
   const hasDirtySettings = appDirty || dirtySettings;
   const engineSettingsCount = draftSettings.length;
@@ -858,12 +1009,17 @@ export default function EngineSettingsView({
           engine === "aria2"
             ? nextAria2BtListenPort(current)
             : ARIA2_DEFAULT_BT_LISTEN_PORT;
+        const aria2RpcListenPort =
+          engine === "aria2"
+            ? nextAria2RpcListenPort(current)
+            : ARIA2_DEFAULT_RPC_LISTEN_PORT;
         const next = {
           ...defaultEngineSettings(
             engine,
             defaultDownloadDir,
             executablePath,
             aria2BtListenPort,
+            aria2RpcListenPort,
           ),
           priority: current.length,
         };
@@ -1964,8 +2120,7 @@ export default function EngineSettingsView({
                       {sortSettings(draftSettings).map((draft, index) => {
                         const saved = savedById.get(draft.id);
                         const dirty = saved ? isDirty(saved, draft) : true;
-                        const usesConnection =
-                          draft.engine === "aria2" || draft.engine === "qbittorrent";
+                        const usesConnection = draft.engine === "qbittorrent";
                         const usesExecutable =
                           draft.engine === "aria2" || draft.engine === "yt-dlp";
                         const canInstall = usesExecutable && Boolean(saved);
@@ -1983,8 +2138,20 @@ export default function EngineSettingsView({
                         const isAdvancedOpen = expandedAdvanced.has(draft.id);
                         const isDragging = draggedEngineId === draft.id;
                         const cardProxyError = engineProxyErrors.get(draft.id) ?? null;
-                        const cardBtError = engineBtErrors.get(draft.id) ?? null;
-                        const cardSettingsError = cardProxyError ?? cardBtError;
+                        const cardAria2Error = engineAria2Errors.get(draft.id) ?? null;
+                        const cardAria2RpcError =
+                          cardAria2Error && cardAria2Error.includes("RPC")
+                            ? cardAria2Error
+                            : null;
+                        const cardAria2BtError =
+                          cardAria2Error && !cardAria2RpcError
+                            ? cardAria2Error
+                            : null;
+                        const cardSettingsError = cardProxyError ?? cardAria2Error;
+                        const aria2RpcUrl =
+                          draft.engine === "aria2"
+                            ? aria2RpcInputUrl(draft.connectionUrl)
+                            : null;
 
                         return (
                           <div
@@ -2289,6 +2456,7 @@ export default function EngineSettingsView({
                                   {[
                                     draft.engine === "aria2" ? "BT 参数" : null,
                                     draft.engine === "aria2" ? "BT 发现" : null,
+                                    draft.engine === "aria2" ? "RPC 监听" : null,
                                     draft.engine === "aria2" ? "Tracker 订阅" : null,
                                     "偏好域名",
                                     "默认参数",
@@ -2387,6 +2555,73 @@ export default function EngineSettingsView({
                                     <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
                                       <div>
                                         <div className="text-sm font-medium text-slate-800">
+                                          RPC 监听
+                                        </div>
+                                        <div className="mt-1 text-xs text-slate-500">
+                                          修改监听端口会同步更新此引擎连接地址中的端口；多个 aria2 引擎必须使用不同 RPC 端口。
+                                        </div>
+                                      </div>
+                                      <IconField
+                                        label="连接地址"
+                                        value={draft.connectionUrl ?? ""}
+                                        onChange={(value) =>
+                                          updateDraft(draft.id, { connectionUrl: value })
+                                        }
+                                        onClick={() => void testConnection(draft.id)}
+                                        buttonTitle={
+                                          isTesting ? "正在测试连接" : "测试连接"
+                                        }
+                                        buttonDisabled={isBusy}
+                                        buttonLabel={<PlugZap size={15} />}
+                                      />
+                                      <div className="text-xs text-slate-500">
+                                        aria2 JSON-RPC 地址，修改后会影响 RPC
+                                        监听地址和端口。
+                                      </div>
+                                      <div className="grid gap-3 sm:grid-cols-2">
+                                        <Field
+                                          label="RPC 监听地址"
+                                          value={
+                                            aria2RpcUrl
+                                              ? aria2RpcListenAddress(draft.connectionUrl)
+                                              : ""
+                                          }
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              connectionUrl: updateAria2RpcListenAddress(
+                                                draft.connectionUrl,
+                                                value,
+                                              ),
+                                            })
+                                          }
+                                        />
+                                        <NumberField
+                                          label="RPC 监听端口"
+                                          value={aria2RpcInputPort(draft.connectionUrl)}
+                                          min={1}
+                                          max={65_535}
+                                          onChange={(value) =>
+                                            updateDraft(draft.id, {
+                                              connectionUrl: updateAria2RpcListenPort(
+                                                draft.connectionUrl,
+                                                value,
+                                              ),
+                                            })
+                                          }
+                                        />
+                                      </div>
+                                      {cardAria2RpcError && (
+                                        <div className="text-xs text-rose-600">
+                                          {cardAria2RpcError}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {draft.engine === "aria2" && (
+                                    <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+                                      <div>
+                                        <div className="text-sm font-medium text-slate-800">
                                           BT 参数
                                         </div>
                                         <div className="mt-1 text-xs text-slate-500">
@@ -2441,9 +2676,9 @@ export default function EngineSettingsView({
                                           }
                                         />
                                       </div>
-                                      {cardBtError && (
+                                      {cardAria2BtError && (
                                         <div className="text-xs text-rose-600">
-                                          {cardBtError}
+                                          {cardAria2BtError}
                                         </div>
                                       )}
                                     </div>
