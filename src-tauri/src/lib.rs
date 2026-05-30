@@ -282,6 +282,24 @@ fn show_main_window(app_handle: &tauri::AppHandle) {
     }
 }
 
+fn toggle_main_window(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        match window.is_visible() {
+            Ok(true) => {
+                let _ = window.hide();
+            }
+            Ok(false) => {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            Err(error) => {
+                logger::error(format!("failed to read main window visibility: {error}"));
+            }
+        }
+    }
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(app, "show-main-window", "显示主窗口", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出 UniDL", true, None::<&str>)?;
@@ -308,7 +326,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                toggle_main_window(tray.app_handle());
             }
         })
         .build(app)?;
