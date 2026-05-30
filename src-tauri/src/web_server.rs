@@ -669,11 +669,12 @@ fn open_task_dialog(
         .extend(requests.clone());
 
     if let Some(app_handle) = &context.app_handle {
-        system_open::emit_open_requests(app_handle, requests)?;
         if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.show();
             let _ = window.unminimize();
             let _ = window.set_focus();
         }
+        system_open::emit_open_requests(app_handle, requests)?;
     }
 
     Ok(())
