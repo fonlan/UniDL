@@ -32,11 +32,38 @@ use crate::{
 };
 
 pub struct WebServerHandle {
+    bind_address: SocketAddr,
+    web_access: Arc<Mutex<WebAccessConfig>>,
+    sessions: Arc<Mutex<HashSet<String>>>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl WebServerHandle {
+    pub fn bind_address(&self) -> SocketAddr {
+        self.bind_address
+    }
+
+    pub fn update_settings(&self, settings: &AppSettings) -> Result<(), String> {
+        let mut web_access = self
+            .web_access
+            .lock()
+            .map_err(|_| "web access config lock was poisoned".to_string())?;
+        let password_changed = web_access.password != settings.web_access_password;
+        web_access.enabled = settings.web_access_enabled;
+        web_access.password = settings.web_access_password.clone();
+        drop(web_access);
+
+        if password_changed {
+            self.sessions
+                .lock()
+                .map_err(|_| "web session lock was poisoned".to_string())?
+                .clear();
+        }
+
+        Ok(())
+    }
+
     pub fn stop(mut self) {
         self.shutdown();
     }
@@ -56,12 +83,17 @@ impl Drop for WebServerHandle {
 }
 
 #[derive(Clone)]
+struct WebAccessConfig {
+    enabled: bool,
+    password: String,
+}
+
+#[derive(Clone)]
 struct WebServerContext {
     app_handle: Option<tauri::AppHandle>,
     database_path: PathBuf,
     pending_open_sources: Arc<Mutex<Vec<system_open::OpenTaskRequest>>>,
-    web_access_enabled: bool,
-    password: String,
+    web_access: Arc<Mutex<WebAccessConfig>>,
     sessions: Arc<Mutex<HashSet<String>>>,
     stop: Arc<AtomicBool>,
 }
@@ -239,15 +271,20 @@ fn start_on(
     settings: &AppSettings,
 ) -> Result<WebServerHandle, Box<dyn Error + Send + Sync>> {
     let server = Server::http(bind_address)?;
+    let bind_address = bind_address.parse::<SocketAddr>()?;
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
+    let web_access = Arc::new(Mutex::new(WebAccessConfig {
+        enabled: settings.web_access_enabled,
+        password: settings.web_access_password.clone(),
+    }));
+    let sessions = Arc::new(Mutex::new(HashSet::new()));
     let context = WebServerContext {
         app_handle,
         database_path,
         pending_open_sources,
-        web_access_enabled: settings.web_access_enabled,
-        password: settings.web_access_password.clone(),
-        sessions: Arc::new(Mutex::new(HashSet::new())),
+        web_access: Arc::clone(&web_access),
+        sessions: Arc::clone(&sessions),
         stop: Arc::clone(&stop),
     };
 
@@ -265,6 +302,9 @@ fn start_on(
     });
 
     Ok(WebServerHandle {
+        bind_address,
+        web_access,
+        sessions,
         stop,
         thread: Some(thread),
     })
@@ -291,13 +331,8 @@ fn handle_request(mut request: Request, context: &WebServerContext) {
         handle_extension_ytdlp_task(&mut request, context)
     } else if method == Method::Post && path == "/api/extension/tasks" {
         handle_extension_task(&mut request, context)
-    } else if !context.web_access_enabled {
-        json_response(
-            StatusCode(403),
-            &ErrorOutput {
-                error: "web access is disabled".to_string(),
-            },
-        )
+    } else if let Some(response) = web_access_disabled_response(context) {
+        response
     } else if method == Method::Get && !path.starts_with("/api/") {
         serve_frontend_asset(context, &path)
     } else if method == Method::Post && path == "/api/login" {
@@ -335,7 +370,7 @@ fn handle_login(
     context: &WebServerContext,
 ) -> Result<ResponseBox, Box<dyn Error>> {
     let input: LoginInput = read_json(request)?;
-    if input.password != context.password {
+    if input.password != web_access_password(context)? {
         return json_response(
             StatusCode(401),
             &ErrorOutput {
@@ -352,6 +387,38 @@ fn handle_login(
         .insert(token.clone());
 
     json_response(StatusCode(200), &LoginOutput { token })
+}
+
+fn web_access_disabled_response(
+    context: &WebServerContext,
+) -> Option<Result<ResponseBox, Box<dyn Error>>> {
+    match web_access_enabled(context) {
+        Ok(true) => None,
+        Ok(false) => Some(json_response(
+            StatusCode(403),
+            &ErrorOutput {
+                error: "web access is disabled".to_string(),
+            },
+        )),
+        Err(error) => Some(Err(error)),
+    }
+}
+
+fn web_access_enabled(context: &WebServerContext) -> Result<bool, Box<dyn Error>> {
+    Ok(context
+        .web_access
+        .lock()
+        .map_err(|_| "web access config lock was poisoned")?
+        .enabled)
+}
+
+fn web_access_password(context: &WebServerContext) -> Result<String, Box<dyn Error>> {
+    Ok(context
+        .web_access
+        .lock()
+        .map_err(|_| "web access config lock was poisoned")?
+        .password
+        .clone())
 }
 
 fn handle_extension_videos_support(
@@ -857,17 +924,14 @@ fn handle_authorized_request(
             drop(connection);
             if let Some(app_handle) = &context.app_handle {
                 let state = app_handle.state::<crate::AppState>();
-                let current = state
-                    .app_settings()
-                    .map_err(|error| -> Box<dyn Error> { error.into() })?;
                 crate::system_open::sync_torrent_file_association(
                     next.torrent_file_association_enabled,
                 )?;
                 state
-                    .set_app_settings(next.clone())
+                    .sync_web_settings(app_handle.clone(), &next)
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
                 state
-                    .apply_web_settings_if_changed(app_handle.clone(), &current, &next)
+                    .set_app_settings(next.clone())
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
                 state
                     .refresh_sleep_prevention()
@@ -1281,6 +1345,78 @@ mod tests {
             .json()
             .expect("tasks response should be json");
         assert_eq!(tasks.as_array().expect("tasks should be an array").len(), 0);
+
+        handle.stop();
+        let _ = fs::remove_file(database_path);
+    }
+
+    #[test]
+    fn web_server_updates_web_access_without_rebinding() {
+        let database_path = temp_database_path();
+        let connection = db::connect_path(database_path.clone()).expect("database should migrate");
+        drop(connection);
+
+        let bind_address = free_bind_address();
+        let base_url = format!("http://{bind_address}");
+        let pending_open_sources = Arc::new(Mutex::new(Vec::new()));
+        let handle = start_on(
+            &bind_address,
+            None,
+            database_path.clone(),
+            Arc::clone(&pending_open_sources),
+            &app_settings(true, "secret"),
+        )
+        .expect("web server should start");
+        let client = Client::new();
+
+        let login: Value = client
+            .post(format!("{base_url}/api/login"))
+            .json(&serde_json::json!({ "password": "secret" }))
+            .send()
+            .expect("login request should complete")
+            .json()
+            .expect("login response should be json");
+        let token = login["token"].as_str().expect("login should return token");
+
+        let mut disabled_settings = app_settings(false, "changed");
+        disabled_settings.web_access_url = format!("http://{bind_address}");
+        handle
+            .update_settings(&disabled_settings)
+            .expect("settings should update in place");
+
+        let health = client
+            .get(format!("{base_url}/api/health"))
+            .send()
+            .expect("health request should succeed");
+        assert_eq!(health.status(), StatusCode::OK);
+
+        let disabled_login = client
+            .post(format!("{base_url}/api/login"))
+            .json(&serde_json::json!({ "password": "changed" }))
+            .send()
+            .expect("disabled login request should complete");
+        assert_eq!(disabled_login.status(), StatusCode::FORBIDDEN);
+
+        let disabled_tasks = client
+            .get(format!("{base_url}/api/tasks"))
+            .bearer_auth(token)
+            .send()
+            .expect("disabled tasks request should complete");
+        assert_eq!(disabled_tasks.status(), StatusCode::FORBIDDEN);
+
+        let task: Value = client
+            .post(format!("{base_url}/api/extension/tasks"))
+            .json(&serde_json::json!({
+                "sourceType": "magnet",
+                "source": "magnet:?xt=urn:btih:ABCDEF123456&dn=unidl",
+                "fileName": "unidl",
+                "httpReferrer": "https://example.test/page"
+            }))
+            .send()
+            .expect("extension task request should complete")
+            .json()
+            .expect("extension task response should be json");
+        assert_eq!(task["fileName"], "unidl");
 
         handle.stop();
         let _ = fs::remove_file(database_path);

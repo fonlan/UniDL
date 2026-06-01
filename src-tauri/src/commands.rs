@@ -391,8 +391,6 @@ pub fn save_app_settings(
     ));
     AppSettingsService::validate_input(&settings).map_err(|error| error.to_string())?;
     let requested_autostart = settings.auto_start_enabled;
-    let current = state.app_settings()?;
-
     let connection = state.lock_connection()?;
     let next = AppSettingsService::new(&connection)
         .save(settings)
@@ -405,8 +403,8 @@ pub fn save_app_settings(
     if next.auto_start_enabled != requested_autostart {
         return Err("saved app settings do not match requested autostart state".to_string());
     }
+    state.sync_web_settings(app_handle.clone(), &next)?;
     state.set_app_settings(next.clone())?;
-    state.apply_web_settings_if_changed(app_handle.clone(), &current, &next)?;
     state.refresh_sleep_prevention()?;
     state.apply_auto_download_task_cleanup_for_settings(&app_handle, &next)?;
 
