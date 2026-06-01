@@ -30,6 +30,11 @@ button {
   font: inherit;
 }
 
+.about-editorial-heading {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  letter-spacing: -0.03em;
+}
+
 .task-progress {
   width: 100%;
   height: 0.5rem;

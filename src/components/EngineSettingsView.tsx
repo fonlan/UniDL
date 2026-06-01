@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DragEvent as ReactDragEvent, ReactNode } from "react";
 import { confirm, openDialog } from "@/lib/tauri";
 import {
+  Code2,
   Check,
   ChevronDown,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
   Globe2,
   GripVertical,
   HardDrive,
+  Info,
   Network,
   Plus,
   PlugZap,
@@ -21,7 +23,9 @@ import {
   Settings2,
   Shield,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
+  Workflow,
 } from "lucide-react";
 
 import {
@@ -39,6 +43,7 @@ import {
   updateEngineTrackers,
   writeLog,
 } from "@/lib/api";
+import { hasTauriRuntime } from "@/lib/runtime";
 import type {
   AppSettings,
   AppSettingsInput,
@@ -48,6 +53,8 @@ import type {
   EngineSettingsInput,
   SourceType,
 } from "@shared/types";
+import packageJson from "../../package.json";
+import logoUrl from "../../logo.png";
 
 const ERROR_AUTO_DISMISS_MS = 10_000;
 const DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY = 5;
@@ -68,7 +75,13 @@ const aria2FileAllocationOptions = ["none", "prealloc", "trunc", "falloc"] as co
 
 const engineOrder: EngineKind[] = ["aria2", "yt-dlp", "qbittorrent"];
 const sourceTypes: SourceType[] = ["http", "ftp", "magnet", "torrent"];
-type SettingsGroup = "general" | "web-access" | "privacy" | "data" | "download-engines";
+type SettingsGroup =
+  | "general"
+  | "web-access"
+  | "privacy"
+  | "data"
+  | "download-engines"
+  | "about";
 type Aria2BtToggleKey =
   | "aria2EnableDht"
   | "aria2EnableDht6"
@@ -145,6 +158,39 @@ const sourceLabels: Record<SourceType, string> = {
   magnet: "Magnet",
   torrent: "Torrent",
 };
+
+const aboutHighlights = [
+  {
+    title: "多协议入口",
+    description: "HTTP、FTP、磁力链接与种子文件都能进入同一套任务流。",
+    icon: Globe2,
+  },
+  {
+    title: "多引擎调度",
+    description: "aria2、yt-dlp、qBittorrent 可并存配置并按优先级协作。",
+    icon: Workflow,
+  },
+  {
+    title: "浏览器接力",
+    description: "通过 Chromium MV3 扩展把网页里的下载请求快速送到本机。",
+    icon: Download,
+  },
+  {
+    title: "桌面与 Web 共用",
+    description: "同一套界面既能跑在 Tauri 桌面端，也能经 Web 方式访问。",
+    icon: Code2,
+  },
+] as const;
+
+const aboutTechStack = [
+  "Tauri 2",
+  "React 19",
+  "TypeScript",
+  "Tailwind CSS",
+  "Rust",
+  "SQLite",
+  "MV3 Extension",
+];
 
 const downloadRecordCleanupOptions: DownloadRecordCleanupOption[] = [
   { id: "day", label: "1 天前", olderThanDays: 1 },
@@ -957,6 +1003,21 @@ function SettingsSwitch({
   );
 }
 
+function AboutMetaRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-slate-100/80 py-2 last:border-b-0 last:pb-0">
+      <span className="text-xs uppercase tracking-[0.12em] text-slate-400">{label}</span>
+      <span className="text-right text-sm font-medium text-slate-700">{value}</span>
+    </div>
+  );
+}
+
 type EngineSettingsViewProps = {
   onDownloadRecordsCleared?: (tasks: DownloadTask[]) => void;
 };
@@ -1100,6 +1161,28 @@ export default function EngineSettingsView({
     () => draftSettings.filter((item) => item.enabled).length,
     [draftSettings],
   );
+  const runtimeLabel = hasTauriRuntime() ? "Tauri 桌面模式" : "Web 控制台模式";
+  const webAccessLabel = draftAppSettings?.webAccessEnabled
+    ? "远程访问已开启"
+    : "远程访问按需开启";
+  const aboutStats = [
+    {
+      label: "支持来源",
+      value: `${sourceTypes.length} 种`,
+      description: sourceTypes.map((type) => sourceLabels[type]).join(" / "),
+    },
+    {
+      label: "支持引擎",
+      value: `${engineOrder.length} 类`,
+      description: engineOrder.map((engine) => engineLabels[engine]).join(" / "),
+    },
+    {
+      label: "当前启用",
+      value: `${enabledEnginesCount} 个`,
+      description:
+        engineSettingsCount > 0 ? `共配置 ${engineSettingsCount} 个下载引擎` : "尚未配置下载引擎",
+    },
+  ];
 
   useEffect(() => {
     async function loadSettings() {
@@ -1686,11 +1769,185 @@ export default function EngineSettingsView({
                       </span>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveGroup("about")}
+                    className={classNames(
+                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
+                      activeGroup === "about"
+                        ? "bg-emerald-50 text-emerald-800"
+                        : "text-slate-700 hover:bg-slate-50",
+                    )}
+                  >
+                    <Info
+                      size={16}
+                      className={activeGroup === "about" ? "text-emerald-700" : "text-slate-500"}
+                    />
+                    <span className="min-w-0 flex-1 truncate">关于</span>
+                    <span
+                      className={classNames(
+                        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                        activeGroup === "about"
+                          ? "bg-white/70 text-emerald-700"
+                          : "bg-slate-100 text-slate-600",
+                      )}
+                    >
+                      v{packageJson.version}
+                    </span>
+                  </button>
                 </div>
               </nav>
             </aside>
 
             <div className="min-w-0">
+              {activeGroup === "about" && (
+                <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="relative overflow-hidden border-b border-slate-100 bg-[linear-gradient(135deg,#fff8ef_0%,#ffffff_48%,#e8f6ef_100%)] px-5 py-5">
+                    <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(15,23,42,0)_0%,rgba(5,150,105,0.35)_50%,rgba(15,23,42,0)_100%)]" />
+                    <div className="absolute -left-12 top-5 h-28 w-28 rounded-full bg-amber-200/40 blur-3xl" />
+                    <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-emerald-200/50 blur-3xl" />
+
+                    <div className="relative">
+                      <div className="min-w-0">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-600 backdrop-blur">
+                          <Sparkles size={13} className="text-emerald-600" />
+                          Unified Download Manager
+                        </div>
+
+                        <div className="mt-4 flex items-start gap-4">
+                          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[1.25rem] border border-slate-200 bg-slate-950/95 shadow-[0_16px_40px_-24px_rgba(15,23,42,0.85)]">
+                            <img src={logoUrl} alt="UniDL" className="h-10 w-10 object-contain" />
+                          </div>
+
+                          <div className="min-w-0">
+                            <h2 className="about-editorial-heading text-[2rem] leading-none text-slate-950">
+                              UniDL
+                            </h2>
+                            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700">
+                              把网页捕获、本地下载引擎和远程访问统一进一个桌面工作台，
+                              让多源下载不再分散在浏览器、命令行和不同客户端之间。
+                            </p>
+
+                            <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                                <span className="h-2 w-2 rounded-full bg-emerald-500" />v{packageJson.version}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                                <span className="h-2 w-2 rounded-full bg-slate-400" />{runtimeLabel}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                                <span className="h-2 w-2 rounded-full bg-amber-500" />MIT 协议
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                                <span className="h-2 w-2 rounded-full bg-sky-500" />{webAccessLabel}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 px-5 py-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+                    <div className="grid gap-5">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {aboutStats.map((item) => (
+                          <div
+                            key={item.label}
+                            className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                          >
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                              {item.label}
+                            </div>
+                            <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                              {item.value}
+                            </div>
+                            <div className="mt-2 text-xs leading-5 text-slate-500">
+                              {item.description}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <Workflow size={16} className="text-emerald-600" />
+                          核心能力
+                        </div>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          {aboutHighlights.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <div
+                                key={item.title}
+                                className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="grid h-9 w-9 place-items-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700">
+                                    <Icon size={16} />
+                                  </div>
+                                  <div className="text-sm font-medium text-slate-900">{item.title}</div>
+                                </div>
+                                <div className="mt-3 text-sm leading-6 text-slate-600">
+                                  {item.description}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    </div>
+
+                    <div className="grid gap-5">
+                      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <Code2 size={16} className="text-emerald-600" />
+                          技术栈
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {aboutTechStack.map((item) => (
+                            <span
+                              key={item}
+                              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
+                          前端使用 React 19、TypeScript 与 Tailwind CSS；桌面壳基于 Tauri 2，后端服务与任务编排由 Rust 提供。
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <Info size={16} className="text-emerald-600" />
+                          项目信息
+                        </div>
+                        <div className="mt-4">
+                          <AboutMetaRow label="产品名" value="UniDL" />
+                          <AboutMetaRow label="版本" value={`v${packageJson.version}`} />
+                          <AboutMetaRow label="当前模式" value={runtimeLabel} />
+                          <AboutMetaRow label="桌面壳" value="Tauri 2" />
+                          <AboutMetaRow label="扩展形态" value="Chromium MV3" />
+                          <AboutMetaRow label="协议" value="MIT" />
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                          <Sparkles size={16} className="text-emerald-700" />
+                          一句话说明
+                        </div>
+                        <div className="mt-3 text-sm leading-6 text-emerald-900/85">
+                          一个面向高频下载场景的统一工作台，把浏览器里的“发现”、本地引擎的“执行”和任务列表里的“管理”连成同一条链路。
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </article>
+              )}
+
               {activeGroup === "general" &&
                 draftAppSettings &&
                 (() => {
