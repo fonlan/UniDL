@@ -365,7 +365,7 @@ fn apply_autostart_settings(
     let autostart = app_handle.autolaunch();
     let is_enabled = autostart.is_enabled().map_err(|error| error.to_string())?;
 
-    if settings.auto_start_enabled && !is_enabled {
+    if settings.auto_start_enabled {
         autostart.enable().map_err(|error| error.to_string())?;
     }
     if !settings.auto_start_enabled && is_enabled {
