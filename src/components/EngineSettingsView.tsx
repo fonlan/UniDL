@@ -1825,14 +1825,14 @@ export default function EngineSettingsView({
             <div className="min-w-0">
               {activeGroup === "about" && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="relative overflow-hidden border-b border-slate-100 bg-[linear-gradient(135deg,#fff8ef_0%,#ffffff_48%,#e8f6ef_100%)] px-5 py-5">
-                    <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(15,23,42,0)_0%,rgba(5,150,105,0.35)_50%,rgba(15,23,42,0)_100%)]" />
-                    <div className="absolute -left-12 top-5 h-28 w-28 rounded-full bg-amber-200/40 blur-3xl" />
-                    <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-emerald-200/50 blur-3xl" />
+                  <div className="about-hero-panel relative overflow-hidden border-b border-slate-100 px-5 py-5">
+                    <div className="about-hero-rule absolute inset-x-0 top-0 h-px" />
+                    <div className="about-hero-amber absolute -left-12 top-5 h-28 w-28 rounded-full blur-3xl" />
+                    <div className="about-hero-emerald absolute right-0 top-0 h-32 w-32 rounded-full blur-3xl" />
 
                     <div className="relative">
                       <div className="min-w-0">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-600 backdrop-blur">
+                        <div className="about-chip inline-flex items-center gap-2 rounded-full border border-slate-200/80 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-600 backdrop-blur">
                           <Sparkles size={13} className="text-emerald-600" />
                           Unified Download Manager
                         </div>
@@ -1852,16 +1852,16 @@ export default function EngineSettingsView({
                             </p>
 
                             <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                              <span className="about-chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5">
                                 <span className="h-2 w-2 rounded-full bg-emerald-500" />v{packageJson.version}
                               </span>
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                              <span className="about-chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5">
                                 <span className="h-2 w-2 rounded-full bg-slate-400" />{runtimeLabel}
                               </span>
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                              <span className="about-chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5">
                                 <span className="h-2 w-2 rounded-full bg-amber-500" />MIT 协议
                               </span>
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">
+                              <span className="about-chip inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5">
                                 <span className="h-2 w-2 rounded-full bg-sky-500" />{webAccessLabel}
                               </span>
                             </div>
@@ -1877,7 +1877,7 @@ export default function EngineSettingsView({
                         {aboutStats.map((item) => (
                           <div
                             key={item.label}
-                            className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                            className="about-stat-card rounded-2xl border border-slate-200 px-4 py-4"
                           >
                             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                               {item.label}
@@ -1903,7 +1903,7 @@ export default function EngineSettingsView({
                             return (
                               <div
                                 key={item.title}
-                                className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4"
+                                className="about-capability-card rounded-2xl border border-slate-200 p-4"
                               >
                                 <div className="flex items-center gap-2">
                                   <div className="grid h-9 w-9 place-items-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700">
@@ -1937,7 +1937,7 @@ export default function EngineSettingsView({
                             </span>
                           ))}
                         </div>
-                        <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
+                        <div className="about-tech-note mt-4 rounded-2xl border border-slate-200 px-4 py-3 text-xs leading-6 text-slate-500">
                           前端使用 React 19、TypeScript 与 Tailwind CSS；桌面壳基于 Tauri 2，后端服务与任务编排由 Rust 提供。
                         </div>
                       </section>
