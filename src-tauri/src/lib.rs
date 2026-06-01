@@ -244,10 +244,7 @@ impl AppState {
         Ok(())
     }
 
-    fn apply_download_file_state(
-        &self,
-        tasks: &mut [models::DownloadTask],
-    ) -> Result<(), String> {
+    fn apply_download_file_state(&self, tasks: &mut [models::DownloadTask]) -> Result<(), String> {
         self.download_file_monitor
             .lock()
             .map_err(|_| "download file monitor lock was poisoned".to_string())?
@@ -451,13 +448,14 @@ pub fn run() {
             logger::info("Tauri setup started");
             #[cfg(any(windows, target_os = "linux"))]
             app.deep_link().register_all()?;
-            system_open::register_torrent_file_association()?;
-
             let pending_open_sources = system_open::parse_open_sources(std::env::args());
             let database_path = db::database_path(app.handle())?;
             let connection = db::connect_path(database_path.clone())?;
             logger::info(format!("database connected: {}", database_path.display()));
             let app_settings = services::AppSettingsService::new(&connection).get()?;
+            system_open::sync_torrent_file_association(
+                app_settings.torrent_file_association_enabled,
+            )?;
             app.manage(
                 AppState::new(
                     connection,
@@ -538,6 +536,7 @@ mod tests {
             web_access_url: "http://127.0.0.1:18080".to_string(),
             private_download_domains: Vec::new(),
             app_proxy_url: String::new(),
+            torrent_file_association_enabled: false,
             auto_start_enabled: false,
             auto_start_minimized_to_tray: false,
             close_to_tray_enabled: false,

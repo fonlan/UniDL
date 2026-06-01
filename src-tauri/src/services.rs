@@ -820,7 +820,6 @@ impl<'connection> DownloadTaskService<'connection> {
                 .into()
             })
     }
-
 }
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
@@ -2074,6 +2073,7 @@ mod tests {
                 web_access_url: "http://127.0.0.1:18080".to_string(),
                 private_download_domains: vec!["example.test".to_string()],
                 app_proxy_url: String::new(),
+                torrent_file_association_enabled: false,
                 auto_start_enabled: false,
                 auto_start_minimized_to_tray: false,
                 close_to_tray_enabled: false,

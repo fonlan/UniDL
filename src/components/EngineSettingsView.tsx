@@ -658,6 +658,7 @@ function toAppInput(settings: AppSettings): AppSettingsInput {
     webAccessUrl: settings.webAccessUrl,
     privateDownloadDomains: normalizePreferredDomains(settings.privateDownloadDomains),
     appProxyUrl: settings.appProxyUrl.trim(),
+    torrentFileAssociationEnabled: settings.torrentFileAssociationEnabled,
     autoStartEnabled: settings.autoStartEnabled,
     autoStartMinimizedToTray: settings.autoStartMinimizedToTray,
     closeToTrayEnabled: settings.closeToTrayEnabled,
@@ -1682,6 +1683,7 @@ export default function EngineSettingsView({
                       className={classNames(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
                         draftAppSettings?.appProxyUrl.trim() ||
+                          draftAppSettings?.torrentFileAssociationEnabled ||
                           draftAppSettings?.autoStartEnabled ||
                           draftAppSettings?.autoStartMinimizedToTray ||
                           draftAppSettings?.closeToTrayEnabled ||
@@ -2052,6 +2054,17 @@ export default function EngineSettingsView({
                         </label>
 
                         <div className="grid gap-3">
+                          <SettingsSwitch
+                            checked={draftAppSettings.torrentFileAssociationEnabled}
+                            label="关联 .torrent 文件"
+                            description="开启后，双击种子文件会直接交给 UniDL 创建下载任务。"
+                            onToggle={() =>
+                              updateAppDraft({
+                                torrentFileAssociationEnabled:
+                                  !draftAppSettings.torrentFileAssociationEnabled,
+                              })
+                            }
+                          />
                           <SettingsSwitch
                             checked={draftAppSettings.autoStartEnabled}
                             label="开机自启动"

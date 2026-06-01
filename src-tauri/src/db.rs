@@ -714,6 +714,7 @@ fn seed_app_settings(connection: &Connection) -> Result<(), rusqlite::Error> {
             ('web_access_url', 'http://127.0.0.1:18080'),
             ('private_download_domains', ''),
             ('app_proxy_url', ''),
+            ('torrent_file_association_enabled', '1'),
             ('auto_start_enabled', '0'),
             ('auto_start_minimized_to_tray', '0'),
             ('close_to_tray_enabled', '0'),

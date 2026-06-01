@@ -82,6 +82,43 @@ pub fn register_torrent_file_association() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[cfg(windows)]
+pub fn unregister_torrent_file_association() -> Result<(), Box<dyn Error>> {
+    use windows_registry::CURRENT_USER;
+
+    let classes = CURRENT_USER
+        .options()
+        .read()
+        .write()
+        .open("Software\\Classes")?;
+
+    if let Ok(extension) = classes.options().read().write().open(".torrent") {
+        if extension.get_string("").ok().as_deref() == Some("UniDL.Torrent") {
+            extension.remove_value("")?;
+        }
+        if let Ok(open_with) = extension.options().read().write().open("OpenWithProgids") {
+            let _ = open_with.remove_value("UniDL.Torrent");
+        }
+    }
+
+    let _ = classes.remove_tree("UniDL.Torrent");
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn unregister_torrent_file_association() -> Result<(), Box<dyn Error>> {
+    Ok(())
+}
+
+pub fn sync_torrent_file_association(enabled: bool) -> Result<(), Box<dyn Error>> {
+    if enabled {
+        register_torrent_file_association()
+    } else {
+        unregister_torrent_file_association()
+    }
+}
+
 fn normalize_open_source(value: &str) -> Option<String> {
     let source = value.trim().trim_matches('"');
     if source.is_empty() {

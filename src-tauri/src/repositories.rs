@@ -33,6 +33,8 @@ impl<'connection> AppSettingsRepository<'connection> {
             app_proxy_url: self
                 .get_optional_value("app_proxy_url")?
                 .unwrap_or_default(),
+            torrent_file_association_enabled: self.get_value("torrent_file_association_enabled")?
+                == "1",
             auto_start_enabled: self.get_value("auto_start_enabled")? == "1",
             auto_start_minimized_to_tray: self.get_value("auto_start_minimized_to_tray")? == "1",
             close_to_tray_enabled: self.get_value("close_to_tray_enabled")? == "1",
@@ -67,6 +69,14 @@ impl<'connection> AppSettingsRepository<'connection> {
             &encode_domains(&input.private_download_domains),
         )?;
         self.save_value("app_proxy_url", input.app_proxy_url.trim())?;
+        self.save_value(
+            "torrent_file_association_enabled",
+            if input.torrent_file_association_enabled {
+                "1"
+            } else {
+                "0"
+            },
+        )?;
         self.save_value(
             "auto_start_enabled",
             if input.auto_start_enabled { "1" } else { "0" },

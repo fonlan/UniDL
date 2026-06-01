@@ -380,8 +380,9 @@ pub fn save_app_settings(
     state: State<'_, AppState>,
 ) -> Result<AppSettings, String> {
     logger::info(format!(
-        "saving app settings: web_access_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}, local_download_concurrency={}, auto_clean_download_tasks_enabled={}, auto_clean_download_tasks_days={}",
+        "saving app settings: web_access_enabled={}, torrent_file_association_enabled={}, auto_start_enabled={}, close_to_tray_enabled={}, local_download_concurrency={}, auto_clean_download_tasks_enabled={}, auto_clean_download_tasks_days={}",
         settings.web_access_enabled,
+        settings.torrent_file_association_enabled,
         settings.auto_start_enabled,
         settings.close_to_tray_enabled,
         settings.local_download_concurrency,
@@ -399,6 +400,8 @@ pub fn save_app_settings(
     drop(connection);
 
     crate::apply_autostart_settings(&app_handle, &next)?;
+    crate::system_open::sync_torrent_file_association(next.torrent_file_association_enabled)
+        .map_err(|error| error.to_string())?;
     if next.auto_start_enabled != requested_autostart {
         return Err("saved app settings do not match requested autostart state".to_string());
     }

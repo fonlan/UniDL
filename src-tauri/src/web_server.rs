@@ -860,6 +860,9 @@ fn handle_authorized_request(
                 let current = state
                     .app_settings()
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
+                crate::system_open::sync_torrent_file_association(
+                    next.torrent_file_association_enabled,
+                )?;
                 state
                     .set_app_settings(next.clone())
                     .map_err(|error| -> Box<dyn Error> { error.into() })?;
@@ -1410,6 +1413,7 @@ mod tests {
             web_access_url: "http://127.0.0.1:18080".to_string(),
             private_download_domains: Vec::new(),
             app_proxy_url: String::new(),
+            torrent_file_association_enabled: false,
             auto_start_enabled: false,
             auto_start_minimized_to_tray: false,
             close_to_tray_enabled: false,

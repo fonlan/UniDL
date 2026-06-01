@@ -139,6 +139,7 @@ export interface AppSettings {
   webAccessUrl: string;
   privateDownloadDomains: string[];
   appProxyUrl: string;
+  torrentFileAssociationEnabled: boolean;
   autoStartEnabled: boolean;
   autoStartMinimizedToTray: boolean;
   closeToTrayEnabled: boolean;
