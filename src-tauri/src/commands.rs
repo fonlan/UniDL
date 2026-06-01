@@ -27,9 +27,13 @@ pub fn write_log(level: String, message: String) -> Result<(), String> {
 #[tauri::command]
 pub fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
     let connection = state.lock_connection()?;
-    DownloadTaskService::new(&connection, state.database_path())
+    let mut tasks = DownloadTaskService::new(&connection, state.database_path())
         .list_created_desc()
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    drop(connection);
+    state.sync_download_file_monitor(&tasks)?;
+    state.apply_download_file_state(&mut tasks)?;
+    Ok(tasks)
 }
 
 #[tauri::command]
@@ -192,6 +196,8 @@ pub fn refresh_download_tasks(
         .map_err(|error| error.to_string())?;
     drop(connection);
     state.handle_refreshed_tasks(&app_handle, &tasks)?;
+    let mut tasks = tasks;
+    state.apply_download_file_state(&mut tasks)?;
     Ok(tasks)
 }
 

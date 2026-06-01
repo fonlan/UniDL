@@ -28,7 +28,7 @@ use crate::{
     },
     repositories::EngineSettingsRepository,
     services::DownloadTaskService,
-    system_open, task_events,
+    system_open, task_events, AppState,
 };
 
 pub struct WebServerHandle {
@@ -693,7 +693,9 @@ fn handle_authorized_request(
             json_response(StatusCode(200), &crate::clipboard::read_text()?)
         }
         (&Method::Get, "/api/tasks") => with_task_service(context, |service| {
-            json_response(StatusCode(200), &service.list_created_desc()?)
+            let mut tasks = service.list_created_desc()?;
+            apply_download_file_state(context, &mut tasks)?;
+            json_response(StatusCode(200), &tasks)
         }),
         (&Method::Post, "/api/tasks") => {
             let input: CreateDownloadTaskInput = read_json(request)?;
@@ -714,7 +716,14 @@ fn handle_authorized_request(
             })
         }
         (&Method::Post, "/api/tasks/refresh") => with_task_service(context, |service| {
-            json_response(StatusCode(200), &service.refresh_all()?)
+            let mut tasks = service.refresh_all()?;
+            if let Some(app_handle) = context.app_handle.as_ref() {
+                app_handle
+                    .state::<AppState>()
+                    .handle_refreshed_tasks(app_handle, &tasks)?;
+            }
+            apply_download_file_state(context, &mut tasks)?;
+            json_response(StatusCode(200), &tasks)
         }),
         (&Method::Post, "/api/tasks/pause") => {
             let input: TaskIdsInput = read_json(request)?;
@@ -989,6 +998,7 @@ fn handle_authorized_request(
 }
 
 struct TaskEventStream {
+    app_handle: Option<tauri::AppHandle>,
     database_path: PathBuf,
     stop: Arc<AtomicBool>,
     buffer: Cursor<Vec<u8>>,
@@ -996,8 +1006,13 @@ struct TaskEventStream {
 }
 
 impl TaskEventStream {
-    fn new(database_path: PathBuf, stop: Arc<AtomicBool>) -> Self {
+    fn new(
+        app_handle: Option<tauri::AppHandle>,
+        database_path: PathBuf,
+        stop: Arc<AtomicBool>,
+    ) -> Self {
         Self {
+            app_handle,
             database_path,
             stop,
             buffer: Cursor::new(Vec::new()),
@@ -1025,7 +1040,17 @@ impl TaskEventStream {
 
     fn load_tasks(&self) -> Result<Vec<crate::models::DownloadTask>, Box<dyn Error>> {
         let connection = db::connect_path(self.database_path.clone())?;
-        DownloadTaskService::new(&connection, self.database_path.clone()).refresh_all()
+        let mut tasks =
+            DownloadTaskService::new(&connection, self.database_path.clone()).refresh_all()?;
+        if let Some(app_handle) = self.app_handle.as_ref() {
+            app_handle
+                .state::<AppState>()
+                .handle_refreshed_tasks(app_handle, &tasks)?;
+            app_handle
+                .state::<AppState>()
+                .apply_download_file_state(&mut tasks)?;
+        }
+        Ok(tasks)
     }
 }
 
@@ -1049,6 +1074,21 @@ fn with_task_service<T>(
     let connection = db::connect_path(context.database_path.clone())?;
     let service = DownloadTaskService::new(&connection, context.database_path.clone());
     run(&service)
+}
+
+fn apply_download_file_state(
+    context: &WebServerContext,
+    tasks: &mut [crate::models::DownloadTask],
+) -> Result<(), Box<dyn Error>> {
+    if let Some(app_handle) = context.app_handle.as_ref() {
+        app_handle
+            .state::<AppState>()
+            .sync_download_file_monitor(tasks)?;
+        app_handle
+            .state::<AppState>()
+            .apply_download_file_state(tasks)?;
+    }
+    Ok(())
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, Box<dyn Error>> {
@@ -1105,7 +1145,11 @@ fn serve_frontend_asset(
     .boxed())
 }
 fn event_stream_response(context: &WebServerContext) -> ResponseBox {
-    let stream = TaskEventStream::new(context.database_path.clone(), Arc::clone(&context.stop));
+    let stream = TaskEventStream::new(
+        context.app_handle.clone(),
+        context.database_path.clone(),
+        Arc::clone(&context.stop),
+    );
     with_cors(
         Response::new(
             StatusCode(200),

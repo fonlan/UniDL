@@ -168,6 +168,7 @@ pub struct DownloadTask {
     pub created_at: String,
     pub completed_at: Option<String>,
     pub error_message: Option<String>,
+    pub downloaded_file_missing: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

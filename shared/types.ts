@@ -42,6 +42,7 @@ export interface DownloadTask {
   createdAt: string;
   completedAt: string | null;
   errorMessage: string | null;
+  downloadedFileMissing: boolean;
 }
 
 export interface CreateDownloadTaskInput {

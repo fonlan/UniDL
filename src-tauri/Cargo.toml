@@ -38,6 +38,7 @@ tiny_http = "0.12"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tauri-plugin-notification = "2.3.3"
+notify = "8.2.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-registry = "0.6"

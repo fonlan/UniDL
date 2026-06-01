@@ -387,6 +387,7 @@ mod tests {
             created_at: String::new(),
             completed_at: None,
             error_message: None,
+            downloaded_file_missing: false,
         }
     }
 

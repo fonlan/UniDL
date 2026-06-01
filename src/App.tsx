@@ -1265,6 +1265,7 @@ function App() {
               <tbody>
                 {visibleTasks.map((task) => {
                   const isSelected = selectedIds.has(task.id);
+                  const isDownloadedFileMissing = task.downloadedFileMissing;
 
                   return (
                     <tr
@@ -1278,6 +1279,7 @@ function App() {
                       }}
                       className={classNames(
                         "cursor-pointer bg-white hover:bg-slate-50",
+                        isDownloadedFileMissing && "text-slate-400 opacity-70",
                         detailTaskId === task.id && "bg-sky-50 hover:bg-sky-50",
                         isSelected && "bg-emerald-50 hover:bg-emerald-50",
                       )}
@@ -1303,8 +1305,15 @@ function App() {
                       </td>
                       <td className="border-b border-slate-100 px-3 py-3">
                         <div
-                          className="truncate font-medium text-slate-900"
-                          title={task.fileName}
+                          className={classNames(
+                            "truncate font-medium text-slate-900",
+                            isDownloadedFileMissing && "text-slate-500 line-through",
+                          )}
+                          title={
+                            isDownloadedFileMissing
+                              ? `${task.fileName}（文件已不存在）`
+                              : task.fileName
+                          }
                         >
                           {task.fileName}
                         </div>

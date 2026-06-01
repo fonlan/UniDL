@@ -1,6 +1,7 @@
 mod clipboard;
 mod commands;
 mod db;
+mod download_file_monitor;
 mod engine_adapters;
 mod engine_install;
 mod logger;
@@ -39,6 +40,7 @@ pub struct AppState {
     web_server: Mutex<Option<web_server::WebServerHandle>>,
     sleep_state: Mutex<system_sleep::SleepState>,
     notified_completed_task_ids: Mutex<HashSet<String>>,
+    download_file_monitor: Mutex<download_file_monitor::DownloadFileMonitor>,
 }
 
 impl AppState {
@@ -67,6 +69,10 @@ impl AppState {
             web_server: Mutex::new(None),
             sleep_state: Mutex::new(system_sleep::SleepState::new()),
             notified_completed_task_ids: Mutex::new(notified_completed_task_ids),
+            download_file_monitor: Mutex::new(
+                download_file_monitor::DownloadFileMonitor::new()
+                    .map_err(|error| error.to_string())?,
+            ),
         })
     }
 
@@ -230,12 +236,32 @@ impl AppState {
         Ok(deleted_count)
     }
 
+    fn sync_download_file_monitor(&self, tasks: &[models::DownloadTask]) -> Result<(), String> {
+        self.download_file_monitor
+            .lock()
+            .map_err(|_| "download file monitor lock was poisoned".to_string())?
+            .sync_tasks(tasks);
+        Ok(())
+    }
+
+    fn apply_download_file_state(
+        &self,
+        tasks: &mut [models::DownloadTask],
+    ) -> Result<(), String> {
+        self.download_file_monitor
+            .lock()
+            .map_err(|_| "download file monitor lock was poisoned".to_string())?
+            .apply_state(tasks);
+        Ok(())
+    }
+
     fn handle_refreshed_tasks(
         &self,
         app_handle: &tauri::AppHandle,
         tasks: &[models::DownloadTask],
     ) -> Result<(), String> {
         self.refresh_sleep_prevention()?;
+        self.sync_download_file_monitor(tasks)?;
         let settings = self.app_settings()?;
 
         let mut notified = self

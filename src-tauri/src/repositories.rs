@@ -1065,5 +1065,6 @@ fn read_download_task(row: &rusqlite::Row<'_>) -> Result<DownloadTask, Box<dyn E
         created_at: row.get("created_at")?,
         completed_at: row.get("completed_at")?,
         error_message: row.get("error_message")?,
+        downloaded_file_missing: false,
     })
 }

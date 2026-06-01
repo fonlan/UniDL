@@ -820,6 +820,7 @@ impl<'connection> DownloadTaskService<'connection> {
                 .into()
             })
     }
+
 }
 
 fn delete_downloaded_entry(task: &DownloadTask) -> Result<(), Box<dyn Error>> {
@@ -1231,7 +1232,7 @@ fn remove_downloaded_entry(path: &Path) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn downloaded_entry_path(task: &DownloadTask) -> PathBuf {
+pub(crate) fn downloaded_entry_path(task: &DownloadTask) -> PathBuf {
     let save_path = Path::new(&task.save_path);
     let path = save_path.join(&task.file_name);
     if path.exists() || task.engine != EngineKind::YtDlp || task.status != DownloadStatus::Completed
@@ -3387,6 +3388,7 @@ mod tests {
             created_at: String::new(),
             completed_at: Some(String::new()),
             error_message: None,
+            downloaded_file_missing: false,
         }
     }
 
