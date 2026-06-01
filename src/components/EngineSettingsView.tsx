@@ -36,6 +36,7 @@ import {
   getSystemDownloadDir,
   installLatestEngine,
   listEngineSettings,
+  openExternalUrl,
   refreshDownloadTasks,
   saveAppSettings,
   saveEngineSettings,
@@ -191,6 +192,8 @@ const aboutTechStack = [
   "SQLite",
   "MV3 Extension",
 ];
+
+const projectRepositoryUrl = "https://github.com/fonlan/UniDL";
 
 const downloadRecordCleanupOptions: DownloadRecordCleanupOption[] = [
   { id: "day", label: "1 天前", olderThanDays: 1 },
@@ -1008,12 +1011,12 @@ function AboutMetaRow({
   value,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-slate-100/80 py-2 last:border-b-0 last:pb-0">
       <span className="text-xs uppercase tracking-[0.12em] text-slate-400">{label}</span>
-      <span className="text-right text-sm font-medium text-slate-700">{value}</span>
+      <span className="break-all text-right text-sm font-medium text-slate-700">{value}</span>
     </div>
   );
 }
@@ -1183,6 +1186,13 @@ export default function EngineSettingsView({
         engineSettingsCount > 0 ? `共配置 ${engineSettingsCount} 个下载引擎` : "尚未配置下载引擎",
     },
   ];
+
+  const openProjectRepository = () => {
+    setError(null);
+    void openExternalUrl(projectRepositoryUrl).catch((nextError) => {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    });
+  };
 
   useEffect(() => {
     async function loadSettings() {
@@ -1926,6 +1936,18 @@ export default function EngineSettingsView({
                         </div>
                         <div className="mt-4">
                           <AboutMetaRow label="产品名" value="UniDL" />
+                          <AboutMetaRow
+                            label="项目地址"
+                            value={
+                              <button
+                                type="button"
+                                onClick={openProjectRepository}
+                                className="text-right text-emerald-700 underline decoration-emerald-300 underline-offset-2 transition hover:text-emerald-800"
+                              >
+                                {projectRepositoryUrl}
+                              </button>
+                            }
+                          />
                           <AboutMetaRow label="版本" value={`v${packageJson.version}`} />
                           <AboutMetaRow label="当前模式" value={runtimeLabel} />
                           <AboutMetaRow label="桌面壳" value="Tauri 2" />
