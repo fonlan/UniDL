@@ -688,6 +688,9 @@ fn handle_authorized_request(
 ) -> Result<ResponseBox, Box<dyn Error>> {
     match (method, path) {
         (&Method::Get, "/api/events") => Ok(event_stream_response(context)),
+        (&Method::Get, "/api/clipboard-text") => {
+            json_response(StatusCode(200), &crate::clipboard::read_text()?)
+        }
         (&Method::Get, "/api/tasks") => with_task_service(context, |service| {
             json_response(StatusCode(200), &service.list_created_desc()?)
         }),

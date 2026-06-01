@@ -40,6 +40,11 @@ pub fn take_pending_open_requests(
 }
 
 #[tauri::command]
+pub fn read_clipboard_text() -> Result<Option<String>, String> {
+    crate::clipboard::read_text()
+}
+
+#[tauri::command]
 pub fn get_torrent_files(
     source: String,
     source_type: SourceType,

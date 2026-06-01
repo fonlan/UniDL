@@ -1,3 +1,4 @@
+mod clipboard;
 mod commands;
 mod db;
 mod engine_adapters;
@@ -464,6 +465,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_download_tasks,
             commands::take_pending_open_requests,
+            commands::read_clipboard_text,
             commands::refresh_download_tasks,
             commands::create_download_task,
             commands::check_download_file_conflict,

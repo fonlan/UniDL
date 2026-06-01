@@ -36,6 +36,7 @@ import {
   deleteDownloadTasks,
   openDownloadDirectory,
   openDownloadedFile,
+  readClipboardText,
   pauseAllUnfinishedDownloadTasks,
   pauseDownloadTasks,
   refreshDownloadTasks,
@@ -699,7 +700,8 @@ function App() {
 
   async function openNewTaskDialogFromToolbar() {
     try {
-      const source = clipboardDownloadSource(await navigator.clipboard.readText());
+      const clipboardText = await readClipboardText();
+      const source = clipboardText ? clipboardDownloadSource(clipboardText) : null;
       openNewTaskDialog(source);
     } catch (nextError) {
       reportDisplayedError("read clipboard", nextError, setError);

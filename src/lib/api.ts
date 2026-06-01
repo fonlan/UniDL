@@ -55,6 +55,14 @@ export function takePendingOpenRequests(): Promise<OpenTaskRequest[]> {
   return invoke("take_pending_open_requests");
 }
 
+export function readClipboardText(): Promise<string | null> {
+  if (!hasTauriRuntime()) {
+    return webJson("/api/clipboard-text");
+  }
+
+  return invoke("read_clipboard_text");
+}
+
 export function refreshDownloadTasks(): Promise<DownloadTask[]> {
   if (!hasTauriRuntime()) {
     return webJson("/api/tasks/refresh", jsonRequest("POST"));
