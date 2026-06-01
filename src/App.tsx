@@ -967,6 +967,16 @@ function App() {
   }
 
   function openTaskDetails(task: DownloadTask) {
+    if (detailTaskId === task.id && selectedIds.has(task.id)) {
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
+      setDetailTaskId(null);
+      return;
+    }
+
     setSelectedIds(new Set([task.id]));
     setDetailTaskId(task.id);
   }
