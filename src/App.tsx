@@ -752,7 +752,6 @@ function App() {
       }
       return new Set([task.id]);
     });
-    setDetailTaskId(task.id);
     setTaskContextMenu({ taskId: task.id, x, y });
   }
 
@@ -941,6 +940,7 @@ function App() {
   }
 
   function openTaskDetails(task: DownloadTask) {
+    setSelectedIds(new Set([task.id]));
     setDetailTaskId(task.id);
   }
 
