@@ -1296,6 +1296,7 @@ fn open_path(path: &Path) -> Result<(), Box<dyn Error>> {
     let mut command = {
         let mut command = Command::new("cmd");
         command.args(["/C", "start", ""]).arg(path);
+        engine_adapters::hide_console_window(&mut command);
         command
     };
 
