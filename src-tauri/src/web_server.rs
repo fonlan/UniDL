@@ -477,6 +477,7 @@ fn extract_extension_videos(
     cookie_path: Option<&Path>,
 ) -> Result<Vec<ExtensionVideoEntry>, Box<dyn Error>> {
     let mut command = Command::new(executable_path);
+    crate::engine_adapters::hide_console_window(&mut command);
     crate::engine_adapters::apply_ytdlp_utf8_env(&mut command);
     command.args([
         "--dump-single-json",

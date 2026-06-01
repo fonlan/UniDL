@@ -21,7 +21,7 @@ use crate::{
 
 use super::{
     append_args, engine_proxy_url, engine_speed_limit_bytes_per_sec, engine_user_agent,
-    log_command, required_engine_task_id, EngineTaskState,
+    hide_console_window, log_command, required_engine_task_id, EngineTaskState,
 };
 
 const YTDLP_FAST_DEFAULT_ARGS: &str = "--no-playlist --js-runtimes node --concurrent-fragments 8";
@@ -85,6 +85,7 @@ fn add_ytdlp_task(
         .ok_or("yt-dlp executable path is required")?;
     require_ytdlp_ffmpeg(settings, task)?;
     let mut command = Command::new(executable);
+    hide_console_window(&mut command);
     apply_ytdlp_utf8_env(&mut command);
     let cookie_path = write_ytdlp_cookie_file(task)?;
     append_args(&mut command, YTDLP_FAST_DEFAULT_ARGS);
@@ -268,7 +269,9 @@ fn ytdlp_ffmpeg_next_to_executable(settings: &EngineSettings) -> bool {
 }
 
 fn ytdlp_ffmpeg_on_path() -> bool {
-    Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    hide_console_window(&mut command);
+    command
         .arg("-version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -602,7 +605,9 @@ fn refresh_ytdlp_task(task: &DownloadTask) -> Result<EngineTaskState, Box<dyn Er
 /// `true` (= "assume alive") so the caller errs on the side of one more
 /// retry rather than silently treating a flaky tasklist as success.
 fn ytdlp_pid_appears_alive(pid: &str) -> bool {
-    let Ok(output) = Command::new("tasklist")
+    let mut command = Command::new("tasklist");
+    hide_console_window(&mut command);
+    let Ok(output) = command
         .args(["/NH", "/FO", "CSV", "/FI", &format!("PID eq {pid}")])
         .output()
     else {
@@ -900,9 +905,9 @@ fn terminate_process(pid: NonZeroU32) -> Result<(), Box<dyn Error>> {
         if attempt > 0 {
             thread::sleep(RETRY_BACKOFF);
         }
-        let output = Command::new("taskkill")
-            .args(["/PID", &pid_str, "/T", "/F"])
-            .output()?;
+        let mut command = Command::new("taskkill");
+        hide_console_window(&mut command);
+        let output = command.args(["/PID", &pid_str, "/T", "/F"]).output()?;
         if output.status.success() {
             return Ok(());
         }

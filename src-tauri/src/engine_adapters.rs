@@ -33,6 +33,17 @@ use ytdlp::{
 
 pub(crate) use ytdlp::{apply_ytdlp_utf8_env, sanitize_ytdlp_output_name};
 
+#[cfg(windows)]
+pub(crate) fn hide_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_console_window(_command: &mut Command) {}
+
 pub struct EngineTaskState {
     pub status: DownloadStatus,
     pub progress: f64,

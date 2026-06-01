@@ -18,7 +18,8 @@ use crate::{
 
 use super::{
     append_args, bool_param, engine_proxy_url, engine_speed_limit_bytes_per_sec, engine_user_agent,
-    log_command, parse_i64, required_engine_task_id, EngineTaskState, MagnetMetadata,
+    hide_console_window, log_command, parse_i64, required_engine_task_id, EngineTaskState,
+    MagnetMetadata,
 };
 
 const ARIA2_BASE_DEFAULT_ARGS: &str = "--continue=true";
@@ -730,6 +731,7 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
 
     let rpc_listen_port = aria2_rpc_listen_port(settings)?;
     let mut command = Command::new(executable);
+    hide_console_window(&mut command);
     command
         .arg("--enable-rpc=true")
         .arg("--rpc-listen-all=false")
