@@ -909,9 +909,9 @@ function IconField({
           className={classNames(
             "grid h-9 w-9 shrink-0 place-items-center rounded-md border transition",
             buttonDisabled &&
-              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
             !buttonDisabled &&
-              "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+            "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
           )}
         >
           {buttonLabel}
@@ -943,7 +943,7 @@ function SmallIconButton({
         "grid h-8 w-8 place-items-center rounded-md border transition",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
-          "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+        "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
       )}
     >
       {children}
@@ -1688,7 +1688,7 @@ export default function EngineSettingsView({
                           draftAppSettings?.downloadCompletionNotificationEnabled ||
                           draftAppSettings?.preventSleepWhenDownloadingEnabled ||
                           draftAppSettings?.localDownloadConcurrency !==
-                            DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY
+                          DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY
                           ? "bg-emerald-500"
                           : "bg-slate-300",
                       )}
@@ -2133,10 +2133,10 @@ export default function EngineSettingsView({
                             className={classNames(
                               "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                               (!appDirty || isSavingApp) &&
-                                "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                              "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                               appDirty &&
-                                !isSavingApp &&
-                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                              !isSavingApp &&
+                              "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                             )}
                           >
                             <RotateCcw size={14} />
@@ -2149,11 +2149,11 @@ export default function EngineSettingsView({
                             className={classNames(
                               "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                               (!appDirty || isSavingApp || proxyError) &&
-                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                              "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                               appDirty &&
-                                !isSavingApp &&
-                                !proxyError &&
-                                "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                              !isSavingApp &&
+                              !proxyError &&
+                              "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                             )}
                           >
                             <Save size={14} />
@@ -2275,10 +2275,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          !isSavingApp &&
+                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -2291,10 +2291,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                          !isSavingApp &&
+                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -2397,13 +2397,13 @@ export default function EngineSettingsView({
                               className={classNames(
                                 "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                                 isClearing &&
-                                  "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                                "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                                 !isClearing &&
-                                  !isAll &&
-                                  "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                                !isAll &&
+                                "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
                                 !isClearing &&
-                                  isAll &&
-                                  "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
+                                isAll &&
+                                "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
                               )}
                             >
                               <Trash2 size={14} />
@@ -2440,10 +2440,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          !isSavingApp &&
+                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -2456,10 +2456,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                          !isSavingApp &&
+                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -2521,10 +2521,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+                          !isSavingApp &&
+                          "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                         )}
                       >
                         <RotateCcw size={14} />
@@ -2537,10 +2537,10 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
-                            !isSavingApp &&
-                            "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                          !isSavingApp &&
+                          "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                         )}
                       >
                         <Save size={14} />
@@ -2574,11 +2574,11 @@ export default function EngineSettingsView({
                         className={classNames(
                           "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!dirtySettings || isSavingEngines || hasEngineErrors) &&
-                            "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
+                          "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
-                            !isSavingEngines &&
-                            !hasEngineErrors &&
-                            "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+                          !isSavingEngines &&
+                          !hasEngineErrors &&
+                          "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
                         )}
                       >
                         <Save size={15} />
@@ -2654,9 +2654,9 @@ export default function EngineSettingsView({
                             : null;
                         const cardAria2TransferError =
                           cardAria2Error &&
-                          ["单服务器", "分片", "最小分片", "文件预分配"].some((keyword) =>
-                            cardAria2Error.includes(keyword),
-                          )
+                            ["单服务器", "分片", "最小分片", "文件预分配"].some((keyword) =>
+                              cardAria2Error.includes(keyword),
+                            )
                             ? cardAria2Error
                             : null;
                         const cardAria2BtError =
@@ -2738,9 +2738,8 @@ export default function EngineSettingsView({
                                 >
                                   <input
                                     type="checkbox"
-                                    aria-label={`${
-                                      draft.enabled ? "停用" : "启用"
-                                    } ${draft.name || engineLabels[draft.engine]}`}
+                                    aria-label={`${draft.enabled ? "停用" : "启用"
+                                      } ${draft.name || engineLabels[draft.engine]}`}
                                     checked={draft.enabled}
                                     onChange={(event) =>
                                       updateDraft(draft.id, {
@@ -2800,13 +2799,13 @@ export default function EngineSettingsView({
                                         const nextSourceTypes = event.currentTarget
                                           .checked
                                           ? sourceTypes.filter(
-                                              (item) =>
-                                                item === sourceType ||
-                                                draft.supportedSourceTypes.includes(item),
-                                            )
+                                            (item) =>
+                                              item === sourceType ||
+                                              draft.supportedSourceTypes.includes(item),
+                                          )
                                           : draft.supportedSourceTypes.filter(
-                                              (item) => item !== sourceType,
-                                            );
+                                            (item) => item !== sourceType,
+                                          );
                                         updateDraft(draft.id, {
                                           supportedSourceTypes: nextSourceTypes,
                                         });
@@ -3243,32 +3242,32 @@ export default function EngineSettingsView({
                                         description: string;
                                         checked: boolean;
                                       }> = [
-                                        {
-                                          key: "aria2EnableDht",
-                                          label: "启用 DHT",
-                                          description: "对应 aria2 的 enable-dht",
-                                          checked: draft.aria2EnableDht,
-                                        },
-                                        {
-                                          key: "aria2EnableDht6",
-                                          label: "启用 IPv6 DHT",
-                                          description: "对应 aria2 的 enable-dht6",
-                                          checked: draft.aria2EnableDht6,
-                                        },
-                                        {
-                                          key: "aria2EnablePeerExchange",
-                                          label: "启用 PeX 节点交换",
-                                          description:
-                                            "对应 aria2 的 enable-peer-exchange",
-                                          checked: draft.aria2EnablePeerExchange,
-                                        },
-                                        {
-                                          key: "aria2EnableLpd",
-                                          label: "启用本地端点发现",
-                                          description: "对应 aria2 的 bt-enable-lpd",
-                                          checked: draft.aria2EnableLpd,
-                                        },
-                                      ];
+                                          {
+                                            key: "aria2EnableDht",
+                                            label: "启用 DHT",
+                                            description: "对应 aria2 的 enable-dht",
+                                            checked: draft.aria2EnableDht,
+                                          },
+                                          {
+                                            key: "aria2EnableDht6",
+                                            label: "启用 IPv6 DHT",
+                                            description: "对应 aria2 的 enable-dht6",
+                                            checked: draft.aria2EnableDht6,
+                                          },
+                                          {
+                                            key: "aria2EnablePeerExchange",
+                                            label: "启用 PeX 节点交换",
+                                            description:
+                                              "对应 aria2 的 enable-peer-exchange",
+                                            checked: draft.aria2EnablePeerExchange,
+                                          },
+                                          {
+                                            key: "aria2EnableLpd",
+                                            label: "启用本地端点发现",
+                                            description: "对应 aria2 的 bt-enable-lpd",
+                                            checked: draft.aria2EnableLpd,
+                                          },
+                                        ];
 
                                       return (
                                         <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
