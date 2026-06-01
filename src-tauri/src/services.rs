@@ -1363,6 +1363,9 @@ impl<'connection> AppSettingsService<'connection> {
     }
 
     pub fn validate_input(input: &AppSettingsInput) -> Result<(), Box<dyn Error>> {
+        if input.theme_mode != "light" && input.theme_mode != "dark" {
+            return Err("theme mode must be light or dark".into());
+        }
         if input.web_access_enabled && input.web_access_password.trim().is_empty() {
             return Err("web access password is required".into());
         }
@@ -2068,6 +2071,7 @@ mod tests {
         let connection = db::connect_path(database_path.clone()).expect("database should migrate");
         AppSettingsService::new(&connection)
             .save(AppSettingsInput {
+                theme_mode: "light".to_string(),
                 web_access_enabled: false,
                 web_access_password: String::new(),
                 web_access_url: "http://127.0.0.1:18080".to_string(),

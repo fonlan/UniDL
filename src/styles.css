@@ -11,6 +11,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root.dark {
+  color: #e5e7eb;
+  background: #0f172a;
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -24,6 +30,133 @@ body,
 body {
   margin: 0;
   overflow: hidden;
+}
+
+.dark .bg-surface,
+.dark .bg-slate-50,
+.dark .bg-slate-50\/50,
+.dark .bg-slate-50\/70,
+.dark .bg-slate-100,
+.dark .bg-slate-100\/80 {
+  background-color: #111827;
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: #374151;
+}
+
+.dark .bg-white {
+  background-color: #1f2937;
+}
+
+.dark .bg-sky-50,
+.dark .hover\:bg-sky-50:hover {
+  background-color: #0c4a6e;
+}
+
+.dark .bg-emerald-50,
+.dark .bg-emerald-50\/40,
+.dark .bg-emerald-50\/70,
+.dark .hover\:bg-emerald-50:hover,
+.dark .hover\:bg-emerald-100:hover {
+  background-color: #064e3b;
+}
+
+.dark .hover\:bg-emerald-800:hover {
+  background-color: #065f46;
+}
+
+.dark .bg-rose-50,
+.dark .bg-rose-50\/30,
+.dark .bg-rose-50\/40,
+.dark .hover\:bg-rose-50:hover,
+.dark .hover\:bg-rose-100:hover {
+  background-color: #4c0519;
+}
+
+.dark .hover\:bg-rose-600:hover,
+.dark .hover\:bg-rose-700:hover {
+  background-color: #be123c;
+}
+
+.dark .bg-amber-50 {
+  background-color: #451a03;
+}
+
+.dark .text-ink,
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #e5e7eb;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400 {
+  color: #9ca3af;
+}
+
+.dark .text-emerald-900,
+.dark .text-emerald-900\/85,
+.dark .text-emerald-800,
+.dark .text-emerald-700 {
+  color: #a7f3d0;
+}
+
+.dark .text-sky-700 {
+  color: #bae6fd;
+}
+
+.dark .text-amber-800 {
+  color: #fcd34d;
+}
+
+.dark .text-rose-800,
+.dark .text-rose-700,
+.dark .text-rose-600,
+.dark .text-rose-600\/80 {
+  color: #fda4af;
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #374151;
+}
+
+.dark .border-emerald-100,
+.dark .border-emerald-200 {
+  border-color: #047857;
+}
+
+.dark .border-rose-100,
+.dark .border-rose-200,
+.dark .border-rose-300 {
+  border-color: #be123c;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  color: #e5e7eb;
+  background-color: #111827;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #6b7280;
+}
+
+.dark .shadow-sm,
+.dark .shadow-xl {
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+
+.dark .task-progress,
+.dark .task-progress::-webkit-progress-bar {
+  background: #374151;
 }
 
 button {

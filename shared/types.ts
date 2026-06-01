@@ -134,6 +134,7 @@ export interface EngineInstallResult {
 }
 
 export interface AppSettings {
+  themeMode: "light" | "dark";
   webAccessEnabled: boolean;
   webAccessPassword: string;
   webAccessUrl: string;

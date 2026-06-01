@@ -26,6 +26,9 @@ impl<'connection> AppSettingsRepository<'connection> {
 
     pub fn get(&self) -> Result<AppSettings, Box<dyn Error>> {
         Ok(AppSettings {
+            theme_mode: self
+                .get_optional_value("theme_mode")?
+                .unwrap_or_else(|| "light".to_string()),
             web_access_enabled: self.get_value("web_access_enabled")? == "1",
             web_access_password: self.get_value("web_access_password")?,
             web_access_url: self.get_value("web_access_url")?,
@@ -58,6 +61,7 @@ impl<'connection> AppSettingsRepository<'connection> {
     }
 
     pub fn save(&self, input: &AppSettingsInput) -> Result<AppSettings, Box<dyn Error>> {
+        self.save_value("theme_mode", &input.theme_mode)?;
         self.save_value(
             "web_access_enabled",
             if input.web_access_enabled { "1" } else { "0" },

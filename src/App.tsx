@@ -34,6 +34,7 @@ import logoUrl from "../logo.png";
 import {
   createDownloadTask,
   deleteDownloadTasks,
+  getAppSettings,
   openDownloadDirectory,
   openDownloadedFile,
   readClipboardText,
@@ -47,7 +48,13 @@ import {
 } from "@/lib/api";
 import type { OpenTaskRequest, SystemOpenRequestPayload } from "@/lib/api";
 import { getWebToken, hasTauriRuntime, isWebRuntime, webLogin } from "@/lib/runtime";
-import type { DownloadStatus, DownloadTask, EngineKind, SourceType } from "@shared/types";
+import type {
+  AppSettings,
+  DownloadStatus,
+  DownloadTask,
+  EngineKind,
+  SourceType,
+} from "@shared/types";
 
 const statusLabels: Record<DownloadStatus, string> = {
   queued: "排队中",
@@ -256,6 +263,7 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
 }
 
 function App() {
+  const [themeMode, setThemeMode] = useState<AppSettings["themeMode"]>("light");
   const [view, setView] = useState<"tasks" | "settings">("tasks");
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   const [newTaskInitialSource, setNewTaskInitialSource] = useState<string | null>(null);
@@ -313,6 +321,25 @@ function App() {
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const deleteDialogResolveRef = useRef<((value: boolean | null) => void) | null>(null);
+
+  const loadThemeMode = useCallback(async () => {
+    const settings = await getAppSettings();
+    setThemeMode(settings.themeMode);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", themeMode === "dark");
+  }, [themeMode]);
+
+  useEffect(() => {
+    if (isWebRuntime() && !isWebAuthorized) {
+      return;
+    }
+
+    void loadThemeMode().catch((nextError) => {
+      reportDisplayedError("load theme settings", nextError, setError);
+    });
+  }, [isWebAuthorized, loadThemeMode]);
 
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const visibleTasks = useMemo(() => {
@@ -994,6 +1021,7 @@ function App() {
       await webLogin(webPassword);
       setIsWebAuthorized(true);
       setWebPassword("");
+      await loadThemeMode();
       await refreshTasks();
     } catch (nextError) {
       reportDisplayedError("load pending open requests", nextError, setError);
@@ -1209,7 +1237,10 @@ function App() {
         )}
 
         {view === "settings" ? (
-          <EngineSettingsView onDownloadRecordsCleared={replaceTasks} />
+          <EngineSettingsView
+            onDownloadRecordsCleared={replaceTasks}
+            onThemeModeChange={setThemeMode}
+          />
         ) : (
           <section className="min-h-0 flex-1 overflow-auto">
             <table

@@ -531,6 +531,7 @@ mod tests {
 
     fn app_settings() -> models::AppSettings {
         models::AppSettings {
+            theme_mode: "light".to_string(),
             web_access_enabled: false,
             web_access_password: String::new(),
             web_access_url: "http://127.0.0.1:18080".to_string(),

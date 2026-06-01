@@ -321,6 +321,7 @@ pub struct EngineInstallResult {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    pub theme_mode: String,
     pub web_access_enabled: bool,
     pub web_access_password: String,
     pub web_access_url: String,
@@ -341,6 +342,7 @@ pub struct AppSettings {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettingsInput {
+    pub theme_mode: String,
     pub web_access_enabled: bool,
     pub web_access_password: String,
     pub web_access_url: String,

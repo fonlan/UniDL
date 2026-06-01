@@ -83,6 +83,7 @@ type SettingsGroup =
   | "data"
   | "download-engines"
   | "about";
+type ThemeMode = AppSettings["themeMode"];
 type Aria2BtToggleKey =
   | "aria2EnableDht"
   | "aria2EnableDht6"
@@ -653,6 +654,7 @@ function isDirty(saved: EngineSettings, draft: EngineSettings) {
 
 function toAppInput(settings: AppSettings): AppSettingsInput {
   return {
+    themeMode: settings.themeMode,
     webAccessEnabled: settings.webAccessEnabled,
     webAccessPassword: settings.webAccessPassword,
     webAccessUrl: settings.webAccessUrl,
@@ -1024,10 +1026,12 @@ function AboutMetaRow({
 
 type EngineSettingsViewProps = {
   onDownloadRecordsCleared?: (tasks: DownloadTask[]) => void;
+  onThemeModeChange?: (themeMode: ThemeMode) => void;
 };
 
 export default function EngineSettingsView({
   onDownloadRecordsCleared,
+  onThemeModeChange,
 }: EngineSettingsViewProps) {
   const [activeGroup, setActiveGroup] = useState<SettingsGroup>("download-engines");
   const [savedAppSettings, setSavedAppSettings] = useState<AppSettings | null>(null);
@@ -1239,6 +1243,11 @@ export default function EngineSettingsView({
     setDraftAppSettings((current) => (current ? { ...current, ...patch } : current));
   }
 
+  function updateThemeMode(themeMode: ThemeMode) {
+    updateAppDraft({ themeMode });
+    onThemeModeChange?.(themeMode);
+  }
+
   async function saveAppAccess() {
     if (!draftAppSettings) {
       return;
@@ -1253,6 +1262,7 @@ export default function EngineSettingsView({
       const next = await saveAppSettings(toAppInput(draftAppSettings));
       setSavedAppSettings(next);
       setDraftAppSettings(next);
+      onThemeModeChange?.(next.themeMode);
       setSavedApp(true);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1267,6 +1277,7 @@ export default function EngineSettingsView({
     }
 
     setDraftAppSettings(savedAppSettings);
+    onThemeModeChange?.(savedAppSettings.themeMode);
   }
 
   function updateDraft(settingsId: string, patch: Partial<EngineSettings>) {
@@ -2054,6 +2065,18 @@ export default function EngineSettingsView({
                         </label>
 
                         <div className="grid gap-3">
+                          <SettingsSwitch
+                            checked={draftAppSettings.themeMode === "dark"}
+                            label="深色模式"
+                            description="切换 UniDL 主界面和设置页的深色外观。"
+                            onToggle={() =>
+                              updateThemeMode(
+                                draftAppSettings.themeMode === "dark"
+                                  ? "light"
+                                  : "dark",
+                              )
+                            }
+                          />
                           <SettingsSwitch
                             checked={draftAppSettings.torrentFileAssociationEnabled}
                             label="关联 .torrent 文件"
