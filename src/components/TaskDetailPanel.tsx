@@ -33,6 +33,10 @@ const engineLabels: Record<EngineKind, string> = {
   qbittorrent: "qBittorrent",
 };
 
+const DETAIL_PANEL_HEIGHT_STORAGE_KEY = "unidl.taskDetailPanelHeight";
+const DEFAULT_DETAIL_PANEL_HEIGHT = 360;
+const MIN_DETAIL_PANEL_HEIGHT = 220;
+
 const fileCategoryFilters = [
   { label: "视频", extensions: ["3g2", "3gp", "avi", "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "rmvb", "ts", "webm", "wmv"] },
   { label: "图片", extensions: ["avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"] },
@@ -133,6 +137,28 @@ function fileExtension(path: string) {
   return fileName.slice(dotIndex + 1).toLowerCase();
 }
 
+function maxDetailPanelHeight() {
+  return Math.max(MIN_DETAIL_PANEL_HEIGHT, Math.floor(window.innerHeight * 0.75));
+}
+
+function clampDetailPanelHeight(height: number) {
+  return Math.min(maxDetailPanelHeight(), Math.max(MIN_DETAIL_PANEL_HEIGHT, height));
+}
+
+function readSavedDetailPanelHeight() {
+  const savedHeight = window.localStorage.getItem(DETAIL_PANEL_HEIGHT_STORAGE_KEY);
+  if (!savedHeight) {
+    return DEFAULT_DETAIL_PANEL_HEIGHT;
+  }
+
+  const parsedHeight = Number(savedHeight);
+  if (!Number.isFinite(parsedHeight)) {
+    return DEFAULT_DETAIL_PANEL_HEIGHT;
+  }
+
+  return clampDetailPanelHeight(parsedHeight);
+}
+
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -191,6 +217,7 @@ export default function TaskDetailPanel({
     () => new Set(task.selectedFileIndexes ?? []),
   );
   const [isSavingFileSelection, setIsSavingFileSelection] = useState(false);
+  const [panelHeight, setPanelHeight] = useState(readSavedDetailPanelHeight);
   const taskSelectedFileIndexes = task.selectedFileIndexes;
   const hasTaskSelectedFileIndexes = (taskSelectedFileIndexes?.length ?? 0) > 0;
   const trackers = parseMagnetTrackers(task.source);
@@ -277,8 +304,56 @@ export default function TaskDetailPanel({
     saveFiles(torrentFiles.filter((file) => !selectedFileIndexes.has(file.index)));
   }
 
+  function handlePanelResizeStart(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startY = event.clientY;
+    const startHeight = panelHeight;
+    const originalCursor = document.body.style.cursor;
+    const originalUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      const nextHeight = clampDetailPanelHeight(
+        startHeight + startY - pointerEvent.clientY,
+      );
+      setPanelHeight(nextHeight);
+      window.localStorage.setItem(
+        DETAIL_PANEL_HEIGHT_STORAGE_KEY,
+        String(nextHeight),
+      );
+    }
+
+    function handlePointerUp() {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.body.style.cursor = originalCursor;
+      document.body.style.userSelect = originalUserSelect;
+    }
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp, { once: true });
+  }
+
   return (
-    <aside className="shrink-0 border-t border-slate-200 bg-white shadow-[0_-16px_40px_rgba(15,23,42,0.08)]">
+    <aside
+      className="relative flex shrink-0 flex-col border-t border-slate-200 bg-white shadow-[0_-16px_40px_rgba(15,23,42,0.08)]"
+      style={{ height: panelHeight }}
+    >
+      <button
+        type="button"
+        title="拖拽调整详情面板高度"
+        aria-label="拖拽调整详情面板高度"
+        onPointerDown={handlePanelResizeStart}
+        className="absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize touch-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+      />
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-slate-900">{task.fileName}</div>
@@ -316,7 +391,7 @@ export default function TaskDetailPanel({
         </div>
       )}
 
-      <div className="max-h-[42vh] overflow-auto px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
         {activeTab === "detail" && (
           <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
