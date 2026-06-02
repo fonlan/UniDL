@@ -548,6 +548,31 @@ function App() {
   }, [isSearchOpen]);
 
   useEffect(() => {
+    function focusSearchInputOnShortcut(event: KeyboardEvent) {
+      const isSearchShortcut =
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "f";
+
+      if (!isSearchShortcut || view !== "tasks") {
+        return;
+      }
+
+      event.preventDefault();
+      setIsSearchOpen(true);
+      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    }
+
+    window.addEventListener("keydown", focusSearchInputOnShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", focusSearchInputOnShortcut);
+    };
+  }, [view]);
+
+  useEffect(() => {
     if (!isSearchOpen || normalizedSearchQuery) {
       return;
     }
