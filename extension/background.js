@@ -156,7 +156,8 @@ async function handleDownload(download) {
   if (
     !settings.interceptEnabled ||
     !download.url ||
-    download.byExtensionId === chrome.runtime.id
+    download.byExtensionId === chrome.runtime.id ||
+    !isActiveDownload(download)
   ) {
     return;
   }
@@ -176,6 +177,10 @@ async function handleDownload(download) {
     await cancelDownload(download.id);
   }
   await remember(task.fileName + " sent to UniDL");
+}
+
+function isActiveDownload(download) {
+  return download.state === "in_progress" && !download.endTime;
 }
 
 function shouldSkipCaptureByDomain(source, settings) {

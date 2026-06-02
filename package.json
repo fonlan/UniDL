@@ -9,7 +9,7 @@
     "build:desktop": "tauri build --no-bundle",
     "package:desktop": "npm run build:desktop && node scripts/package-desktop.mjs",
     "package:extension": "node scripts/package-extension.mjs",
-    "verify:release": "node scripts/verify-release.mjs",
+    "verify:release": "node scripts/verify-release.mjs && node scripts/test-extension-background.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri",
     "lint": "eslint . --max-warnings=0",
