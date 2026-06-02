@@ -29,7 +29,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { getCurrentWindow, listen, message } from "@/lib/tauri";
+import { confirm, getCurrentWindow, listen, message } from "@/lib/tauri";
 import { reportDisplayedError } from "@/lib/error";
 import EngineSettingsView from "@/components/EngineSettingsView";
 import NewTaskDialog from "@/components/NewTaskDialog";
@@ -1151,6 +1151,21 @@ function App() {
   async function handleTaskDoubleClick(task: DownloadTask) {
     if (isLocalDownloadEngine(task.engine) === false) {
       return;
+    }
+
+    if (isWebRuntime()) {
+      const confirmed = await confirm(
+        "当前通过 Web 访问 UniDL。此操作会在运行 UniDL 的设备上打开下载文件，而不是在当前浏览器设备上打开。是否继续？",
+        {
+          title: "在远端打开文件？",
+          kind: "warning",
+          okLabel: "远端打开",
+          cancelLabel: "取消",
+        },
+      );
+      if (!confirmed) {
+        return;
+      }
     }
 
     setError(null);
