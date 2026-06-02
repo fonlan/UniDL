@@ -6,7 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import {
   ArrowLeft,
   Check,
@@ -222,6 +226,7 @@ function IconButton({
       onClick={onClick}
       className={classNames(
         "grid h-9 w-9 place-items-center rounded-md border text-sm transition",
+        "shrink-0",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2",
         disabled && "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
         !disabled &&
@@ -259,6 +264,131 @@ function StatusBadge({ status }: { status: DownloadStatus }) {
     >
       {statusLabels[status]}
     </span>
+  );
+}
+
+function MobileTaskCard({
+  task,
+  isSelected,
+  isActive,
+  onOpen,
+  onDoubleClick,
+  onContextMenu,
+  onToggleSelected,
+}: {
+  task: DownloadTask;
+  isSelected: boolean;
+  isActive: boolean;
+  onOpen: () => void;
+  onDoubleClick: () => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
+  onToggleSelected: () => void;
+}) {
+  const isDownloadedFileMissing = task.downloadedFileMissing;
+
+  return (
+    <article
+      onClick={onOpen}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+      className={classNames(
+        "cursor-pointer rounded-lg border bg-white p-3 shadow-sm transition",
+        "hover:border-slate-300 hover:bg-slate-50",
+        isDownloadedFileMissing && "text-slate-400 opacity-70",
+        isActive && "border-sky-200 bg-sky-50 hover:bg-sky-50",
+        isSelected && "border-emerald-200 bg-emerald-50 hover:bg-emerald-50",
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <button
+          type="button"
+          title="选择任务"
+          aria-label="选择任务"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleSelected();
+          }}
+          className={classNames(
+            "mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded border bg-white",
+            isSelected
+              ? "border-emerald-700 text-emerald-700"
+              : "border-slate-300 text-transparent",
+          )}
+        >
+          <Check size={15} strokeWidth={3} />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div
+            className={classNames(
+              "truncate text-sm font-semibold text-slate-900",
+              isDownloadedFileMissing && "text-slate-500 line-through",
+            )}
+            title={
+              isDownloadedFileMissing
+                ? `${task.fileName}（文件已不存在）`
+                : task.fileName
+            }
+          >
+            {task.fileName}
+          </div>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{sourceLabels[task.sourceType]}</span>
+            <span className="h-1 w-1 rounded-full bg-slate-300" />
+            <span>{engineLabels[task.engine]}</span>
+          </div>
+        </div>
+
+        <StatusBadge status={task.status} />
+      </div>
+
+      <div className="mt-3 space-y-1.5">
+        <div className="flex items-center justify-between gap-3 text-xs text-slate-600">
+          <span>进度</span>
+          <span className="tabular-nums">{task.progress.toFixed(1)}%</span>
+        </div>
+        <progress
+          className="task-progress block"
+          value={Math.min(100, Math.max(0, task.progress))}
+          max={100}
+          aria-label={`${task.fileName} 下载进度`}
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-md bg-slate-50 px-2 py-1.5">
+          <div className="text-slate-500">速度</div>
+          <div className="mt-0.5 truncate tabular-nums text-slate-800">
+            {formatSpeed(task.speedBytesPerSec)}
+          </div>
+        </div>
+        <div className="rounded-md bg-slate-50 px-2 py-1.5">
+          <div className="text-slate-500">大小</div>
+          <div className="mt-0.5 truncate tabular-nums text-slate-800">
+            {formatBytes(task.downloadedBytes)} / {formatBytes(task.totalBytes)}
+          </div>
+        </div>
+        <div className="rounded-md bg-slate-50 px-2 py-1.5">
+          <div className="text-slate-500">创建</div>
+          <div className="mt-0.5 truncate tabular-nums text-slate-800">
+            {formatDate(task.createdAt)}
+          </div>
+        </div>
+        <div className="rounded-md bg-slate-50 px-2 py-1.5">
+          <div className="text-slate-500">完成</div>
+          <div className="mt-0.5 truncate tabular-nums text-slate-800">
+            {formatDate(task.completedAt)}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-md border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs">
+        <div className="text-slate-500">保存路径</div>
+        <div className="mt-0.5 truncate text-slate-700" title={task.savePath}>
+          {task.savePath}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -395,8 +525,20 @@ function App() {
       return;
     }
 
-    taskContextMenuPanelRef.current.style.left = `${taskContextMenu.x}px`;
-    taskContextMenuPanelRef.current.style.top = `${taskContextMenu.y}px`;
+    const panel = taskContextMenuPanelRef.current;
+    const panelRect = panel.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.max(
+      margin,
+      Math.min(taskContextMenu.x, window.innerWidth - panelRect.width - margin),
+    );
+    const top = Math.max(
+      margin,
+      Math.min(taskContextMenu.y, window.innerHeight - panelRect.height - margin),
+    );
+
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
   }, [taskContextMenu]);
 
   useEffect(() => {
@@ -1042,7 +1184,7 @@ function App() {
 
   if (isWebRuntime() && !isWebAuthorized) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-slate-100 px-4">
         <form
           onSubmit={(event) => void submitWebLogin(event)}
           className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
@@ -1105,15 +1247,21 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen min-h-[620px] flex-col bg-surface text-ink">
-      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white">
-        <div data-tauri-drag-region className="flex min-w-0 items-center gap-2 px-4">
+    <div className="flex h-[100dvh] min-h-0 flex-col bg-surface text-ink">
+      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white px-2 md:px-0">
+        <div
+          data-tauri-drag-region
+          className="flex min-w-0 shrink-0 items-center gap-2 px-1 md:px-4"
+        >
           <img src={logoUrl} alt="UniDL" className="h-7 w-7 rounded-md" />
-          <div data-tauri-drag-region className="truncate text-sm font-semibold">
+          <div
+            data-tauri-drag-region
+            className="hidden truncate text-sm font-semibold sm:block"
+          >
             UniDL
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 items-center justify-end gap-1 md:ml-0 md:gap-2">
           {view === "tasks" ? (
             <>
               <IconButton
@@ -1161,7 +1309,7 @@ function App() {
           </IconButton>
           {view === "tasks" &&
             (isSearchOpen ? (
-              <div ref={searchContainerRef} className="relative">
+              <div ref={searchContainerRef} className="relative w-24 min-w-0 sm:w-40 md:w-56">
                 <input
                   ref={searchInputRef}
                   type="text"
@@ -1178,7 +1326,7 @@ function App() {
                   }}
                   placeholder="搜索任务"
                   aria-label="搜索任务"
-                  className="h-9 w-56 rounded-md border border-slate-200 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 />
                 {searchQuery.length > 0 && (
                   <button
@@ -1201,9 +1349,12 @@ function App() {
               </IconButton>
             ))}
         </div>
-        <div data-tauri-drag-region className="h-full min-w-0 flex-1" />
+        <div
+          data-tauri-drag-region
+          className="hidden h-full min-w-0 flex-1 md:block"
+        />
         {hasTauriRuntime() && (
-          <div className="flex h-full items-center">
+          <div className="-mr-2 flex h-full items-center md:mr-0">
             <button
               type="button"
               title="最小化"
@@ -1253,9 +1404,29 @@ function App() {
           />
         ) : (
           <section className="min-h-0 flex-1 overflow-auto">
+            <div className="grid gap-3 p-3 md:hidden">
+              {visibleTasks.map((task) => (
+                <MobileTaskCard
+                  key={task.id}
+                  task={task}
+                  isSelected={selectedIds.has(task.id)}
+                  isActive={detailTaskId === task.id}
+                  onOpen={() => openTaskDetails(task)}
+                  onDoubleClick={() => {
+                    void handleTaskDoubleClick(task);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openTaskContextMenu(task, event.clientX, event.clientY);
+                  }}
+                  onToggleSelected={() => toggleTaskSelected(task.id)}
+                />
+              ))}
+            </div>
             <table
               ref={taskTableRef}
-              className="w-full table-fixed border-separate border-spacing-0 text-sm"
+              className="hidden w-full table-fixed border-separate border-spacing-0 text-sm md:table"
             >
               <colgroup>
                 {taskTableColumns.map((column) => (
@@ -1520,7 +1691,7 @@ function App() {
             <div className="space-y-3 px-4 py-4 text-sm text-slate-700">
               <p>所选任务包含本地下载文件，是否同时删除已下载文件/文件夹？</p>
             </div>
-            <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3">
+            <footer className="grid gap-2 border-t border-slate-200 px-4 py-3 sm:flex sm:flex-wrap sm:justify-end">
               <button
                 type="button"
                 onClick={() => resolveDeleteDialog(true)}

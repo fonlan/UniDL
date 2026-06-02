@@ -664,9 +664,9 @@ export default function NewTaskDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/30 px-4">
-      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+    <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/30 p-0 sm:px-4">
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:max-h-[88vh] sm:max-w-3xl sm:rounded-lg sm:border sm:border-slate-200">
+        <header className="flex min-h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
           <div className="flex min-w-0 items-center gap-2">
             <FilePlus size={17} className="text-emerald-700" />
             <h2 className="truncate text-sm font-semibold text-slate-950">新建任务</h2>
@@ -685,12 +685,12 @@ export default function NewTaskDialog({
         <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
           <div className="grid gap-4">
             <label className="flex flex-col gap-1.5 text-sm text-slate-700">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <span className="font-medium">来源</span>
                 <button
                   type="button"
                   onClick={() => void selectTorrentFile()}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="inline-flex h-8 w-full shrink-0 items-center justify-center gap-1.5 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto"
                 >
                   <FolderOpen size={15} />
                   选择 torrent 文件
@@ -718,7 +718,7 @@ export default function NewTaskDialog({
               )}
             </label>
 
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {parsedSource ? (
                   <span className="inline-flex h-7 items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-medium text-emerald-800">
@@ -746,7 +746,7 @@ export default function NewTaskDialog({
                   </span>
                 )}
               </div>
-              <label className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm text-slate-700 sm:flex-row sm:items-center sm:gap-2">
                 <span className="shrink-0 font-medium">引擎</span>
                 <select
                   value={selectedEngineSettingsId}
@@ -754,7 +754,7 @@ export default function NewTaskDialog({
                   onChange={(event) =>
                     setSelectedEngineSettingsId(event.currentTarget.value)
                   }
-                  className="h-9 w-56 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100 disabled:text-slate-400 sm:w-56"
                 >
                   <option value="">-</option>
                   {visibleEngineSettings.map((settings) => (
@@ -895,11 +895,11 @@ export default function NewTaskDialog({
           </div>
         </div>
 
-        <footer className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-slate-200 px-4">
+        <footer className="grid shrink-0 gap-2 border-t border-slate-200 px-4 py-3 sm:flex sm:h-14 sm:items-center sm:justify-end sm:py-0">
           <button
             type="button"
             onClick={resetAndClose}
-            className="h-9 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="h-10 rounded-md border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:h-9"
           >
             取消
           </button>
@@ -908,7 +908,7 @@ export default function NewTaskDialog({
             disabled={!canCreate}
             onClick={() => void submitTask()}
             className={classNames(
-              "h-9 rounded-md px-4 text-sm font-medium transition",
+              "h-10 rounded-md px-4 text-sm font-medium transition sm:h-9",
               canCreate
                 ? "bg-emerald-700 text-white hover:bg-emerald-800"
                 : "cursor-not-allowed bg-slate-100 text-slate-400",
@@ -919,8 +919,8 @@ export default function NewTaskDialog({
         </footer>
       </div>
       {duplicateCheck && (
-        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/40 px-4">
-          <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl">
+        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/40 p-0 sm:px-4">
+          <div className="flex h-[100dvh] w-full flex-col bg-white shadow-2xl sm:max-h-[80vh] sm:max-w-2xl sm:rounded-lg sm:border sm:border-slate-200">
             <div className="border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-950">
                 发现重复任务或文件冲突
@@ -988,7 +988,7 @@ export default function NewTaskDialog({
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3">
+            <div className="grid gap-2 border-t border-slate-200 px-4 py-3 sm:flex sm:flex-wrap sm:justify-end">
               <button
                 type="button"
                 disabled={isCreating}

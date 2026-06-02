@@ -354,7 +354,7 @@ export default function TaskDetailPanel({
         onPointerDown={handlePanelResizeStart}
         className="absolute inset-x-0 top-0 z-10 h-2 cursor-row-resize touch-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
       />
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-slate-900">{task.fileName}</div>
           <div className="mt-1 text-xs text-slate-500">下载任务详情</div>
@@ -394,7 +394,7 @@ export default function TaskDetailPanel({
       <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
         {activeTab === "detail" && (
           <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
               <DetailField label="任务 ID" value={task.id} />
               <DetailField label="引擎任务 ID" value={task.engineTaskId ?? "-"} />
               <DetailField label="来源类型" value={sourceLabels[task.sourceType]} />
@@ -448,7 +448,7 @@ export default function TaskDetailPanel({
 
         {activeTab === "files" && (task.sourceType === "magnet" || task.sourceType === "torrent") && (
           <section className="rounded-lg border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+            <div className="flex flex-col gap-1 border-b border-slate-100 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-xs font-semibold uppercase tracking-normal text-slate-500">文件列表</div>
               {torrentFiles.length > 0 && (
                 <div className="text-xs text-slate-500">

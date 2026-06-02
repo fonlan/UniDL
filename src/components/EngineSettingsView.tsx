@@ -15,6 +15,7 @@ import {
   GripVertical,
   HardDrive,
   Info,
+  Menu,
   Network,
   Plus,
   PlugZap,
@@ -26,6 +27,7 @@ import {
   Sparkles,
   Trash2,
   Workflow,
+  X,
 } from "lucide-react";
 
 import {
@@ -83,6 +85,14 @@ type SettingsGroup =
   | "data"
   | "download-engines"
   | "about";
+const settingsGroupLabels: Record<SettingsGroup, string> = {
+  "download-engines": "下载引擎",
+  general: "常规",
+  data: "数据",
+  "web-access": "Web 访问",
+  privacy: "隐私",
+  about: "关于",
+};
 type ThemeMode = AppSettings["themeMode"];
 type Aria2BtToggleKey =
   | "aria2EnableDht"
@@ -975,12 +985,12 @@ function SettingsSwitch({
   onToggle: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-3">
+    <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="min-w-0">
         <div className="text-sm font-medium text-slate-800">{label}</div>
         <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
       </div>
-      <label className="shrink-0 cursor-pointer">
+      <label className="shrink-0 cursor-pointer self-start sm:self-auto">
         <input
           type="checkbox"
           checked={checked}
@@ -1017,9 +1027,9 @@ function AboutMetaRow({
   value: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-slate-100/80 py-2 last:border-b-0 last:pb-0">
+    <div className="flex flex-col gap-1 border-b border-slate-100/80 py-2 last:border-b-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
       <span className="text-xs uppercase tracking-[0.12em] text-slate-400">{label}</span>
-      <span className="break-all text-right text-sm font-medium text-slate-700">{value}</span>
+      <span className="break-all text-sm font-medium text-slate-700 sm:text-right">{value}</span>
     </div>
   );
 }
@@ -1039,6 +1049,7 @@ export default function EngineSettingsView({
   const [savedSettings, setSavedSettings] = useState<EngineSettings[]>([]);
   const [draftSettings, setDraftSettings] = useState<EngineSettings[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [isSavingApp, setIsSavingApp] = useState(false);
   const [isSavingEngines, setIsSavingEngines] = useState(false);
@@ -1237,6 +1248,24 @@ export default function EngineSettingsView({
       window.clearTimeout(timerId);
     };
   }, [error]);
+
+  useEffect(() => {
+    if (!isSettingsDrawerOpen) {
+      return;
+    }
+
+    function closeSettingsDrawerOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsSettingsDrawerOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeSettingsDrawerOnEscape);
+
+    return () => {
+      window.removeEventListener("keydown", closeSettingsDrawerOnEscape);
+    };
+  }, [isSettingsDrawerOpen]);
 
   function updateAppDraft(patch: Partial<AppSettings>) {
     setSavedApp(false);
@@ -1594,9 +1623,180 @@ export default function EngineSettingsView({
     }
   }
 
+  function selectSettingsGroup(group: SettingsGroup) {
+    setActiveGroup(group);
+    setIsSettingsDrawerOpen(false);
+  }
+
+  function settingsNavButtonClass(group: SettingsGroup) {
+    return classNames(
+      "flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition",
+      activeGroup === group
+        ? "bg-emerald-50 text-emerald-800"
+        : "text-slate-700 hover:bg-slate-50",
+    );
+  }
+
+  function renderSettingsNavigation() {
+    return (
+      <nav className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <div className="px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            常用
+          </div>
+          <button
+            type="button"
+            onClick={() => selectSettingsGroup("download-engines")}
+            className={settingsNavButtonClass("download-engines")}
+          >
+            <HardDrive
+              size={16}
+              className={
+                activeGroup === "download-engines"
+                  ? "text-emerald-700"
+                  : "text-slate-500"
+              }
+            />
+            <span className="min-w-0 flex-1 truncate">下载引擎</span>
+            <span
+              className={classNames(
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                activeGroup === "download-engines"
+                  ? "bg-white/70 text-emerald-700"
+                  : "bg-slate-100 text-slate-600",
+              )}
+            >
+              {enabledEnginesCount}/{engineSettingsCount}
+            </span>
+          </button>
+        </div>
+
+        <div className="h-px bg-slate-100" />
+
+        <div className="flex flex-col gap-1">
+          <div className="px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            应用
+          </div>
+          <button
+            type="button"
+            onClick={() => selectSettingsGroup("general")}
+            className={settingsNavButtonClass("general")}
+          >
+            <SlidersHorizontal
+              size={16}
+              className={activeGroup === "general" ? "text-emerald-700" : "text-slate-500"}
+            />
+            <span className="min-w-0 flex-1 truncate">常规</span>
+            <span
+              className={classNames(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                draftAppSettings?.appProxyUrl.trim() ||
+                  draftAppSettings?.torrentFileAssociationEnabled ||
+                  draftAppSettings?.autoStartEnabled ||
+                  draftAppSettings?.autoStartMinimizedToTray ||
+                  draftAppSettings?.closeToTrayEnabled ||
+                  draftAppSettings?.downloadCompletionNotificationEnabled ||
+                  draftAppSettings?.preventSleepWhenDownloadingEnabled ||
+                  draftAppSettings?.localDownloadConcurrency !==
+                    DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY
+                  ? "bg-emerald-500"
+                  : "bg-slate-300",
+              )}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSettingsGroup("data")}
+            className={settingsNavButtonClass("data")}
+          >
+            <Database
+              size={16}
+              className={activeGroup === "data" ? "text-emerald-700" : "text-slate-500"}
+            />
+            <span className="min-w-0 flex-1 truncate">数据</span>
+            <span
+              className={classNames(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                draftAppSettings?.autoCleanDownloadTasksEnabled || cleanupResult
+                  ? "bg-emerald-500"
+                  : "bg-slate-300",
+              )}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSettingsGroup("web-access")}
+            className={settingsNavButtonClass("web-access")}
+          >
+            <Globe2
+              size={16}
+              className={
+                activeGroup === "web-access" ? "text-emerald-700" : "text-slate-500"
+              }
+            />
+            <span className="min-w-0 flex-1 truncate">Web 访问</span>
+            <span
+              className={classNames(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                draftAppSettings?.webAccessEnabled ||
+                  draftAppSettings?.preventSleepWhenWebAccessEnabled
+                  ? "bg-emerald-500"
+                  : "bg-slate-300",
+              )}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSettingsGroup("privacy")}
+            className={settingsNavButtonClass("privacy")}
+          >
+            <Shield
+              size={16}
+              className={activeGroup === "privacy" ? "text-emerald-700" : "text-slate-500"}
+            />
+            <span className="min-w-0 flex-1 truncate">隐私</span>
+            {(draftAppSettings?.privateDownloadDomains.length ?? 0) > 0 && (
+              <span
+                className={classNames(
+                  "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                  activeGroup === "privacy"
+                    ? "bg-white/70 text-emerald-700"
+                    : "bg-slate-100 text-slate-600",
+                )}
+              >
+                {draftAppSettings?.privateDownloadDomains.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSettingsGroup("about")}
+            className={settingsNavButtonClass("about")}
+          >
+            <Info
+              size={16}
+              className={activeGroup === "about" ? "text-emerald-700" : "text-slate-500"}
+            />
+            <span className="min-w-0 flex-1 truncate">关于</span>
+            <span
+              className={classNames(
+                "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                activeGroup === "about"
+                  ? "bg-white/70 text-emerald-700"
+                  : "bg-slate-100 text-slate-600",
+              )}
+            >
+              v{packageJson.version}
+            </span>
+          </button>
+        </div>
+      </nav>
+    );
+  }
+
   return (
     <section className="min-h-0 flex-1 overflow-auto bg-surface">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6">
         <div className="flex min-h-10 items-end justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-slate-950">
@@ -1613,6 +1813,14 @@ export default function EngineSettingsView({
               {hasDirtySettings ? "有未保存更改" : "设置已保存"}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setIsSettingsDrawerOpen(true)}
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 lg:hidden"
+          >
+            <Menu size={16} />
+            <span>{settingsGroupLabels[activeGroup]}</span>
+          </button>
         </div>
 
         {error && (
@@ -1627,205 +1835,48 @@ export default function EngineSettingsView({
           </div>
         )}
 
+        {!isLoading && ready && isSettingsDrawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              aria-label="关闭设置菜单"
+              className="absolute inset-0 bg-slate-950/35"
+              onClick={() => setIsSettingsDrawerOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-[min(82vw,320px)] flex-col border-r border-slate-200 bg-white shadow-2xl">
+              <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-100 px-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Settings2 size={17} className="shrink-0 text-slate-500" />
+                  <div className="truncate text-sm font-semibold text-slate-950">
+                    设置菜单
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  title="关闭"
+                  aria-label="关闭"
+                  onClick={() => setIsSettingsDrawerOpen(false)}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-3">
+                {renderSettingsNavigation()}
+              </div>
+            </div>
+          </div>
+        )}
+
         {!isLoading && ready && (
-          <div className="grid min-h-0 gap-6 lg:grid-cols-[208px_1fr]">
-            <aside className="min-w-0">
-              <nav className="flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-col lg:gap-4 lg:overflow-visible">
-                <div className="flex flex-col gap-1 lg:contents">
-                  <div className="hidden px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 lg:block">
-                    常用
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveGroup("download-engines")}
-                    className={classNames(
-                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
-                      activeGroup === "download-engines"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    <HardDrive
-                      size={16}
-                      className={
-                        activeGroup === "download-engines"
-                          ? "text-emerald-700"
-                          : "text-slate-500"
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">下载引擎</span>
-                    <span
-                      className={classNames(
-                        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
-                        activeGroup === "download-engines"
-                          ? "bg-white/70 text-emerald-700"
-                          : "bg-slate-100 text-slate-600",
-                      )}
-                    >
-                      {enabledEnginesCount}/{engineSettingsCount}
-                    </span>
-                  </button>
-                </div>
-
-                <div className="hidden h-px bg-slate-100 lg:block" />
-
-                <div className="flex flex-col gap-1 lg:contents">
-                  <div className="hidden px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 lg:block">
-                    应用
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveGroup("general")}
-                    className={classNames(
-                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
-                      activeGroup === "general"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    <SlidersHorizontal
-                      size={16}
-                      className={
-                        activeGroup === "general" ? "text-emerald-700" : "text-slate-500"
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">常规</span>
-                    <span
-                      className={classNames(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        draftAppSettings?.appProxyUrl.trim() ||
-                          draftAppSettings?.torrentFileAssociationEnabled ||
-                          draftAppSettings?.autoStartEnabled ||
-                          draftAppSettings?.autoStartMinimizedToTray ||
-                          draftAppSettings?.closeToTrayEnabled ||
-                          draftAppSettings?.downloadCompletionNotificationEnabled ||
-                          draftAppSettings?.preventSleepWhenDownloadingEnabled ||
-                          draftAppSettings?.localDownloadConcurrency !==
-                          DEFAULT_LOCAL_DOWNLOAD_CONCURRENCY
-                          ? "bg-emerald-500"
-                          : "bg-slate-300",
-                      )}
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveGroup("data")}
-                    className={classNames(
-                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
-                      activeGroup === "data"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    <Database
-                      size={16}
-                      className={
-                        activeGroup === "data" ? "text-emerald-700" : "text-slate-500"
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">数据</span>
-                    <span
-                      className={classNames(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        draftAppSettings?.autoCleanDownloadTasksEnabled || cleanupResult
-                          ? "bg-emerald-500"
-                          : "bg-slate-300",
-                      )}
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveGroup("web-access")}
-                    className={classNames(
-                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
-                      activeGroup === "web-access"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    <Globe2
-                      size={16}
-                      className={
-                        activeGroup === "web-access"
-                          ? "text-emerald-700"
-                          : "text-slate-500"
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">Web 访问</span>
-                    <span
-                      className={classNames(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        draftAppSettings?.webAccessEnabled ||
-                          draftAppSettings?.preventSleepWhenWebAccessEnabled
-                          ? "bg-emerald-500"
-                          : "bg-slate-300",
-                      )}
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveGroup("privacy")}
-                    className={classNames(
-                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
-                      activeGroup === "privacy"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    <Shield
-                      size={16}
-                      className={
-                        activeGroup === "privacy" ? "text-emerald-700" : "text-slate-500"
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">隐私</span>
-                    {(draftAppSettings?.privateDownloadDomains.length ?? 0) > 0 && (
-                      <span
-                        className={classNames(
-                          "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
-                          activeGroup === "privacy"
-                            ? "bg-white/70 text-emerald-700"
-                            : "bg-slate-100 text-slate-600",
-                        )}
-                      >
-                        {draftAppSettings?.privateDownloadDomains.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveGroup("about")}
-                    className={classNames(
-                      "flex min-w-44 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition lg:min-w-0",
-                      activeGroup === "about"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "text-slate-700 hover:bg-slate-50",
-                    )}
-                  >
-                    <Info
-                      size={16}
-                      className={activeGroup === "about" ? "text-emerald-700" : "text-slate-500"}
-                    />
-                    <span className="min-w-0 flex-1 truncate">关于</span>
-                    <span
-                      className={classNames(
-                        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
-                        activeGroup === "about"
-                          ? "bg-white/70 text-emerald-700"
-                          : "bg-slate-100 text-slate-600",
-                      )}
-                    >
-                      v{packageJson.version}
-                    </span>
-                  </button>
-                </div>
-              </nav>
+          <div className="grid min-h-0 gap-4 lg:grid-cols-[208px_1fr] lg:gap-6">
+            <aside className="hidden min-w-0 lg:block">
+              {renderSettingsNavigation()}
             </aside>
-
             <div className="min-w-0">
               {activeGroup === "about" && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="about-hero-panel relative overflow-hidden border-b border-slate-100 px-5 py-5">
+                  <div className="about-hero-panel relative overflow-hidden border-b border-slate-100 px-4 py-5 sm:px-5">
                     <div className="about-hero-rule absolute inset-x-0 top-0 h-px" />
                     <div className="about-hero-amber absolute -left-12 top-5 h-28 w-28 rounded-full blur-3xl" />
                     <div className="about-hero-emerald absolute right-0 top-0 h-32 w-32 rounded-full blur-3xl" />
@@ -1837,13 +1888,13 @@ export default function EngineSettingsView({
                           Unified Download Manager
                         </div>
 
-                        <div className="mt-4 flex items-start gap-4">
-                          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[1.25rem] border border-slate-200 bg-slate-950/95 shadow-[0_16px_40px_-24px_rgba(15,23,42,0.85)]">
-                            <img src={logoUrl} alt="UniDL" className="h-10 w-10 object-contain" />
+                        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start">
+                          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[1rem] border border-slate-200 bg-slate-950/95 shadow-[0_16px_40px_-24px_rgba(15,23,42,0.85)] sm:h-16 sm:w-16 sm:rounded-[1.25rem]">
+                            <img src={logoUrl} alt="UniDL" className="h-9 w-9 object-contain sm:h-10 sm:w-10" />
                           </div>
 
                           <div className="min-w-0">
-                            <h2 className="about-editorial-heading text-[2rem] leading-none text-slate-950">
+                            <h2 className="about-editorial-heading text-3xl leading-none text-slate-950 sm:text-[2rem]">
                               UniDL
                             </h2>
                             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700">
@@ -1871,7 +1922,7 @@ export default function EngineSettingsView({
                     </div>
                   </div>
 
-                  <div className="grid gap-5 px-5 py-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+                  <div className="grid gap-4 px-4 py-4 sm:gap-5 sm:px-5 sm:py-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
                     <div className="grid gap-5">
                       <div className="grid gap-3 sm:grid-cols-3">
                         {aboutStats.map((item) => (
@@ -2146,7 +2197,7 @@ export default function EngineSettingsView({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                      <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0 text-xs text-slate-500">
                           {savedApp ? (
                             <span className="inline-flex items-center gap-1.5 text-emerald-700">
@@ -2161,13 +2212,13 @@ export default function EngineSettingsView({
                             "未配置应用代理，将使用系统直连"
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="grid gap-2 sm:flex sm:items-center">
                           <button
                             type="button"
                             disabled={!appDirty || isSavingApp}
                             onClick={resetAppAccess}
                             className={classNames(
-                              "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                              "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition",
                               (!appDirty || isSavingApp) &&
                               "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                               appDirty &&
@@ -2183,7 +2234,7 @@ export default function EngineSettingsView({
                             disabled={!appDirty || isSavingApp || Boolean(proxyError)}
                             onClick={() => void saveAppAccess()}
                             className={classNames(
-                              "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                              "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                               (!appDirty || isSavingApp || proxyError) &&
                               "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                               appDirty &&
@@ -2203,7 +2254,7 @@ export default function EngineSettingsView({
 
               {activeGroup === "web-access" && draftAppSettings && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <h2 className="truncate text-sm font-semibold text-slate-950">
                         Web 访问
@@ -2213,7 +2264,7 @@ export default function EngineSettingsView({
                       </p>
                     </div>
 
-                    <label className="shrink-0 cursor-pointer">
+                    <label className="shrink-0 cursor-pointer self-start sm:self-auto">
                       <input
                         type="checkbox"
                         checked={draftAppSettings.webAccessEnabled}
@@ -2290,7 +2341,7 @@ export default function EngineSettingsView({
                     />
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                  <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 text-xs text-slate-500">
                       {savedApp ? (
                         <span className="inline-flex items-center gap-1.5 text-emerald-700">
@@ -2303,13 +2354,13 @@ export default function EngineSettingsView({
                         "当前为已保存配置"
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="grid gap-2 sm:flex sm:items-center">
                       <button
                         type="button"
                         disabled={!appDirty || isSavingApp}
                         onClick={resetAppAccess}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
                           "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
@@ -2325,7 +2376,7 @@ export default function EngineSettingsView({
                         disabled={!appDirty || isSavingApp}
                         onClick={() => void saveAppAccess()}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
                           "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
@@ -2343,7 +2394,7 @@ export default function EngineSettingsView({
 
               {activeGroup === "data" && draftAppSettings && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <h2 className="truncate text-sm font-semibold text-slate-950">
                         数据
@@ -2387,7 +2438,7 @@ export default function EngineSettingsView({
                               })
                             }
                             className={classNames(
-                              "h-9 w-32 rounded-md border px-3 text-sm outline-none transition",
+                              "h-9 w-full rounded-md border px-3 text-sm outline-none transition sm:w-32",
                               draftAppSettings.autoCleanDownloadTasksEnabled
                                 ? "border-slate-200 bg-white text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
                                 : "border-slate-200 bg-slate-50 text-slate-400",
@@ -2451,7 +2502,7 @@ export default function EngineSettingsView({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                  <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 text-xs text-slate-500">
                       {savedApp ? (
                         <span className="inline-flex items-center gap-1.5 text-emerald-700">
@@ -2468,13 +2519,13 @@ export default function EngineSettingsView({
                         "自动清理已关闭；手动清理前会再次确认。"
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="grid gap-2 sm:flex sm:items-center">
                       <button
                         type="button"
                         disabled={!appDirty || isSavingApp}
                         onClick={resetAppAccess}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
                           "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
@@ -2490,7 +2541,7 @@ export default function EngineSettingsView({
                         disabled={!appDirty || isSavingApp}
                         onClick={() => void saveAppAccess()}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
                           "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
@@ -2508,7 +2559,7 @@ export default function EngineSettingsView({
 
               {activeGroup === "privacy" && draftAppSettings && (
                 <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <h2 className="truncate text-sm font-semibold text-slate-950">
                         隐私
@@ -2536,7 +2587,7 @@ export default function EngineSettingsView({
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3">
+                  <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 text-xs text-slate-500">
                       {savedApp ? (
                         <span className="inline-flex items-center gap-1.5 text-emerald-700">
@@ -2549,13 +2600,13 @@ export default function EngineSettingsView({
                         `当前 ${draftAppSettings.privateDownloadDomains.length} 个域名`
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="grid gap-2 sm:flex sm:items-center">
                       <button
                         type="button"
                         disabled={!appDirty || isSavingApp}
                         onClick={resetAppAccess}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition",
                           (!appDirty || isSavingApp) &&
                           "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           appDirty &&
@@ -2571,7 +2622,7 @@ export default function EngineSettingsView({
                         disabled={!appDirty || isSavingApp}
                         onClick={() => void saveAppAccess()}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!appDirty || isSavingApp) &&
                           "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400",
                           appDirty &&
@@ -2589,7 +2640,7 @@ export default function EngineSettingsView({
 
               {activeGroup === "download-engines" && (
                 <div className="flex flex-col gap-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                  <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <h2 className="truncate text-sm font-semibold text-slate-950">
                         下载引擎
@@ -2601,14 +2652,14 @@ export default function EngineSettingsView({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
                       <button
                         type="button"
                         disabled={!dirtySettings || isSavingEngines || hasEngineErrors}
                         onClick={() => void saveAllEngines()}
                         title={hasEngineErrors ? "请先修正引擎设置错误" : undefined}
                         className={classNames(
-                          "inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium transition",
+                          "inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition",
                           (!dirtySettings || isSavingEngines || hasEngineErrors) &&
                           "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                           dirtySettings &&
@@ -2627,7 +2678,7 @@ export default function EngineSettingsView({
                           title="添加下载引擎"
                           aria-label="添加下载引擎"
                           onClick={() => setIsAddMenuOpen((current) => !current)}
-                          className="inline-flex h-9 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
+                          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
                         >
                           <Plus size={15} />
                           <span>添加引擎</span>
@@ -2723,7 +2774,7 @@ export default function EngineSettingsView({
                           >
                             <div
                               className={classNames(
-                                "flex items-center justify-between gap-3 border-l-[3px] px-4 py-3",
+                                "flex flex-col gap-3 border-l-[3px] px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
                                 draft.enabled
                                   ? "border-l-emerald-500"
                                   : "border-l-slate-200",
@@ -2761,7 +2812,7 @@ export default function EngineSettingsView({
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                                 {savedEngineId === draft.id && (
                                   <InstalledBadge label="已保存" />
                                 )}
@@ -2812,9 +2863,6 @@ export default function EngineSettingsView({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/50 px-4 py-2.5">
-                              <span className="text-xs font-medium text-slate-500">
-                                支持来源
-                              </span>
                               {supportedSourceTypes(draft.engine).map((sourceType) => {
                                 const checked =
                                   draft.supportedSourceTypes.includes(sourceType);
@@ -3043,7 +3091,7 @@ export default function EngineSettingsView({
                               <button
                                 type="button"
                                 onClick={() => toggleAdvanced(draft.id)}
-                                className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                                className="flex w-full flex-col items-stretch gap-1.5 px-4 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50"
                               >
                                 <span className="inline-flex items-center gap-1.5 font-medium">
                                   {isAdvancedOpen ? (
@@ -3053,7 +3101,7 @@ export default function EngineSettingsView({
                                   )}
                                   高级设置
                                 </span>
-                                <span className="truncate text-xs text-slate-400">
+                                <span className="pl-5 text-xs leading-5 text-slate-400">
                                   {[
                                     draft.engine === "aria2" ? "连接与分片" : null,
                                     draft.engine === "aria2" ? "BT 参数" : null,
