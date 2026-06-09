@@ -8,6 +8,7 @@ mod logger;
 mod models;
 mod repositories;
 mod services;
+mod system_notification;
 mod system_open;
 mod system_sleep;
 mod task_events;
@@ -29,7 +30,6 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 #[cfg(any(windows, target_os = "linux"))]
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_notification::NotificationExt;
 
 pub struct AppState {
     connection: Mutex<Connection>,
@@ -282,13 +282,7 @@ impl AppState {
             if !settings.download_completion_notification_enabled {
                 continue;
             }
-            if let Err(error) = app_handle
-                .notification()
-                .builder()
-                .title("下载完成")
-                .body(format!("{} 已下载完成", task.file_name))
-                .show()
-            {
+            if let Err(error) = system_notification::show_download_completed(app_handle, task) {
                 logger::error(format!(
                     "failed to show completion notification: task_id={}, error={error}",
                     task.id
@@ -449,6 +443,8 @@ pub fn run() {
             logger::info("Tauri setup started");
             #[cfg(any(windows, target_os = "linux"))]
             app.deep_link().register_all()?;
+            system_notification::register_app_identity(app.handle())
+                .map_err(std::io::Error::other)?;
             let pending_open_sources = system_open::parse_open_sources(std::env::args());
             let database_path = db::database_path(app.handle())?;
             let connection = db::connect_path(database_path.clone())?;

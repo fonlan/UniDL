@@ -41,6 +41,7 @@ tauri-plugin-notification = "2.3.3"
 notify = "8.2.0"
 
 [target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "0.7.2"
 windows-registry = "0.6"
 windows-sys = { version = "0.61.2", features = ["Win32_System_Power"] }
 

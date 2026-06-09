@@ -4946,6 +4946,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
+ "tauri-winrt-notification",
  "tiny_http",
  "uuid",
  "windows-registry 0.6.1",
