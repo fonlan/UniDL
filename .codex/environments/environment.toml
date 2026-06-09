@@ -9,3 +9,13 @@ script = ""
 name = "运行"
 icon = "run"
 command = "npm run tauri build"
+
+[[actions]]
+name = "调试"
+icon = "debug"
+command = "npm run tauri dev"
+
+[[actions]]
+name = "压缩"
+icon = "test"
+command = "upx --best --lzma src-tauri\\target\\release\\unidl.exe"
