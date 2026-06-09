@@ -1,4 +1,6 @@
 const MENU_SEND_LINK = "unidl-send-link";
+const DOWNLOAD_CAPTURE_START_GRACE_MS = 10_000;
+const extensionStartedAt = Date.now();
 
 const DEFAULT_SETTINGS = {
   apiBaseUrl: "http://127.0.0.1:18080",
@@ -180,7 +182,15 @@ async function handleDownload(download) {
 }
 
 function isActiveDownload(download) {
-  return download.state === "in_progress" && !download.endTime;
+  if (download.state !== "in_progress" || download.endTime) {
+    return false;
+  }
+
+  const startTime = Date.parse(download.startTime ?? "");
+  return (
+    Number.isFinite(startTime) &&
+    startTime >= extensionStartedAt - DOWNLOAD_CAPTURE_START_GRACE_MS
+  );
 }
 
 function shouldSkipCaptureByDomain(source, settings) {

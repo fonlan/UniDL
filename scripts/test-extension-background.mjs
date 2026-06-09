@@ -52,7 +52,10 @@ vm.createContext(context);
 vm.runInContext(source, context, { filename: "extension/background.js" });
 
 assert.equal(
-  context.isActiveDownload({ state: "in_progress" }),
+  context.isActiveDownload({
+    state: "in_progress",
+    startTime: new Date().toISOString(),
+  }),
   true,
   "active browser downloads should be captured",
 );
@@ -67,7 +70,24 @@ assert.equal(
   "interrupted browser download records should not be captured again",
 );
 assert.equal(
-  context.isActiveDownload({ state: "in_progress", endTime: "2026-06-02T00:00:00Z" }),
+  context.isActiveDownload({
+    state: "in_progress",
+    startTime: new Date().toISOString(),
+    endTime: "2026-06-02T00:00:00Z",
+  }),
   false,
   "download records with an end time should not be captured again",
+);
+assert.equal(
+  context.isActiveDownload({
+    state: "in_progress",
+    startTime: new Date(Date.now() - 60_000).toISOString(),
+  }),
+  false,
+  "restored in-progress browser download records should not be captured again",
+);
+assert.equal(
+  context.isActiveDownload({ state: "in_progress" }),
+  false,
+  "download records without a start time should not be captured",
 );
