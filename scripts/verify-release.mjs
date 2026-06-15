@@ -101,14 +101,17 @@ check("web access auth and event endpoints are present", () => {
 
 check("browser interception sends tasks to local Web API", () => {
   const background = readText("extension/background.js");
+  const backgroundServices = readText("extension/background-services.js");
+  const extensionBackground = `${background}\n${backgroundServices}`;
   for (const item of [
+    "chrome.downloads.onDeterminingFilename",
     "chrome.downloads.onCreated",
     "chrome.contextMenus.onClicked",
     '"/api/health"',
     '"/api/extension/tasks"',
     "cancelDownload",
   ]) {
-    assertIncludes(background, item);
+    assertIncludes(extensionBackground, item);
   }
   for (const item of [
     "UniDL access password is required",
@@ -117,7 +120,7 @@ check("browser interception sends tasks to local Web API", () => {
     "defaultEngine",
     "manual-source",
   ]) {
-    assertExcludes(background, item);
+    assertExcludes(extensionBackground, item);
   }
 });
 

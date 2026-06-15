@@ -1,15 +1,9 @@
+importScripts("background-utils.js", "background-services.js");
+
 const MENU_SEND_LINK = "unidl-send-link";
 const DOWNLOAD_CAPTURE_START_GRACE_MS = 10_000;
 const extensionStartedAt = Date.now();
-
-const DEFAULT_SETTINGS = {
-  apiBaseUrl: "http://127.0.0.1:18080",
-  interceptEnabled: false,
-  cancelOriginal: true,
-  minCaptureSizeMb: 3,
-  skipCaptureDomains: [],
-  lastEvent: "",
-};
+const handledDownloadIds = new Set();
 
 chrome.runtime.onInstalled.addListener(() => {
   createContextMenus();
@@ -25,6 +19,22 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === MENU_SEND_LINK && info.linkUrl) {
+    runTask(sendSource(info.linkUrl, undefined, undefined, info.pageUrl));
+  }
+});
+chrome.downloads.onDeterminingFilename.addListener(handleDownloadFilename);
+chrome.downloads.onCreated.addListener((download) =>
+  runTask(handleDownloadCreated(download)),
+);
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  handleMessage(message)
+    .then((payload) => sendResponse({ ok: true, payload }))
+    .catch((error) => sendResponse({ ok: false, error: error.message }));
+  return true;
+});
+
 function createContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
@@ -34,19 +44,6 @@ function createContextMenus() {
     });
   });
 }
-
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId === MENU_SEND_LINK && info.linkUrl) {
-    runTask(sendSource(info.linkUrl, undefined, undefined, info.pageUrl));
-  }
-});
-chrome.downloads.onCreated.addListener((download) => runTask(handleDownload(download)));
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  handleMessage(message)
-    .then((payload) => sendResponse({ ok: true, payload }))
-    .catch((error) => sendResponse({ ok: false, error: error.message }));
-  return true;
-});
 
 async function handleMessage(message) {
   switch (message?.type) {
@@ -153,32 +150,96 @@ async function downloadVideo(video) {
   return task;
 }
 
-async function handleDownload(download) {
+function handleDownloadFilename(download, suggest) {
+  let suggested = false;
+  const safeSuggest = (nextSuggestion) => {
+    if (suggested) {
+      return;
+    }
+    suggested = true;
+    suggest(nextSuggestion);
+  };
+  runTask(handleDownloadDeterminingFilename(download, safeSuggest));
+  return true;
+}
+
+async function handleDownloadDeterminingFilename(download, suggest) {
+  let captured = false;
+  try {
+    const settings = await getSettings();
+    if (!shouldCaptureDownload(download, settings)) {
+      suggest({});
+      return;
+    }
+    captured = true;
+    handledDownloadIds.add(download.id);
+    suggest(
+      settings.cancelOriginal
+        ? { filename: download.filename, conflictAction: "overwrite" }
+        : {},
+    );
+    if (settings.cancelOriginal) {
+      await cancelDownload(download.id);
+    }
+    const task = await sendSource(
+      download.url,
+      settings,
+      download.filename,
+      download.referrer,
+    );
+    await remember(task.fileName + " sent to UniDL");
+  } catch (error) {
+    suggest({});
+    throw error;
+  } finally {
+    if (captured) {
+      forgetHandledDownload(download.id);
+    }
+  }
+}
+
+async function handleDownloadCreated(download) {
+  if (handledDownloadIds.has(download.id)) {
+    return;
+  }
   const settings = await getSettings();
+  if (!shouldCaptureDownload(download, settings)) {
+    return;
+  }
+  handledDownloadIds.add(download.id);
+  try {
+    if (settings.cancelOriginal) {
+      await cancelDownload(download.id);
+    }
+    const task = await sendSource(
+      download.url,
+      settings,
+      download.filename,
+      download.referrer,
+    );
+    await remember(task.fileName + " sent to UniDL");
+  } finally {
+    forgetHandledDownload(download.id);
+  }
+}
+
+function shouldCaptureDownload(download, settings) {
   if (
     !settings.interceptEnabled ||
     !download.url ||
     download.byExtensionId === chrome.runtime.id ||
     !isActiveDownload(download)
   ) {
-    return;
+    return false;
   }
   if (isBelowMinCaptureSize(download, settings)) {
-    return;
+    return false;
   }
-  if (shouldSkipCaptureByDomain(download.url, settings)) {
-    return;
-  }
-  const task = await sendSource(
-    download.url,
-    settings,
-    download.filename,
-    download.referrer,
-  );
-  if (settings.cancelOriginal) {
-    await cancelDownload(download.id);
-  }
-  await remember(task.fileName + " sent to UniDL");
+  return !shouldSkipCaptureByDomain(download.url, settings);
+}
+
+function forgetHandledDownload(downloadId) {
+  setTimeout(() => handledDownloadIds.delete(downloadId), 5_000);
 }
 
 function isActiveDownload(download) {
@@ -228,287 +289,4 @@ function getKnownDownloadSize(download) {
 
 function runTask(task) {
   task.catch((error) => void remember("UniDL error: " + error.message));
-}
-
-async function sendSource(source, cachedSettings, suggestedFileName, referrerUrl) {
-  const settings = cachedSettings ?? (await getSettings());
-  const parsed = parseSource(source, suggestedFileName);
-  const httpReferrer = normalizeHttpUrl(referrerUrl);
-  const task = await requestJson(settings.apiBaseUrl, "/api/extension/tasks", {
-    method: "POST",
-    body: {
-      sourceType: parsed.sourceType,
-      source: parsed.source,
-      fileName: parsed.fileName,
-      httpReferrer,
-    },
-  });
-  await remember(task.fileName + " sent to UniDL");
-  return task;
-}
-
-function parseSource(value, suggestedFileName) {
-  const source = String(value ?? "").trim();
-  if (!source) {
-    throw new Error("Download source is required");
-  }
-  if (/^magnet:/i.test(source)) {
-    return {
-      sourceType: "magnet",
-      source,
-      fileName: parseMagnetName(source) ?? "magnet",
-    };
-  }
-  if (/^https?:\/\//i.test(source)) {
-    return {
-      sourceType: "http",
-      source,
-      fileName: parseNetworkFileName(source, suggestedFileName) ?? "http-download",
-    };
-  }
-  if (/^ftp:\/\//i.test(source)) {
-    return {
-      sourceType: "ftp",
-      source,
-      fileName: parseNetworkFileName(source, suggestedFileName) ?? "ftp-download",
-    };
-  }
-  if (source.toLowerCase().split(/[?#]/)[0].endsWith(".torrent")) {
-    return {
-      sourceType: "torrent",
-      source,
-      fileName:
-        cleanFileName(suggestedFileName) ?? parsePathName(source) ?? "download.torrent",
-    };
-  }
-  throw new Error("Unsupported download source");
-}
-
-function parseMagnetName(value) {
-  const match = /(?:[?&])dn=([^&]+)/i.exec(value);
-  if (!match) {
-    return null;
-  }
-  try {
-    return decodeURIComponent(match[1].replace(/\+/g, " "));
-  } catch {
-    return match[1];
-  }
-}
-
-function parseUrlName(value) {
-  try {
-    const url = new URL(value);
-    return cleanFileName(url.pathname.split("/").filter(Boolean).at(-1));
-  } catch {
-    return parsePathName(value);
-  }
-}
-
-function parseNetworkFileName(source, suggestedFileName) {
-  const parsedUrl = new URL(source);
-  const suggested = cleanFileName(suggestedFileName);
-  const hostname = parsedUrl.hostname.toLowerCase();
-  if (suggested && suggested.toLowerCase() !== hostname) {
-    return suggested;
-  }
-
-  return cleanFileName(parsedUrl.pathname.split("/").filter(Boolean).at(-1));
-}
-
-function parsePathName(value) {
-  return cleanFileName(
-    String(value).split(/[?#]/)[0].split(/[\\/]/).filter(Boolean).at(-1),
-  );
-}
-
-function cleanFileName(value) {
-  const name = String(value ?? "")
-    .split(/[\\/]/)
-    .filter(Boolean)
-    .at(-1)
-    ?.trim();
-  if (!name) {
-    return null;
-  }
-  try {
-    return decodeURIComponent(name);
-  } catch {
-    return name;
-  }
-}
-
-async function exportCookies(source) {
-  const cookies = await new Promise((resolve, reject) => {
-    chrome.cookies.getAll({ url: source }, (items) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(items);
-    });
-  });
-  if (!cookies.length) {
-    return "";
-  }
-  const lines = ["# Netscape HTTP Cookie File"];
-  for (const cookie of cookies) {
-    const domain = cookie.httpOnly ? "#HttpOnly_" + cookie.domain : cookie.domain;
-    const includeSubdomains = cookie.domain.startsWith(".") ? "TRUE" : "FALSE";
-    const path = cookie.path || "/";
-    const secure = cookie.secure ? "TRUE" : "FALSE";
-    const expires = cookie.session ? "0" : String(Math.trunc(cookie.expirationDate ?? 0));
-    lines.push(
-      [domain, includeSubdomains, path, secure, expires, cookie.name, cookie.value].join(
-        "\t",
-      ),
-    );
-  }
-  return lines.join("\n") + "\n";
-}
-
-async function requestJson(apiBaseUrl, path, options = {}) {
-  const response = await fetch(trimBaseUrl(apiBaseUrl) + path, {
-    method: options.method ?? "GET",
-    headers: { "content-type": "application/json" },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
-  if (!response.ok) {
-    throw new Error(payload.error ?? "UniDL API failed: " + response.status);
-  }
-  return payload;
-}
-
-function trimBaseUrl(value) {
-  let text = String(value ?? "").trim();
-  while (text.endsWith("/")) {
-    text = text.slice(0, -1);
-  }
-  if (!text) {
-    throw new Error("UniDL API URL is required");
-  }
-  const url = new URL(text);
-  if (url.hostname === "localhost") {
-    url.hostname = "127.0.0.1";
-  }
-  text = url.toString();
-  while (text.endsWith("/")) {
-    text = text.slice(0, -1);
-  }
-  return text;
-}
-
-function normalizeHttpUrl(value) {
-  const source = String(value ?? "").trim();
-  return /^https?:\/\//i.test(source) ? source : null;
-}
-
-function getActiveTab() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) =>
-      resolve(tabs[0] ?? null),
-    );
-  });
-}
-
-function getTabUrl(tabId) {
-  return new Promise((resolve) => {
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError) {
-        resolve(null);
-        return;
-      }
-      resolve(tab.url ?? null);
-    });
-  });
-}
-
-function setBadge(tabId, count) {
-  return new Promise((resolve) => {
-    chrome.action.setBadgeBackgroundColor({ tabId, color: "#047857" }, () => {
-      chrome.action.setBadgeText(
-        { tabId, text: count > 0 ? String(count) : "" },
-        resolve,
-      );
-    });
-  });
-}
-
-function getSettings() {
-  return new Promise((resolve) =>
-    chrome.storage.local.get(DEFAULT_SETTINGS, (items) =>
-      resolve(normalizeSettings(items)),
-    ),
-  );
-}
-
-function saveSettings(settings) {
-  return new Promise((resolve) =>
-    chrome.storage.local.set(normalizeSettings(settings), resolve),
-  );
-}
-
-async function mergeSettings(settings) {
-  const current = await getSettings();
-  return normalizeSettings({ ...current, ...settings });
-}
-
-function normalizeSettings(settings) {
-  const next = { ...DEFAULT_SETTINGS, ...settings };
-  next.apiBaseUrl = trimBaseUrl(next.apiBaseUrl);
-  next.interceptEnabled = Boolean(next.interceptEnabled);
-  next.cancelOriginal = Boolean(next.cancelOriginal);
-  const minCaptureSizeMb = Number(next.minCaptureSizeMb);
-  next.minCaptureSizeMb =
-    Number.isFinite(minCaptureSizeMb) && minCaptureSizeMb >= 0
-      ? minCaptureSizeMb
-      : DEFAULT_SETTINGS.minCaptureSizeMb;
-  next.skipCaptureDomains = normalizeDomainList(next.skipCaptureDomains);
-  next.lastEvent = String(next.lastEvent ?? "");
-  return next;
-}
-
-function normalizeDomainList(value) {
-  const entries = Array.isArray(value) ? value : String(value ?? "").split(/[\n,]/);
-  const domains = [];
-  for (const entry of entries) {
-    const domain = normalizeDomainEntry(entry);
-    if (domain && !domains.includes(domain)) {
-      domains.push(domain);
-    }
-  }
-  return domains;
-}
-
-function normalizeDomainEntry(value) {
-  const text = String(value ?? "").trim().toLowerCase();
-  if (!text) {
-    return null;
-  }
-  try {
-    const url = new URL(/^\w+:\/\//.test(text) ? text : "http://" + text);
-    return trimDomain(url.hostname);
-  } catch {
-    return trimDomain(text.split(/[/?#]/)[0]);
-  }
-}
-
-function trimDomain(value) {
-  const domain = String(value ?? "")
-    .trim()
-    .replace(/^\*\./, "")
-    .replace(/^\.+|\.+$/g, "");
-  return domain || null;
-}
-
-async function cancelDownload(downloadId) {
-  await new Promise((resolve) => chrome.downloads.cancel(downloadId, resolve));
-}
-
-async function remember(message) {
-  await new Promise((resolve) =>
-    chrome.storage.local.set({ lastEvent: message }, resolve),
-  );
 }

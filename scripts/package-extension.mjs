@@ -12,6 +12,8 @@ const output = join(outputDir, `UniDL-extension-v${manifest.version}.zip`);
 const files = [
   "manifest.json",
   "background.js",
+  "background-utils.js",
+  "background-services.js",
   "popup.html",
   "popup.css",
   "popup.js",

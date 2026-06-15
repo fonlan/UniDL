@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync("extension/background.js", "utf8");
+const sources = new Map(
+  [
+    "extension/background-utils.js",
+    "extension/background-services.js",
+    "extension/background.js",
+  ].map((path) => [path, fs.readFileSync(path, "utf8")]),
+);
 
 const listeners = {
   addListener() {},
@@ -27,6 +33,7 @@ const context = {
     downloads: {
       cancel() {},
       onCreated: listeners,
+      onDeterminingFilename: listeners,
     },
     runtime: {
       id: "unidl-test",
@@ -46,10 +53,23 @@ const context = {
       query() {},
     },
   },
+  setTimeout(callback) {
+    callback();
+  },
+};
+
+context.importScripts = (...paths) => {
+  for (const path of paths) {
+    vm.runInContext(sources.get(`extension/${path}`), context, {
+      filename: `extension/${path}`,
+    });
+  }
 };
 
 vm.createContext(context);
-vm.runInContext(source, context, { filename: "extension/background.js" });
+vm.runInContext(sources.get("extension/background.js"), context, {
+  filename: "extension/background.js",
+});
 
 assert.equal(
   context.isActiveDownload({
