@@ -1,7 +1,8 @@
 use std::{
     error::Error,
     fs,
-    process::{Command, Stdio},
+    io::Read,
+    process::{Child, Command, ExitStatus, Stdio},
     thread,
     time::Duration,
 };
@@ -774,20 +775,23 @@ fn start_aria2_process(settings: &EngineSettings, save_path: &str) -> Result<boo
         .arg(format!("--seed-ratio={}", settings.aria2_seed_ratio))
         .arg(format!("--dir={}", save_path))
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     log_command("starting aria2", &command);
-    command.spawn().map_err(|error| {
+    let mut child = command.spawn().map_err(|error| {
         logger::error(format!("aria2 spawn failed: {error}"));
         error
     })?;
-    wait_for_aria2_rpc(settings)?;
+    wait_for_aria2_rpc(settings, &mut child)?;
     Ok(true)
 }
 
-fn wait_for_aria2_rpc(settings: &EngineSettings) -> Result<(), Box<dyn Error>> {
+fn wait_for_aria2_rpc(settings: &EngineSettings, child: &mut Child) -> Result<(), Box<dyn Error>> {
     let mut last_error = None;
     let mut last_unavailable = false;
     for _ in 0..ARIA2_STARTUP_ATTEMPTS {
+        if let Some(status) = child.try_wait()? {
+            return aria2_process_exit_error(child, status);
+        }
         match aria2_rpc(settings, "aria2.getVersion", json!([])) {
             Ok(_) => return Ok(()),
             Err(error) => {
@@ -812,6 +816,24 @@ fn wait_for_aria2_rpc(settings: &EngineSettings) -> Result<(), Box<dyn Error>> {
         last_error.unwrap_or_else(|| "unknown error".to_string())
     )
     .into())
+}
+
+fn aria2_process_exit_error(child: &mut Child, status: ExitStatus) -> Result<(), Box<dyn Error>> {
+    let mut stderr = Vec::new();
+    // ponytail: aria2 startup output is small; drain after exit instead of owning a reader thread.
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_end(&mut stderr)?;
+    }
+    let stderr = String::from_utf8_lossy(&stderr);
+    let message = stderr.trim();
+    if !message.is_empty() {
+        logger::error(format!("aria2 exited before RPC became ready: {message}"));
+        return Err(message.to_string().into());
+    }
+
+    let message = format!("aria2 exited before RPC became ready: {status}");
+    logger::error(&message);
+    Err(message.into())
 }
 
 fn refresh_aria2_task(
@@ -1158,4 +1180,36 @@ fn aria2_resumable_after_restart(error: &(dyn Error + 'static)) -> bool {
 
 fn aria2_task_missing(error: &(dyn Error + 'static)) -> bool {
     error.to_string().contains("is not found")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exited_aria2_process_returns_stderr() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "echo aria2 bind failed 1>&2 & exit /b 1"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "printf 'aria2 bind failed\\n' >&2; exit 1"]);
+            command
+        };
+        let mut child = command
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("test process should start");
+        let status = child.wait().expect("test process should exit");
+
+        let error = aria2_process_exit_error(&mut child, status)
+            .expect_err("stderr should be returned as the startup error");
+
+        assert_eq!(error.to_string(), "aria2 bind failed");
+    }
 }
